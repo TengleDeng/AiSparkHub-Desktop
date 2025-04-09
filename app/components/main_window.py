@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-from PyQt6.QtWidgets import QMainWindow, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import QMainWindow, QVBoxLayout, QWidget, QHBoxLayout, QPushButton
 from PyQt6.QtCore import Qt, QSize
 from PyQt6.QtGui import QIcon
 import qtawesome as qta
@@ -18,6 +18,9 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("AiSparkHub - 多AI对话桌面应用")
         self.setMinimumSize(1000, 600)
         
+        # 设置无边框窗口
+        self.setWindowFlags(Qt.WindowType.FramelessWindowHint)
+        
         # 设置图标
         self.setWindowIcon(qta.icon('fa5s.robot', color='#88C0D0'))
         
@@ -30,8 +33,57 @@ class MainWindow(QMainWindow):
         self.main_layout.setContentsMargins(0, 0, 0, 0)
         self.main_layout.setSpacing(0)
         
-        # 初始化标签页管理器
+        # 创建标签页管理器
         self.tab_manager = TabManager(self)
+        
+        # 创建窗口控制按钮
+        self.minimize_button = QPushButton()
+        self.minimize_button.setIcon(qta.icon('fa5s.window-minimize'))
+        self.minimize_button.clicked.connect(self.showMinimized)
+        
+        self.maximize_button = QPushButton()
+        self.maximize_button.setIcon(qta.icon('fa5s.window-maximize'))
+        self.maximize_button.clicked.connect(self.toggle_maximize)
+        
+        self.close_button = QPushButton()
+        self.close_button.setIcon(qta.icon('fa5s.times'))
+        self.close_button.clicked.connect(self.close)
+        
+        # 设置按钮样式
+        button_style = """
+            QPushButton {
+                background: transparent;
+                border: none;
+                padding: 8px 12px;
+                margin: 0;
+            }
+            QPushButton:hover {
+                background: #3B4252;
+            }
+        """
+        
+        self.close_button.setStyleSheet(button_style + """
+            QPushButton:hover {
+                background: #BF616A;
+            }
+        """)
+        
+        self.minimize_button.setStyleSheet(button_style)
+        self.maximize_button.setStyleSheet(button_style)
+        
+        # 将窗口控制按钮添加到标签页右上角
+        buttons_widget = QWidget()
+        buttons_layout = QHBoxLayout(buttons_widget)
+        buttons_layout.setContentsMargins(0, 0, 0, 0)
+        buttons_layout.setSpacing(0)
+        buttons_layout.addWidget(self.minimize_button)
+        buttons_layout.addWidget(self.maximize_button)
+        buttons_layout.addWidget(self.close_button)
+        
+        # 设置为标签页右上角的部件
+        self.tab_manager.setCornerWidget(buttons_widget, Qt.Corner.TopRightCorner)
+        
+        # 添加标签页管理器到主布局
         self.main_layout.addWidget(self.tab_manager)
         
         # 创建默认的AI对话页面
@@ -39,6 +91,9 @@ class MainWindow(QMainWindow):
         
         # 设置状态栏
         self.statusBar().showMessage("就绪")
+        
+        # 用于窗口拖动
+        self._drag_pos = None
     
     def create_default_ai_tab(self):
         """创建默认的AI对话标签页"""
@@ -62,4 +117,29 @@ class MainWindow(QMainWindow):
     
     def closeEvent(self, event):
         """处理窗口关闭事件"""
-        super().closeEvent(event) 
+        super().closeEvent(event)
+    
+    def toggle_maximize(self):
+        """切换窗口最大化状态"""
+        if self.isMaximized():
+            self.showNormal()
+            self.maximize_button.setIcon(qta.icon('fa5s.window-maximize'))
+        else:
+            self.showMaximized()
+            self.maximize_button.setIcon(qta.icon('fa5s.window-restore'))
+    
+    def mousePressEvent(self, event):
+        """处理鼠标按下事件，用于窗口拖动"""
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._drag_pos = event.globalPosition().toPoint()
+    
+    def mouseMoveEvent(self, event):
+        """处理鼠标移动事件，用于窗口拖动"""
+        if event.buttons() == Qt.MouseButton.LeftButton and self._drag_pos is not None:
+            diff = event.globalPosition().toPoint() - self._drag_pos
+            self.move(self.pos() + diff)
+            self._drag_pos = event.globalPosition().toPoint()
+    
+    def mouseReleaseEvent(self, event):
+        """处理鼠标释放事件"""
+        self._drag_pos = None 
