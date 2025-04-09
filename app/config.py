@@ -117,6 +117,14 @@ SUPPORTED_AI_PLATFORMS = {
         "submit_selector": ".send-button",
         "response_selector": "#response-textarea"
     },
+    "biji": {
+        "key": 'biji',
+        "name": 'Get笔记',
+        "url": 'https://www.biji.com/ask/',
+        "input_selector": '.custom-rich-input',
+        "submit_selector": '.n-button',
+        "response_selector": "#response-textarea"
+    },
     "DEEPSEEK": {
         "key": "deepseek",
         "name": "DeepSeek",
@@ -128,11 +136,11 @@ SUPPORTED_AI_PLATFORMS = {
 }
 
 # 默认启用的AI平台
-DEFAULT_ENABLED_PLATFORMS = ["KIMI","YUANBAO"]
+DEFAULT_ENABLED_PLATFORMS = ["CHATGPT","GROK","KIMI","YUANBAO"]
 
 # 用户默认设置
 DEFAULT_USER_SETTINGS = {
     "theme": THEME,
     "enabled_ai_platforms": DEFAULT_ENABLED_PLATFORMS,
-    "max_ai_views": 3  # 最多显示的AI视图数量
+    "max_ai_views": 4  # 最多显示的AI视图数量
 } 

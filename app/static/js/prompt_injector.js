@@ -75,6 +75,11 @@ const PLATFORM_SELECTORS = {
         input: '.text-input-field_textarea-wrapper',
         button: '.send-button'
     },
+    // Get笔记
+    biji: {
+        input: '.custom-rich-input',
+        button: '.n-button'
+    },
     // DeepSeek
     deepseek: {
         input: '#chat-input',
