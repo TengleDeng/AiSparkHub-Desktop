@@ -23,6 +23,16 @@ class AIWebView(QWebEngineView):
         self.input_selector = input_selector
         self.submit_selector = submit_selector
         
+        # 设置页面样式
+        self.setStyleSheet("""
+            QWebEngineView {
+                background: #2E3440;
+            }
+        """)
+        
+        # 设置最小高度
+        self.setMinimumHeight(30)
+        
         # 加载网页
         self.load(QUrl(ai_url))
         
@@ -92,31 +102,10 @@ class AIView(QWidget):
         container_layout = QVBoxLayout(container)
         container_layout.setContentsMargins(0, 0, 0, 0)
         
-        # 添加标题栏
-        title_bar = QWidget()
-        title_bar_layout = QHBoxLayout(title_bar)
-        title_bar_layout.setContentsMargins(8, 4, 8, 4)
-        
-        # 添加图标和标题
-        if ai_name == "ChatGPT":
-            icon = qta.icon("fa5s.comment-dots", color="#10a37f")
-        elif ai_name == "DeepSeek":
-            icon = qta.icon("fa5s.brain", color="#3b5fff")
-        else:
-            icon = qta.icon("fa5s.robot", color="#88C0D0")
-        
-        title_label = QLabel(f" {ai_name}")
-        title_label.setStyleSheet("font-weight: bold;")
-        
-        title_bar_layout.addWidget(QLabel(""))
-        title_bar_layout.addWidget(title_label)
-        title_bar_layout.addWidget(QLabel(""))
-        
         # 创建AI网页视图
         web_view = AIWebView(ai_name, ai_url, input_selector, submit_selector)
         
         # 添加到容器
-        container_layout.addWidget(title_bar)
         container_layout.addWidget(web_view)
         
         # 添加到分割器
