@@ -20,12 +20,6 @@ class TabManager(QTabWidget):
         # 设置标签可移动
         self.setMovable(True)
         
-        # 添加新标签页按钮
-        self.add_tab_button = QPushButton("+")
-        self.add_tab_button.setFixedSize(24, 24)
-        self.add_tab_button.clicked.connect(self.add_new_tab)
-        self.setCornerWidget(self.add_tab_button, Qt.Corner.TopRightCorner)
-        
         # 连接关闭标签信号
         self.tabCloseRequested.connect(self.close_tab)
         
@@ -49,16 +43,6 @@ class TabManager(QTabWidget):
                 background: #4C566A;
             }
             QTabBar::tab:hover {
-                background: #434C5E;
-            }
-            QPushButton {
-                background: #3B4252;
-                color: #D8DEE9;
-                border: none;
-                border-radius: 12px;
-                font-weight: bold;
-            }
-            QPushButton:hover {
                 background: #434C5E;
             }
         """)
