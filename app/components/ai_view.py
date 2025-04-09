@@ -151,6 +151,13 @@ class AIView(QWidget):
         
         # 创建分割器，用于调整各AI视图的宽度比例
         self.splitter = QSplitter(Qt.Orientation.Horizontal)
+        # 设置分割器样式，减小分割线宽度
+        self.splitter.setStyleSheet("""
+            QSplitter::handle {
+                background-color: #4C566A;
+                width: 1px;
+            }
+        """)
         self.layout.addWidget(self.splitter)
         
         # 存储AI网页视图
@@ -188,6 +195,7 @@ class AIView(QWidget):
         container = QWidget()
         container_layout = QVBoxLayout(container)
         container_layout.setContentsMargins(0, 0, 0, 0)
+        container_layout.setSpacing(0)  # 设置布局间距为0，消除标题栏与网页内容之间的空白
         
         # 创建标题栏
         title_widget = QWidget()
@@ -300,7 +308,7 @@ class AIView(QWidget):
         container.setStyleSheet("""
             #aiTitleBar {
                 background: #3B4252;
-                border-bottom: 1px solid #4C566A;
+                border-bottom: none;
             }
         """)
         
