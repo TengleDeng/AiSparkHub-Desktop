@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-from PyQt6.QtWidgets import QSplitter, QWidget, QVBoxLayout
+from PyQt6.QtWidgets import QSplitter, QWidget, QVBoxLayout, QApplication
 from PyQt6.QtCore import Qt
 
 class WindowManager:
@@ -42,12 +42,21 @@ class WindowManager:
         if self.current_mode == self.MODE_SINGLE_SCREEN:
             self.separate_windows()
         
-        # 将辅助窗口移到第二个屏幕
-        screens = self.main_window.screen().virtualSiblings()
+        # 获取屏幕列表，假设第一个屏幕是主屏幕
+        screens = QApplication.instance().screens()
         if len(screens) > 1:
+            # 将主窗口移到第二个屏幕
             second_screen_geometry = screens[1].availableGeometry()
-            self.auxiliary_window.setGeometry(second_screen_geometry)
-        
+            self.main_window.setGeometry(second_screen_geometry)
+            
+            # 将辅助窗口移到第一个屏幕（通常是主屏幕）
+            first_screen_geometry = screens[0].availableGeometry()
+            self.auxiliary_window.setGeometry(first_screen_geometry)
+            
+            # 确保窗口都可见
+            self.main_window.show()
+            self.auxiliary_window.show()
+            
         self.current_mode = self.MODE_DUAL_SCREEN
     
     def set_single_screen_mode(self):
