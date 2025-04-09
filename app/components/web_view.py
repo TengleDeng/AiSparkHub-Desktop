@@ -49,6 +49,7 @@ class WebView(QWidget):
         # 地址栏
         self.url_input = QLineEdit()
         self.url_input.returnPressed.connect(self.load_url)
+        self.url_input.installEventFilter(self) # 安装事件过滤器
         toolbar_layout.addWidget(self.url_input)
         
         # 添加工具栏到主布局
@@ -121,4 +122,18 @@ class WebView(QWidget):
     
     def refresh(self):
         """刷新"""
-        self.web_view.reload() 
+        self.web_view.reload()
+        
+    def eventFilter(self, obj, event):
+        """事件过滤器，处理地址栏快捷键"""
+        if obj == self.url_input and event.type() == event.Type.KeyPress:
+            # Ctrl+Enter 自动补全 www. .com 并加载
+            if event.key() == Qt.Key.Key_Return and event.modifiers() == Qt.KeyboardModifier.ControlModifier:
+                text = self.url_input.text().strip()
+                if text and '.' not in text:
+                    url = f"www.{text}.com"
+                    self.url_input.setText(url)
+                    self.load_url() # 调用加载方法
+                    return True # 事件已处理
+            
+        return super().eventFilter(obj, event) 
