@@ -51,6 +51,7 @@ data/cache/
 data/*.db-journal
 *.log
 logs/
+icons/
 
 # 系统相关
 .DS_Store

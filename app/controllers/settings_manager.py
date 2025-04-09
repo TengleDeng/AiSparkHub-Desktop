@@ -103,15 +103,20 @@ class SettingsManager:
         """
         enabled_keys = self.get_setting('enabled_ai_platforms', DEFAULT_USER_SETTINGS['enabled_ai_platforms'])
         
-        # 检查是否在支持的平台中
+        # 按照SUPPORTED_AI_PLATFORMS的顺序返回平台
         valid_platforms = []
-        for key in enabled_keys:
-            if key in SUPPORTED_AI_PLATFORMS:
-                valid_platforms.append(SUPPORTED_AI_PLATFORMS[key])
+        # 转换成集合进行快速查找
+        enabled_keys_set = set(enabled_keys)
         
-        # 限制最大AI视图数量
-        max_views = self.get_setting('max_ai_views', DEFAULT_USER_SETTINGS['max_ai_views'])
-        return valid_platforms[:max_views]
+        # 按照SUPPORTED_AI_PLATFORMS中的顺序遍历
+        for key in SUPPORTED_AI_PLATFORMS:
+            if key in enabled_keys_set:
+                valid_platforms.append(SUPPORTED_AI_PLATFORMS[key])
+                # 达到最大视图数量时停止添加
+                if len(valid_platforms) >= self.get_max_ai_views():
+                    break
+        
+        return valid_platforms
     
     def set_enabled_ai_platforms(self, platform_keys):
         """设置用户启用的AI平台列表

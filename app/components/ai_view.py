@@ -146,10 +146,21 @@ class AIView(QWidget):
         icon_label = QLabel()
         
         # 尝试加载本地图标
+        # 先尝试PNG格式
         icon_path = os.path.join(ICON_DIR, f"{ai_config['key']}.png")
+        # 如果PNG不存在，尝试ICO格式
+        if not os.path.exists(icon_path):
+            icon_path = os.path.join(ICON_DIR, f"{ai_config['key']}.ico")
+        
         if os.path.exists(icon_path):
-            icon_pixmap = QPixmap(icon_path).scaled(16, 16, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
-            icon_label.setPixmap(icon_pixmap)
+            if icon_path.endswith('.ico'):
+                # 加载ICO图标
+                icon = QIcon(icon_path)
+                icon_label.setPixmap(icon.pixmap(16, 16))
+            else:
+                # 加载PNG等其他格式图标
+                icon_pixmap = QPixmap(icon_path).scaled(16, 16, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+                icon_label.setPixmap(icon_pixmap)
         else:
             # 如果本地图标不存在，使用默认图标
             try:
@@ -162,9 +173,20 @@ class AIView(QWidget):
         title_label = QLabel(ai_config["name"])
         title_label.setStyleSheet("color: #D8DEE9; font-weight: bold;")
         
-        title_layout.addWidget(icon_label)
-        title_layout.addWidget(title_label)
-        title_layout.addStretch()
+        # 创建居中容器
+        center_widget = QWidget()
+        center_layout = QHBoxLayout(center_widget)
+        center_layout.setContentsMargins(0, 0, 0, 0)
+        center_layout.setSpacing(4)
+        
+        # 将图标和标题添加到居中容器
+        center_layout.addWidget(icon_label)
+        center_layout.addWidget(title_label)
+        
+        # 在标题栏中添加居中对齐的容器
+        title_layout.addStretch(1)
+        title_layout.addWidget(center_widget)
+        title_layout.addStretch(1)
         
         # 添加标题栏到容器
         container_layout.addWidget(title_widget)
