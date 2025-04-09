@@ -2,36 +2,60 @@
 # -*- coding: utf-8 -*-
 
 from PyQt6.QtWidgets import QSplitter, QWidget, QVBoxLayout, QApplication
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QObject, QRect
 
-class WindowManager:
-    """窗口管理器 - 控制主窗口和辅助窗口的显示模式"""
+class WindowManager(QObject):
+    """窗口管理器 - 管理主窗口和辅助窗口的关系和显示模式"""
     
     MODE_DUAL_SCREEN = 1    # 双屏幕模式
     MODE_SINGLE_SCREEN = 2  # 单屏幕模式
     
     def __init__(self, main_window, auxiliary_window):
-        """初始化窗口管理器
-        
-        Args:
-            main_window: 主窗口实例
-            auxiliary_window: 辅助窗口实例
-        """
+        super().__init__()
         self.main_window = main_window
         self.auxiliary_window = auxiliary_window
         self.current_mode = None
         self.combined_window = None
         self.splitter = None
+        
+        # 连接主窗口和辅助窗口
+        self.connect_windows()
+    
+    def connect_windows(self):
+        """连接主窗口和辅助窗口，设置通信和协作机制"""
+        # 连接提示词同步
+        # 获取主窗口的AIView实例
+        main_ai_view = self.main_window.get_ai_view()
+        if main_ai_view:
+            # 获取辅助窗口的PromptSync实例
+            prompt_sync = self.auxiliary_window.prompt_sync
+            # 注册AIView到PromptSync
+            prompt_sync.register_ai_view(main_ai_view)
+            print("已将AI视图注册到提示词同步器")
+        else:
+            print("警告：未找到主窗口的AI视图")
     
     def set_initial_display_mode(self):
-        """根据屏幕数量设置初始显示模式"""
-        # 获取屏幕数量
-        screen_count = len(self.main_window.screen().virtualSiblings())
+        """根据屏幕情况设置初始显示模式"""
+        # 获取屏幕大小
+        screen = QApplication.primaryScreen()
+        screen_size = screen.availableGeometry()
         
-        if screen_count > 1:
-            self.set_dual_screen_mode()
-        else:
-            self.set_single_screen_mode()
+        # 主窗口位置和大小
+        main_width = min(1200, screen_size.width() - 100)
+        main_height = min(800, screen_size.height() - 100)
+        main_x = (screen_size.width() - main_width) // 2
+        main_y = (screen_size.height() - main_height - 300) // 2
+        
+        # 辅助窗口位置和大小
+        aux_width = main_width
+        aux_height = 300
+        aux_x = main_x
+        aux_y = main_y + main_height
+        
+        # 设置窗口位置和大小
+        self.main_window.setGeometry(QRect(main_x, main_y, main_width, main_height))
+        self.auxiliary_window.setGeometry(QRect(aux_x, aux_y, aux_width, aux_height))
     
     def set_dual_screen_mode(self):
         """设置为双屏幕模式"""

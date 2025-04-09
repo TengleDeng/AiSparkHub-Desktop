@@ -102,12 +102,20 @@ class AIWebView(QWebEngineView):
         if not self.script_injected:
             self.inject_script()
             
-        # 转义特殊字符
-        escaped_prompt = prompt_text.replace('\\', '\\\\').replace("'", "\\'").replace('\n', '\\n').replace('\r', '\\r')
+        # 转义单引号，避免JS注入问题
+        escaped_text = prompt_text.replace("'", "\\'")
             
-        # 使用新的注入方法
-        js_code = f"window.AiSparkHub.injectPrompt('{escaped_prompt}')"
-        self.page().runJavaScript(js_code)
+        # 调用注入方法
+        js_code = f"window.AiSparkHub.injectPrompt('{escaped_text}')"
+        self.page().runJavaScript(js_code, self._handle_injection_result)
+    
+    def _handle_check_result(self, result):
+        """处理脚本检查结果"""
+        print(f"[{self.ai_name}] 脚本检查: {result}")
+    
+    def _handle_injection_result(self, result):
+        """处理注入结果"""
+        print(f"[{self.ai_name}] 注入结果: {result}")
 
 class AIView(QWidget):
     """AI对话页面，管理多个AI网页视图"""

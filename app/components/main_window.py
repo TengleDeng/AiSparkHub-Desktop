@@ -143,6 +143,25 @@ class MainWindow(QMainWindow):
     def mouseReleaseEvent(self, event):
         """处理鼠标释放事件"""
         self._drag_pos = None
+    
+    def get_ai_view(self):
+        """获取当前的AI视图实例
+        
+        Returns:
+            AIView: 当前的AI视图实例，如果不存在则返回None
+        """
+        # 如果还没有创建标签页，返回None
+        if not hasattr(self, 'tab_manager'):
+            return None
+            
+        # 遍历所有标签页，找到AIView类型的实例
+        for i in range(self.tab_manager.count()):
+            widget = self.tab_manager.widget(i)
+            if hasattr(widget, '__class__') and widget.__class__.__name__ == 'AIView':
+                return widget
+                
+        # 如果没有找到AIView，返回None
+        return None
         
     def mouseDoubleClickEvent(self, event):
         """处理鼠标双击事件，用于最大化/还原窗口"""
