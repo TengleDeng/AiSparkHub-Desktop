@@ -142,4 +142,16 @@ class MainWindow(QMainWindow):
     
     def mouseReleaseEvent(self, event):
         """处理鼠标释放事件"""
-        self._drag_pos = None 
+        self._drag_pos = None
+        
+    def mouseDoubleClickEvent(self, event):
+        """处理鼠标双击事件，用于最大化/还原窗口"""
+        # 检查双击是否在标题栏区域 (标签栏高度范围内)
+        if event.button() == Qt.MouseButton.LeftButton:
+            tab_bar_height = self.tab_manager.tabBar().height()
+            if event.position().toPoint().y() <= tab_bar_height:
+                self.toggle_maximize()
+            else:
+                super().mouseDoubleClickEvent(event)
+        else:
+            super().mouseDoubleClickEvent(event) 
