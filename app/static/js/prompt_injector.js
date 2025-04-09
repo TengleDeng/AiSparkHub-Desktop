@@ -120,18 +120,6 @@ function getPlatformFromURL() {
 }
 
 /**
- * 将文本转换为Base64
- */
-function textToBase64(text) {
-    try {
-        return btoa(unescape(encodeURIComponent(text)));
-    } catch (e) {
-        console.error('Base64编码失败:', e);
-        return '';
-    }
-}
-
-/**
  * 向AI平台注入提示词并发送
  * @param {string} message 要发送的提示词
  * @returns {Promise<boolean>} 是否成功
@@ -154,80 +142,54 @@ async function injectPrompt(message) {
         return false;
     }
     
-    // 将消息转换为Base64格式
-    const base64Message = textToBase64(message);
-    
-    // 构建注入代码
-    const injectionCode = `
-        (async function() {
-            try {
-                // 查找输入框
-                const input = document.querySelector('${selectors.input}');
-                console.log('Input selector:', '${selectors.input}');
-                if (!input) {
-                    console.error('未找到输入框');
-                    return false;
-                }
-                console.log('找到输入框:', input.tagName);
-
-                // 聚焦和清空输入框
-                input.focus();
-                document.execCommand('selectAll', false, null);
-                document.execCommand('delete', false, null);
-                console.log('输入框已清空');
-
-                // 直接注入文本，使用原始可靠的方法
-                const originalMessage = decodeURIComponent(escape(atob("${base64Message}")));
-                document.execCommand('insertText', false, originalMessage);
-                console.log('文本已注入');
-
-                // 等待文本注入完成
-                await new Promise(resolve => setTimeout(resolve, 500));
-
-                // 尝试查找发送按钮（多种方式）
-                console.log('Trying to find button with selector:', '${selectors.button}');
-                let button = document.querySelector('${selectors.button}');
-
-                // 统一的点击处理逻辑
-                const simulateClick = (element) => {
-                    try {
-                        // 使用完整的鼠标事件序列
-                        ['mousedown', 'mouseup', 'click'].forEach(eventType => {
-                            const event = new MouseEvent(eventType, {
-                                bubbles: true,
-                                cancelable: true,
-                                view: window
-                            });
-                            element.dispatchEvent(event);
-                        });
-                        console.log('Mouse event sequence dispatched successfully');
-                        return true;
-                    } catch (error) {
-                        console.error('Failed to simulate click:', error);
-                        return false;
-                    }
-                };
-
-                // 执行点击
-                if (!simulateClick(button)) {
-                    console.error('Click simulation failed');
-                    return false;
-                }
-
-                console.log('已点击发送按钮');
-                return true;
-            } catch (error) {
-                console.error('执行出错:', error);
-                return false;
-            }
-        })();
-    `;
-    
     try {
-        // 执行注入代码
-        return await eval(injectionCode);
+        // 查找输入框
+        const input = document.querySelector(selectors.input);
+        console.log('Input selector:', selectors.input);
+        if (!input) {
+            console.error('未找到输入框');
+            return false;
+        }
+        console.log('找到输入框:', input.tagName);
+
+        // 聚焦和清空输入框
+        input.focus();
+        document.execCommand('selectAll', false, null);
+        document.execCommand('delete', false, null);
+        console.log('输入框已清空');
+
+        // 直接注入文本
+        document.execCommand('insertText', false, message);
+        console.log('文本已注入');
+
+        // 等待文本注入完成
+        await new Promise(resolve => setTimeout(resolve, 500));
+
+        // 尝试查找发送按钮
+        console.log('Trying to find button with selector:', selectors.button);
+        let button = document.querySelector(selectors.button);
+
+        // 执行点击
+        try {
+            // 使用完整的鼠标事件序列
+            ['mousedown', 'mouseup', 'click'].forEach(eventType => {
+                const event = new MouseEvent(eventType, {
+                    bubbles: true,
+                    cancelable: true,
+                    view: window
+                });
+                button.dispatchEvent(event);
+            });
+            console.log('Mouse event sequence dispatched successfully');
+        } catch (error) {
+            console.error('Failed to simulate click:', error);
+            return false;
+        }
+
+        console.log('已点击发送按钮');
+        return true;
     } catch (error) {
-        console.error('注入脚本执行失败:', error);
+        console.error('执行出错:', error);
         return false;
     }
 }

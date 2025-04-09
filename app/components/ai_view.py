@@ -7,7 +7,7 @@ AI视图组件
 """
 
 from PyQt6.QtWidgets import QWidget, QHBoxLayout, QVBoxLayout, QLabel, QSplitter
-from PyQt6.QtCore import Qt, QUrl, QFile, QIODevice
+from PyQt6.QtCore import Qt, QUrl, QFile, QIODevice, QTimer
 from PyQt6.QtWebEngineWidgets import QWebEngineView
 from PyQt6.QtWebEngineCore import QWebEnginePage
 from PyQt6.QtGui import QPixmap, QIcon
@@ -83,14 +83,32 @@ class AIWebView(QWebEngineView):
                 script_content = script_file.readAll().data().decode('utf-8')
                 script_file.close()
                 
-                # 注入脚本，简单执行不使用JavaScriptFeature
-                self.page().runJavaScript(script_content)
-                self.script_injected = True
-                print(f"已向 {self.ai_name} 注入提示词脚本")
+                # 注入脚本
+                self.page().runJavaScript(script_content, lambda success: self._script_injected_callback(success))
             else:
                 print(f"无法打开脚本文件: {INJECTOR_SCRIPT_PATH}")
         except Exception as e:
             print(f"注入脚本时出错: {e}")
+    
+    def _script_injected_callback(self, success):
+        """脚本注入回调"""
+        if success != False:  # 只要不是明确的失败，就认为成功
+            self.script_injected = True
+            print(f"已向 {self.ai_name} 注入提示词脚本")
+            
+            # 验证脚本是否可用
+            verify_code = "typeof window.AiSparkHub !== 'undefined' && typeof window.AiSparkHub.injectPrompt === 'function'"
+            self.page().runJavaScript(verify_code, lambda result: self._verify_script_callback(result))
+        else:
+            print(f"向 {self.ai_name} 注入提示词脚本失败")
+    
+    def _verify_script_callback(self, result):
+        """验证脚本是否可用的回调"""
+        if not result:
+            print(f"警告: {self.ai_name} 的提示词脚本未正确加载，尝试重新注入")
+            self.script_injected = False
+            # 延迟一秒后重试
+            QTimer.singleShot(1000, self.inject_script)
     
     def fill_prompt(self, prompt_text):
         """填充提示词并提交
@@ -102,10 +120,10 @@ class AIWebView(QWebEngineView):
         if not self.script_injected:
             self.inject_script()
             
-        # 转义单引号，避免JS注入问题
-        escaped_text = prompt_text.replace("'", "\\'")
+        # 确保特殊字符的正确转义 (单引号、换行符、回车符和反斜杠)
+        escaped_text = prompt_text.replace('\\', '\\\\').replace("'", "\\'").replace('\n', '\\n').replace('\r', '\\r')
             
-        # 调用注入方法
+        # 调用注入方法 - 使用预先加载的脚本函数
         js_code = f"window.AiSparkHub.injectPrompt('{escaped_text}')"
         self.page().runJavaScript(js_code, self._handle_injection_result)
     
