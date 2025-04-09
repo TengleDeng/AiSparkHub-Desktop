@@ -204,7 +204,7 @@ class AIView(QWidget):
             QComboBox {
                 background-color: #3B4252;
                 color: #D8DEE9;
-                border: 1px solid #4C566A;
+                border: none;
                 border-radius: 4px;
                 padding: 1px 18px 1px 3px;
             }
@@ -212,7 +212,7 @@ class AIView(QWidget):
                 subcontrol-origin: padding;
                 subcontrol-position: top right;
                 width: 20px;
-                border-left: 1px solid #4C566A;
+                border-left: none;
             }
             QComboBox::down-arrow {
                 image: url(:/icons/down-arrow.png);
@@ -221,7 +221,11 @@ class AIView(QWidget):
                 background-color: #2E3440;
                 color: #D8DEE9;
                 selection-background-color: #4C566A;
-                outline: 0px;
+                border: none;
+                outline: none;
+            }
+            QComboBox:hover {
+                background-color: #434C5E;
             }
         """)
         
