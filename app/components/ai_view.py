@@ -365,7 +365,6 @@ class AIView(QWidget):
         container.is_maximized = False  # 记录是否处于最大化状态
         
         # 将下拉菜单添加到标题栏
-        title_layout.addStretch(1)
         title_layout.addWidget(ai_selector)
         title_layout.addStretch(1)
         
