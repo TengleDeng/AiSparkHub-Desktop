@@ -134,12 +134,5 @@ DEFAULT_ENABLED_PLATFORMS = ["GROK","DOUBAO"]
 DEFAULT_USER_SETTINGS = {
     "theme": THEME,
     "enabled_ai_platforms": DEFAULT_ENABLED_PLATFORMS,
-    "max_ai_views": 4  # 最多显示的AI视图数量
-}
-
-# JavaScript注入配置
-JS_FILL_PROMPT_TEMPLATE = """
-    document.querySelector('{input_selector}').value = '{prompt}';
-    document.querySelector('{input_selector}').dispatchEvent(new Event('input', {{ bubbles: true }}));
-    setTimeout(() => document.querySelector('{submit_selector}').click(), 500);
-""" 
+    "max_ai_views": 3  # 最多显示的AI视图数量
+} 

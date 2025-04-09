@@ -7,19 +7,21 @@ AI视图组件
 """
 
 from PyQt6.QtWidgets import QWidget, QHBoxLayout, QVBoxLayout, QLabel, QSplitter
-from PyQt6.QtCore import Qt, QUrl
+from PyQt6.QtCore import Qt, QUrl, QFile, QIODevice
 from PyQt6.QtWebEngineWidgets import QWebEngineView
 from PyQt6.QtWebEngineCore import QWebEnginePage
 from PyQt6.QtGui import QPixmap, QIcon
 import os
 import qtawesome as qta
 
-from app.config import JS_FILL_PROMPT_TEMPLATE, SUPPORTED_AI_PLATFORMS
+from app.config import SUPPORTED_AI_PLATFORMS
 from app.controllers.web_profile_manager import WebProfileManager
 from app.controllers.settings_manager import SettingsManager
 
 # 图标文件夹路径
 ICON_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "icons")
+# 注入脚本路径
+INJECTOR_SCRIPT_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "static", "js", "prompt_injector.js")
 
 class AIWebView(QWebEngineView):
     """单个AI网页视图"""
@@ -35,6 +37,7 @@ class AIWebView(QWebEngineView):
         self.ai_url = ai_config["url"]
         self.input_selector = ai_config["input_selector"]
         self.submit_selector = ai_config["submit_selector"]
+        self.script_injected = False
         
         # 使用共享的profile，保存登录信息
         self.profile_manager = WebProfileManager()
@@ -62,8 +65,32 @@ class AIWebView(QWebEngineView):
         """网页加载完成后的处理"""
         if success:
             print(f"{self.ai_name} 已加载")
+            # 注入提示词注入脚本
+            self.inject_script()
         else:
             print(f"{self.ai_name} 加载失败")
+    
+    def inject_script(self):
+        """注入提示词注入脚本"""
+        if self.script_injected:
+            return
+            
+        try:
+            # 读取脚本文件
+            script_file = QFile(INJECTOR_SCRIPT_PATH)
+            
+            if script_file.open(QIODevice.ReadOnly | QIODevice.Text):
+                script_content = script_file.readAll().data().decode('utf-8')
+                script_file.close()
+                
+                # 注入脚本，简单执行不使用JavaScriptFeature
+                self.page().runJavaScript(script_content)
+                self.script_injected = True
+                print(f"已向 {self.ai_name} 注入提示词脚本")
+            else:
+                print(f"无法打开脚本文件: {INJECTOR_SCRIPT_PATH}")
+        except Exception as e:
+            print(f"注入脚本时出错: {e}")
     
     def fill_prompt(self, prompt_text):
         """填充提示词并提交
@@ -71,15 +98,16 @@ class AIWebView(QWebEngineView):
         Args:
             prompt_text (str): 提示词文本
         """
-        # 准备JS脚本
-        js_script = JS_FILL_PROMPT_TEMPLATE.format(
-            input_selector=self.input_selector,
-            submit_selector=self.submit_selector,
-            prompt=prompt_text
-        )
-        
-        # 运行JS脚本
-        self.page().runJavaScript(js_script)
+        # 确保脚本已注入
+        if not self.script_injected:
+            self.inject_script()
+            
+        # 转义特殊字符
+        escaped_prompt = prompt_text.replace('\\', '\\\\').replace("'", "\\'").replace('\n', '\\n').replace('\r', '\\r')
+            
+        # 使用新的注入方法
+        js_code = f"window.AiSparkHub.injectPrompt('{escaped_prompt}')"
+        self.page().runJavaScript(js_code)
 
 class AIView(QWidget):
     """AI对话页面，管理多个AI网页视图"""
