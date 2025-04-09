@@ -103,9 +103,10 @@ class MainWindow(QMainWindow):
         # 添加到标签页（不可关闭）
         self.tab_manager.add_ai_view_tab(ai_view, "AiSparkHub")
         
-        # 添加一个空的Web标签页
-        web_view = WebView()
-        self.tab_manager.add_tab(web_view, "新标签页", "fa5s.globe")
+        # 直接添加"+"标签页
+        self.tab_manager.add_plus_tab()
+        
+        # 不默认创建新标签页，用户可以通过点击"+"号创建
     
     def keyPressEvent(self, event):
         """处理键盘事件"""
