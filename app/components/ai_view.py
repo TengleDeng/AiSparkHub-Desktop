@@ -9,9 +9,11 @@ AI视图组件
 from PyQt6.QtWidgets import QWidget, QHBoxLayout, QVBoxLayout, QLabel, QSplitter
 from PyQt6.QtCore import Qt, QUrl
 from PyQt6.QtWebEngineWidgets import QWebEngineView
+from PyQt6.QtWebEngineCore import QWebEnginePage
 import qtawesome as qta
 
 from app.config import DEFAULT_AI_PROVIDERS, JS_FILL_PROMPT_TEMPLATE
+from app.controllers.web_profile_manager import WebProfileManager
 
 class AIWebView(QWebEngineView):
     """单个AI网页视图"""
@@ -22,6 +24,12 @@ class AIWebView(QWebEngineView):
         self.ai_url = ai_url
         self.input_selector = input_selector
         self.submit_selector = submit_selector
+        
+        # 使用共享的profile，保存登录信息
+        self.profile_manager = WebProfileManager()
+        shared_profile = self.profile_manager.get_profile()
+        web_page = QWebEnginePage(shared_profile, self)
+        self.setPage(web_page)
         
         # 设置页面样式
         self.setStyleSheet("""

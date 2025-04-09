@@ -7,13 +7,21 @@
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QLineEdit, QPushButton, QHBoxLayout
 from PyQt6.QtCore import QUrl, Qt
 from PyQt6.QtWebEngineWidgets import QWebEngineView
+from PyQt6.QtWebEngineCore import QWebEnginePage
 import qtawesome as qta
+
+from app.controllers.web_profile_manager import WebProfileManager
 
 class WebView(QWidget):
     """网页浏览视图组件"""
     
     def __init__(self, parent=None):
         super().__init__(parent)
+        
+        # 获取Web配置管理器
+        self.profile_manager = WebProfileManager()
+        
+        # 设置UI界面
         self.setup_ui()
     
     def setup_ui(self):
@@ -58,8 +66,14 @@ class WebView(QWidget):
         # 添加工具栏到主布局
         layout.addWidget(toolbar)
         
-        # 创建网页视图
+        # 创建网页视图，使用共享的profile
         self.web_view = QWebEngineView()
+        
+        # 使用共享的profile创建页面
+        shared_profile = self.profile_manager.get_profile()
+        web_page = QWebEnginePage(shared_profile, self.web_view)
+        self.web_view.setPage(web_page)
+        
         self.web_view.urlChanged.connect(self.url_changed)
         self.web_view.loadFinished.connect(self.load_finished)
         layout.addWidget(self.web_view)

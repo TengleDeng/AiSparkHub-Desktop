@@ -7,6 +7,7 @@ from app.components.main_window import MainWindow
 from app.components.auxiliary_window import AuxiliaryWindow
 from app.controllers.window_manager import WindowManager
 from app.controllers.theme_manager import ThemeManager
+from app.controllers.web_profile_manager import WebProfileManager
 from app.models.database import DatabaseManager
 
 def main():
@@ -20,6 +21,9 @@ def main():
     
     # 初始化数据库
     db_manager = DatabaseManager()
+    
+    # 初始化Web配置管理器
+    web_profile_manager = WebProfileManager()
     
     # 创建主窗口和辅助窗口
     main_window = MainWindow()

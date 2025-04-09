@@ -46,6 +46,8 @@ venv.bak/
 
 # 应用数据相关
 data/*.db
+data/webdata/
+data/cache/
 data/*.db-journal
 *.log
 logs/
