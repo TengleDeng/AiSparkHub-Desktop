@@ -9,4 +9,5 @@ AiSparkHub 控制器模块
 from app.controllers.theme_manager import ThemeManager
 from app.controllers.window_manager import WindowManager
 from app.controllers.prompt_sync import PromptSync
-from app.controllers.web_profile_manager import WebProfileManager 
+from app.controllers.web_profile_manager import WebProfileManager
+from app.controllers.settings_manager import SettingsManager 

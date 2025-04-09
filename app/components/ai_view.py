@@ -10,20 +10,31 @@ from PyQt6.QtWidgets import QWidget, QHBoxLayout, QVBoxLayout, QLabel, QSplitter
 from PyQt6.QtCore import Qt, QUrl
 from PyQt6.QtWebEngineWidgets import QWebEngineView
 from PyQt6.QtWebEngineCore import QWebEnginePage
+from PyQt6.QtGui import QPixmap, QIcon
+import os
 import qtawesome as qta
 
-from app.config import DEFAULT_AI_PROVIDERS, JS_FILL_PROMPT_TEMPLATE
+from app.config import JS_FILL_PROMPT_TEMPLATE, SUPPORTED_AI_PLATFORMS
 from app.controllers.web_profile_manager import WebProfileManager
+from app.controllers.settings_manager import SettingsManager
+
+# 图标文件夹路径
+ICON_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "icons")
 
 class AIWebView(QWebEngineView):
     """单个AI网页视图"""
     
-    def __init__(self, ai_name, ai_url, input_selector, submit_selector):
+    def __init__(self, ai_config):
+        """初始化AI网页视图
+        
+        Args:
+            ai_config (dict): AI平台配置字典
+        """
         super().__init__()
-        self.ai_name = ai_name
-        self.ai_url = ai_url
-        self.input_selector = input_selector
-        self.submit_selector = submit_selector
+        self.ai_name = ai_config["name"]
+        self.ai_url = ai_config["url"]
+        self.input_selector = ai_config["input_selector"]
+        self.submit_selector = ai_config["submit_selector"]
         
         # 使用共享的profile，保存登录信息
         self.profile_manager = WebProfileManager()
@@ -42,7 +53,7 @@ class AIWebView(QWebEngineView):
         self.setMinimumHeight(30)
         
         # 加载网页
-        self.load(QUrl(ai_url))
+        self.load(QUrl(self.ai_url))
         
         # 设置加载状态监听
         self.loadFinished.connect(self.on_load_finished)
@@ -76,6 +87,9 @@ class AIView(QWidget):
     def __init__(self):
         super().__init__()
         
+        # 获取设置管理器
+        self.settings_manager = SettingsManager()
+        
         # 创建布局
         self.layout = QHBoxLayout(self)
         self.layout.setContentsMargins(0, 0, 0, 0)
@@ -87,9 +101,101 @@ class AIView(QWidget):
         
         # 存储AI网页视图
         self.ai_web_views = {}
+        
+        # 加载用户配置的AI平台
+        self.load_ai_platforms()
+    
+    def load_ai_platforms(self):
+        """根据用户设置加载AI平台"""
+        # 获取用户启用的AI平台
+        enabled_platforms = self.settings_manager.get_enabled_ai_platforms()
+        
+        # 清空现有视图
+        for i in range(self.splitter.count()):
+            widget = self.splitter.widget(0)
+            widget.setParent(None)
+        
+        self.ai_web_views.clear()
+        
+        # 加载新视图
+        for platform in enabled_platforms:
+            self.add_ai_web_view_from_config(platform)
+    
+    def add_ai_web_view_from_config(self, ai_config):
+        """从配置添加AI网页视图
+        
+        Args:
+            ai_config (dict): AI平台配置
+        
+        Returns:
+            AIWebView: 创建的AI网页视图
+        """
+        # 创建容器和标题
+        container = QWidget()
+        container_layout = QVBoxLayout(container)
+        container_layout.setContentsMargins(0, 0, 0, 0)
+        
+        # 创建标题栏
+        title_widget = QWidget()
+        title_widget.setMaximumHeight(30)
+        title_widget.setObjectName("aiTitleBar")
+        title_layout = QHBoxLayout(title_widget)
+        title_layout.setContentsMargins(8, 2, 8, 2)
+        
+        # 创建标题图标和文本
+        icon_label = QLabel()
+        
+        # 尝试加载本地图标
+        icon_path = os.path.join(ICON_DIR, f"{ai_config['key']}.png")
+        if os.path.exists(icon_path):
+            icon_pixmap = QPixmap(icon_path).scaled(16, 16, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
+            icon_label.setPixmap(icon_pixmap)
+        else:
+            # 如果本地图标不存在，使用默认图标
+            try:
+                default_icon = qta.icon("fa5s.comment")
+                icon_label.setPixmap(default_icon.pixmap(16, 16))
+            except Exception:
+                # 如果qtawesome图标也失败，使用空白图标
+                icon_label.setText("")
+        
+        title_label = QLabel(ai_config["name"])
+        title_label.setStyleSheet("color: #D8DEE9; font-weight: bold;")
+        
+        title_layout.addWidget(icon_label)
+        title_layout.addWidget(title_label)
+        title_layout.addStretch()
+        
+        # 添加标题栏到容器
+        container_layout.addWidget(title_widget)
+        
+        # 创建AI网页视图
+        web_view = AIWebView(ai_config)
+        
+        # 添加到容器
+        container_layout.addWidget(web_view)
+        
+        # 设置容器样式
+        container.setStyleSheet("""
+            #aiTitleBar {
+                background: #3B4252;
+                border-bottom: 1px solid #4C566A;
+            }
+        """)
+        
+        # 添加到分割器
+        self.splitter.addWidget(container)
+        
+        # 存储网页视图
+        self.ai_web_views[ai_config["key"]] = web_view
+        
+        # 调整分割器各部分的宽度比例
+        self.adjust_splitter_sizes()
+        
+        return web_view
     
     def add_ai_web_view(self, ai_name, ai_url, input_selector=None, submit_selector=None):
-        """添加AI网页视图
+        """添加AI网页视图 (兼容旧接口)
         
         Args:
             ai_name (str): AI名称
@@ -97,35 +203,31 @@ class AIView(QWidget):
             input_selector (str): 输入框选择器
             submit_selector (str): 提交按钮选择器
         """
-        # 如果未提供选择器，尝试从默认配置中获取
-        if not input_selector or not submit_selector:
-            for provider in DEFAULT_AI_PROVIDERS:
-                if provider["name"] == ai_name:
-                    input_selector = provider.get("input_selector")
-                    submit_selector = provider.get("submit_selector")
-                    break
+        # 查找匹配的AI平台配置
+        ai_config = None
+        for key, config in SUPPORTED_AI_PLATFORMS.items():
+            if config["name"] == ai_name:
+                ai_config = config.copy()
+                break
         
-        # 创建容器和标题
-        container = QWidget()
-        container_layout = QVBoxLayout(container)
-        container_layout.setContentsMargins(0, 0, 0, 0)
+        # 如果没有找到匹配的配置，创建一个新的
+        if not ai_config:
+            ai_config = {
+                "key": ai_name.lower(),
+                "name": ai_name,
+                "url": ai_url,
+                "input_selector": input_selector,
+                "submit_selector": submit_selector,
+                "response_selector": ""
+            }
         
-        # 创建AI网页视图
-        web_view = AIWebView(ai_name, ai_url, input_selector, submit_selector)
+        # 使用自定义选择器覆盖默认值
+        if input_selector:
+            ai_config["input_selector"] = input_selector
+        if submit_selector:
+            ai_config["submit_selector"] = submit_selector
         
-        # 添加到容器
-        container_layout.addWidget(web_view)
-        
-        # 添加到分割器
-        self.splitter.addWidget(container)
-        
-        # 存储网页视图
-        self.ai_web_views[ai_name] = web_view
-        
-        # 调整分割器各部分的宽度比例
-        self.adjust_splitter_sizes()
-        
-        return web_view
+        return self.add_ai_web_view_from_config(ai_config)
     
     def adjust_splitter_sizes(self):
         """调整分割器各部分的宽度比例"""
