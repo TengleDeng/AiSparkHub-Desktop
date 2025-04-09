@@ -6,8 +6,8 @@ AI视图组件
 负责管理AI对话页面，包含多个AI网页视图
 """
 
-from PyQt6.QtWidgets import QWidget, QHBoxLayout, QVBoxLayout, QLabel, QSplitter, QComboBox
-from PyQt6.QtCore import Qt, QUrl, QFile, QIODevice, QTimer
+from PyQt6.QtWidgets import QWidget, QHBoxLayout, QVBoxLayout, QLabel, QSplitter, QComboBox, QPushButton, QApplication
+from PyQt6.QtCore import Qt, QUrl, QFile, QIODevice, QTimer, QSize
 from PyQt6.QtWebEngineWidgets import QWebEngineView
 from PyQt6.QtWebEngineCore import QWebEnginePage
 from PyQt6.QtGui import QPixmap, QIcon
@@ -288,10 +288,94 @@ class AIView(QWidget):
         # 连接选择变更信号
         ai_selector.currentIndexChanged.connect(lambda index, c=container, s=ai_selector: self.on_ai_changed(c, index, s))
         
+        # 创建控制按钮的通用样式
+        button_style = """
+            QPushButton {
+                background-color: transparent;
+                border: none;
+                padding: 2px;
+                border-radius: 3px;
+                max-width: 22px;
+                max-height: 22px;
+            }
+            QPushButton:hover {
+                background-color: #4C566A;
+            }
+            QPushButton:pressed {
+                background-color: #5E81AC;
+            }
+        """
+        
+        # 创建控制按钮
+        # 1. 向左移动按钮
+        move_left_btn = QPushButton()
+        move_left_btn.setIcon(qta.icon("fa5s.arrow-left"))
+        move_left_btn.setToolTip("将此视图向左移动")
+        move_left_btn.setStyleSheet(button_style)
+        move_left_btn.setIconSize(QSize(14, 14))
+        move_left_btn.clicked.connect(lambda _, c=container: self.move_view_left(c))
+        
+        # 2. 向右移动按钮
+        move_right_btn = QPushButton()
+        move_right_btn.setIcon(qta.icon("fa5s.arrow-right"))
+        move_right_btn.setToolTip("将此视图向右移动")
+        move_right_btn.setStyleSheet(button_style)
+        move_right_btn.setIconSize(QSize(14, 14))
+        move_right_btn.clicked.connect(lambda _, c=container: self.move_view_right(c))
+        
+        # 3. 刷新按钮
+        refresh_btn = QPushButton()
+        refresh_btn.setIcon(qta.icon("fa5s.sync"))
+        refresh_btn.setToolTip("刷新此视图")
+        refresh_btn.setStyleSheet(button_style)
+        refresh_btn.setIconSize(QSize(14, 14))
+        refresh_btn.clicked.connect(lambda _, c=container: self.refresh_view(c))
+        
+        # 4. 最大化/恢复按钮
+        maximize_btn = QPushButton()
+        maximize_btn.setIcon(qta.icon("fa5s.expand"))
+        maximize_btn.setToolTip("最大化此视图")
+        maximize_btn.setStyleSheet(button_style)
+        maximize_btn.setIconSize(QSize(14, 14))
+        maximize_btn.clicked.connect(lambda _, c=container, b=maximize_btn: self.toggle_maximize_view(c, b))
+        
+        # 5. 添加视图按钮
+        add_btn = QPushButton()
+        add_btn.setIcon(qta.icon("fa5s.plus"))
+        add_btn.setToolTip("在右侧添加新视图")
+        add_btn.setStyleSheet(button_style)
+        add_btn.setIconSize(QSize(14, 14))
+        add_btn.clicked.connect(lambda _, c=container: self.add_view_after(c))
+        
+        # 6. 关闭按钮
+        close_btn = QPushButton()
+        close_btn.setIcon(qta.icon("fa5s.times"))
+        close_btn.setToolTip("关闭此视图")
+        close_btn.setStyleSheet(button_style)
+        close_btn.setIconSize(QSize(14, 14))
+        close_btn.clicked.connect(lambda _, c=container: self.close_view(c))
+        
+        # 存储按钮引用，以便后续访问
+        container.move_left_btn = move_left_btn
+        container.move_right_btn = move_right_btn
+        container.refresh_btn = refresh_btn
+        container.maximize_btn = maximize_btn
+        container.add_btn = add_btn
+        container.close_btn = close_btn
+        container.is_maximized = False  # 记录是否处于最大化状态
+        
         # 将下拉菜单添加到标题栏
         title_layout.addStretch(1)
         title_layout.addWidget(ai_selector)
         title_layout.addStretch(1)
+        
+        # 添加控制按钮到标题栏右侧
+        title_layout.addWidget(move_left_btn)
+        title_layout.addWidget(move_right_btn)
+        title_layout.addWidget(refresh_btn)
+        title_layout.addWidget(maximize_btn)
+        title_layout.addWidget(add_btn)
+        title_layout.addWidget(close_btn)
         
         # 添加标题栏到容器
         container_layout.addWidget(title_widget)
@@ -320,6 +404,9 @@ class AIView(QWidget):
         
         # 调整分割器各部分的宽度比例
         self.adjust_splitter_sizes()
+        
+        # 更新导航按钮状态
+        self.update_navigation_buttons()
         
         return web_view
     
@@ -460,4 +547,193 @@ class AIView(QWidget):
         self.ai_web_views[ai_key] = web_view
         print(f"  ai_web_views dictionary updated with new reference (key: '{ai_key}')")
         
-        print(f"==> Successfully switched to AI platform: {ai_config['name']}") 
+        print(f"==> Successfully switched to AI platform: {ai_config['name']}")
+    
+    def move_view_left(self, container):
+        """将视图向左移动一个位置
+        
+        Args:
+            container: 包含web_view的容器
+        """
+        index = self.splitter.indexOf(container)
+        if index > 0:  # 如果不是最左侧的视图
+            # 获取左侧视图
+            left_widget = self.splitter.widget(index - 1)
+            
+            # 记住当前的大小
+            sizes = self.splitter.sizes()
+            left_size = sizes[index - 1]
+            current_size = sizes[index]
+            
+            # 移除并重新插入容器
+            self.splitter.insertWidget(index - 1, container)
+            
+            # 恢复大小
+            sizes[index - 1] = current_size
+            sizes[index] = left_size
+            self.splitter.setSizes(sizes)
+            
+            # 更新导航按钮状态
+            self.update_navigation_buttons()
+    
+    def move_view_right(self, container):
+        """将视图向右移动一个位置
+        
+        Args:
+            container: 包含web_view的容器
+        """
+        index = self.splitter.indexOf(container)
+        if index < self.splitter.count() - 1:  # 如果不是最右侧的视图
+            # 获取右侧视图
+            right_widget = self.splitter.widget(index + 1)
+            
+            # 记住当前的大小
+            sizes = self.splitter.sizes()
+            right_size = sizes[index + 1]
+            current_size = sizes[index]
+            
+            # 移除并重新插入容器
+            self.splitter.insertWidget(index + 1, container)
+            
+            # 恢复大小
+            sizes[index] = right_size
+            sizes[index + 1] = current_size
+            self.splitter.setSizes(sizes)
+            
+            # 更新导航按钮状态
+            self.update_navigation_buttons()
+    
+    def refresh_view(self, container):
+        """刷新视图
+        
+        Args:
+            container: 包含web_view的容器
+        """
+        if hasattr(container, 'web_view'):
+            container.web_view.reload()
+    
+    def toggle_maximize_view(self, container, button):
+        """切换视图的最大化/恢复状态
+        
+        Args:
+            container: 包含web_view的容器
+            button: 最大化/恢复按钮
+        """
+        # 获取所有视图容器
+        containers = []
+        for i in range(self.splitter.count()):
+            containers.append(self.splitter.widget(i))
+        
+        if not container.is_maximized:
+            # 最大化：隐藏其他视图，调整当前视图为全宽
+            for c in containers:
+                if c != container:
+                    c.hide()
+            # 更新按钮图标为"恢复"
+            button.setIcon(qta.icon("fa5s.compress"))
+            button.setToolTip("恢复视图大小")
+            container.is_maximized = True
+        else:
+            # 恢复：显示所有视图，重新调整宽度
+            for c in containers:
+                c.show()
+            # 更新按钮图标为"最大化"
+            button.setIcon(qta.icon("fa5s.expand"))
+            button.setToolTip("最大化此视图")
+            container.is_maximized = False
+            # 重新调整所有视图大小
+            self.adjust_splitter_sizes()
+    
+    def add_view_after(self, container):
+        """在当前视图右侧添加新视图
+        
+        Args:
+            container: 包含web_view的容器
+        """
+        index = self.splitter.indexOf(container)
+        
+        # 获取当前支持的AI平台列表
+        enabled_platforms = self.settings_manager.get_enabled_ai_platforms()
+        
+        # 如果有可用的AI平台，则添加第一个
+        if enabled_platforms:
+            # 创建新视图
+            new_view = self.add_ai_web_view_from_config(enabled_platforms[0])
+            
+            # 将新视图移动到当前视图右侧
+            new_container = None
+            for i in range(self.splitter.count()):
+                widget = self.splitter.widget(i)
+                if hasattr(widget, 'web_view') and widget.web_view == new_view:
+                    new_container = widget
+                    break
+            
+            if new_container:
+                # 移动到当前视图右侧
+                current_index = self.splitter.indexOf(new_container)
+                if current_index != index + 1:
+                    # 记住当前的大小
+                    sizes = self.splitter.sizes()
+                    
+                    # 移除并重新插入
+                    self.splitter.insertWidget(index + 1, new_container)
+                    
+                    # 重新调整大小
+                    self.adjust_splitter_sizes()
+                    
+                    # 更新导航按钮状态
+                    self.update_navigation_buttons()
+    
+    def close_view(self, container):
+        """关闭视图
+        
+        Args:
+            container: 包含web_view的容器
+        """
+        # 获取容器索引
+        index = self.splitter.indexOf(container)
+        if index == -1:
+            return
+        
+        # 检查视图数量，保证至少保留一个视图
+        if self.splitter.count() <= 1:
+            return
+        
+        # 获取AI key，从字典中移除
+        if hasattr(container, 'ai_key'):
+            ai_key = container.ai_key
+            if ai_key in self.ai_web_views:
+                del self.ai_web_views[ai_key]
+        
+        # 从分割器中移除
+        container.setParent(None)
+        
+        # 如果当前是最大化状态，恢复其他视图
+        if hasattr(container, 'is_maximized') and container.is_maximized:
+            for i in range(self.splitter.count()):
+                self.splitter.widget(i).show()
+        
+        # 调整剩余视图的大小
+        self.adjust_splitter_sizes()
+        
+        # 更新导航按钮状态
+        self.update_navigation_buttons()
+        
+        # 标记为稍后删除
+        container.deleteLater()
+    
+    def update_navigation_buttons(self):
+        """更新所有容器的导航按钮状态（左右移动按钮）"""
+        count = self.splitter.count()
+        
+        # 遍历所有容器
+        for i in range(count):
+            container = self.splitter.widget(i)
+            
+            # 对于最左侧的容器，隐藏向左按钮
+            if hasattr(container, 'move_left_btn'):
+                container.move_left_btn.setVisible(i > 0)
+            
+            # 对于最右侧的容器，隐藏向右按钮
+            if hasattr(container, 'move_right_btn'):
+                container.move_right_btn.setVisible(i < count - 1) 
