@@ -6,7 +6,7 @@ AI视图组件
 负责管理AI对话页面，包含多个AI网页视图
 """
 
-from PyQt6.QtWidgets import QWidget, QHBoxLayout, QVBoxLayout, QLabel, QSplitter
+from PyQt6.QtWidgets import QWidget, QHBoxLayout, QVBoxLayout, QLabel, QSplitter, QComboBox
 from PyQt6.QtCore import Qt, QUrl, QFile, QIODevice, QTimer
 from PyQt6.QtWebEngineWidgets import QWebEngineView
 from PyQt6.QtWebEngineCore import QWebEnginePage
@@ -196,50 +196,89 @@ class AIView(QWidget):
         title_layout = QHBoxLayout(title_widget)
         title_layout.setContentsMargins(8, 2, 8, 2)
         
-        # 创建标题图标和文本
-        icon_label = QLabel()
+        # 创建AI选择下拉框
+        ai_selector = QComboBox()
+        ai_selector.setObjectName("aiSelector")
+        ai_selector.setFixedHeight(24)
+        ai_selector.setStyleSheet("""
+            QComboBox {
+                background-color: #3B4252;
+                color: #D8DEE9;
+                border: 1px solid #4C566A;
+                border-radius: 4px;
+                padding: 1px 18px 1px 3px;
+            }
+            QComboBox::drop-down {
+                subcontrol-origin: padding;
+                subcontrol-position: top right;
+                width: 20px;
+                border-left: 1px solid #4C566A;
+            }
+            QComboBox::down-arrow {
+                image: url(:/icons/down-arrow.png);
+            }
+            QComboBox QAbstractItemView {
+                background-color: #2E3440;
+                color: #D8DEE9;
+                selection-background-color: #4C566A;
+                outline: 0px;
+            }
+        """)
         
-        # 尝试加载本地图标
-        # 先尝试PNG格式
-        icon_path = os.path.join(ICON_DIR, f"{ai_config['key']}.png")
-        # 如果PNG不存在，尝试ICO格式
-        if not os.path.exists(icon_path):
-            icon_path = os.path.join(ICON_DIR, f"{ai_config['key']}.ico")
+        # 获取所有支持的AI平台
+        platforms = list(SUPPORTED_AI_PLATFORMS.items())
         
-        if os.path.exists(icon_path):
-            if icon_path.endswith('.ico'):
-                # 加载ICO图标
-                icon = QIcon(icon_path)
-                icon_label.setPixmap(icon.pixmap(16, 16))
+        # 为每个平台创建图标和添加到下拉菜单
+        print(f"--- Populating dropdown for container expecting AI: {ai_config['name']} (key: {ai_config['key']}) ---")
+        for i, (dict_key, platform_config) in enumerate(platforms):
+            # 尝试加载本地图标
+            icon_path = os.path.join(ICON_DIR, f"{platform_config['key']}.png") # 使用小写key找图标
+            if not os.path.exists(icon_path):
+                icon_path = os.path.join(ICON_DIR, f"{platform_config['key']}.ico")
+            
+            if os.path.exists(icon_path):
+                # 加载图标
+                if icon_path.endswith('.ico'):
+                    icon = QIcon(icon_path)
+                else:
+                    icon = QIcon(QPixmap(icon_path))
             else:
-                # 加载PNG等其他格式图标
-                icon_pixmap = QPixmap(icon_path).scaled(16, 16, Qt.AspectRatioMode.KeepAspectRatio, Qt.TransformationMode.SmoothTransformation)
-                icon_label.setPixmap(icon_pixmap)
+                # 使用默认图标
+                print(f"  Warning: Icon not found for {platform_config['key']}. Using default.")
+                icon = qta.icon("fa5s.comment")
+            
+            lowercase_key = platform_config["key"]
+            # 添加到下拉菜单，将平台 key (小写) 作为 userData 存储
+            ai_selector.addItem(icon, platform_config["name"], userData=lowercase_key)
+            print(f"  Added item: Index={i}, Name='{platform_config['name']}', UserData='{lowercase_key}' (Type: {type(lowercase_key)})")
+        
+        # 手动查找目标索引
+        target_key_to_find = ai_config["key"]
+        found_index = -1
+        print(f"--- Manually searching for index with UserData='{target_key_to_find}' ---")
+        for idx in range(ai_selector.count()):
+            item_data = ai_selector.itemData(idx)
+            print(f"  Checking Index {idx}: Data='{item_data}' (Type: {type(item_data)})")
+            # 确保比较的是同类型且值相等
+            if isinstance(item_data, str) and item_data == target_key_to_find:
+                found_index = idx
+                print(f"  Match found at Index {found_index}!")
+                break # 找到即停止
+        
+        # 设置当前选中的AI
+        if found_index != -1:
+            ai_selector.setCurrentIndex(found_index)
+            print(f"==> Set default index to {found_index} for AI: {ai_config['name']}")
         else:
-            # 如果本地图标不存在，使用默认图标
-            try:
-                default_icon = qta.icon("fa5s.comment")
-                icon_label.setPixmap(default_icon.pixmap(16, 16))
-            except Exception:
-                # 如果qtawesome图标也失败，使用空白图标
-                icon_label.setText("")
+            print(f"!!! WARNING: Could not find index for UserData='{target_key_to_find}'. Defaulting to index 0.")
+            ai_selector.setCurrentIndex(0) # 如果找不到，默认显示第一项
         
-        title_label = QLabel(ai_config["name"])
-        title_label.setStyleSheet("color: #D8DEE9; font-weight: bold;")
+        # 连接选择变更信号
+        ai_selector.currentIndexChanged.connect(lambda index, c=container, s=ai_selector: self.on_ai_changed(c, index, s))
         
-        # 创建居中容器
-        center_widget = QWidget()
-        center_layout = QHBoxLayout(center_widget)
-        center_layout.setContentsMargins(0, 0, 0, 0)
-        center_layout.setSpacing(4)
-        
-        # 将图标和标题添加到居中容器
-        center_layout.addWidget(icon_label)
-        center_layout.addWidget(title_label)
-        
-        # 在标题栏中添加居中对齐的容器
+        # 将下拉菜单添加到标题栏
         title_layout.addStretch(1)
-        title_layout.addWidget(center_widget)
+        title_layout.addWidget(ai_selector)
         title_layout.addStretch(1)
         
         # 添加标题栏到容器
@@ -248,8 +287,10 @@ class AIView(QWidget):
         # 创建AI网页视图
         web_view = AIWebView(ai_config)
         
-        # 添加到容器
+        # 添加到容器并存储
         container_layout.addWidget(web_view)
+        container.web_view = web_view  # 将web_view作为容器的属性存储
+        container.ai_key = ai_config["key"]  # 存储当前加载的AI平台标识
         
         # 设置容器样式
         container.setStyleSheet("""
@@ -262,7 +303,7 @@ class AIView(QWidget):
         # 添加到分割器
         self.splitter.addWidget(container)
         
-        # 存储网页视图
+        # 存储网页视图 (确保key与存储时一致)
         self.ai_web_views[ai_config["key"]] = web_view
         
         # 调整分割器各部分的宽度比例
@@ -325,4 +366,86 @@ class AIView(QWidget):
     def resizeEvent(self, event):
         """窗口大小变化时调整分割器各部分的宽度比例"""
         super().resizeEvent(event)
-        self.adjust_splitter_sizes() 
+        self.adjust_splitter_sizes()
+    
+    def on_ai_changed(self, container, index, selector):
+        """处理AI平台选择变更
+        
+        Args:
+            container: 包含web_view的容器
+            index: 选择的索引
+            selector: 下拉菜单控件
+        """
+        # 获取选中的AI平台标识 (从 userData 获取)
+        ai_key = selector.itemData(index) # userData 存储的是小写 key
+        
+        # 检查获取的 key 是否有效
+        if not ai_key or not isinstance(ai_key, str):
+             print(f"错误：从下拉菜单获取的 AI key 无效或类型错误 (index={index}, data={ai_key})")
+             return
+        
+        print(f"--- AI Changed Signal Received: Index={index}, Selected Key='{ai_key}' ---")
+        
+        # 避免重复加载同一个平台
+        if hasattr(container, 'ai_key') and container.ai_key == ai_key:
+            print(f"  AI platform unchanged ('{ai_key}'), no switch needed.")
+            return
+        
+        # 获取AI平台配置 (使用小写 key 从 SUPPORTED_AI_PLATFORMS 查找)
+        # 注意：SUPPORTED_AI_PLATFORMS 的键是大写的，值里面的 'key' 是小写的
+        ai_config = None
+        for dict_key, platform_config in SUPPORTED_AI_PLATFORMS.items():
+            if platform_config.get("key") == ai_key:
+                ai_config = platform_config
+                print(f"  Found matching config in SUPPORTED_AI_PLATFORMS using key '{ai_key}' (Original dict key: '{dict_key}')")
+                break
+        
+        if not ai_config:
+            print(f"!!! ERROR: Could not find AI platform config for key '{ai_key}' in SUPPORTED_AI_PLATFORMS.")
+            return
+        
+        print(f"  Preparing to switch to AI platform: {ai_config['name']}")
+        
+        # 保存旧的web_view引用以便稍后删除
+        old_web_view = None
+        if hasattr(container, 'web_view'):
+            old_web_view = container.web_view
+            print(f"  Found old WebView instance: {old_web_view.ai_name}")
+        
+        # 创建新的web_view
+        web_view = AIWebView(ai_config) # 使用找到的 config 创建
+        
+        # 替换容器中的web_view
+        layout = container.layout()
+        if old_web_view:
+            # 移除旧的web_view
+            layout.removeWidget(old_web_view)
+            print(f"  Removed old WebView ({old_web_view.ai_name}) from layout.")
+            old_web_view.setParent(None) # 解除父子关系，确保能被删除
+            old_web_view.deleteLater()
+            print(f"  Old WebView ({old_web_view.ai_name}) marked for deletion.")
+            
+            # 从字典中移除旧的引用 (使用旧的 key)
+            old_key = container.ai_key # 获取旧的key
+            if old_key in self.ai_web_views and self.ai_web_views[old_key] == old_web_view:
+                del self.ai_web_views[old_key]
+                print(f"  Removed old reference from ai_web_views dictionary (key: '{old_key}')")
+            else:
+                 print(f"  Warning: Could not find/remove old reference in ai_web_views for key '{old_key}'")
+        else:
+            print("  Warning: No old WebView reference found in container.")
+        
+        # 添加新的web_view
+        layout.addWidget(web_view)
+        print(f"  Added new WebView ({web_view.ai_name}) to layout.")
+        
+        # 更新容器的属性
+        container.web_view = web_view
+        container.ai_key = ai_key # 更新为新的小写 key
+        print(f"  Container attributes updated to new platform (key: '{ai_key}')")
+        
+        # 更新web_view字典 (使用新的小写 key)
+        self.ai_web_views[ai_key] = web_view
+        print(f"  ai_web_views dictionary updated with new reference (key: '{ai_key}')")
+        
+        print(f"==> Successfully switched to AI platform: {ai_config['name']}") 

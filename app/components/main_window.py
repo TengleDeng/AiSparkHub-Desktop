@@ -100,12 +100,8 @@ class MainWindow(QMainWindow):
         # 创建AI视图
         ai_view = AIView()
         
-        # 加载默认的AI网页
-        ai_view.add_ai_web_view("ChatGPT", "https://chat.openai.com/")
-        ai_view.add_ai_web_view("DeepSeek", "https://chat.deepseek.com/")
-        
-        # 添加到标签页
-        self.tab_manager.add_tab(ai_view, "AI对话", "fa5s.comments")
+        # 添加到标签页（不可关闭）
+        self.tab_manager.add_ai_view_tab(ai_view, "AiSparkHub")
         
         # 添加一个空的Web标签页
         web_view = WebView()
