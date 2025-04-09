@@ -4,7 +4,7 @@
 # web_view.py: 定义 WebView 组件
 # 该组件用于"新标签页"功能，提供通用的网页浏览视图，包含地址栏、导航按钮等。
 
-from PyQt6.QtWidgets import QWidget, QVBoxLayout, QLineEdit, QPushButton, QHBoxLayout
+from PyQt6.QtWidgets import QWidget, QVBoxLayout, QLineEdit, QPushButton, QHBoxLayout, QTabWidget
 from PyQt6.QtCore import QUrl, Qt
 from PyQt6.QtWebEngineWidgets import QWebEngineView
 from PyQt6.QtWebEngineCore import QWebEnginePage
@@ -76,6 +76,12 @@ class WebView(QWidget):
         
         self.web_view.urlChanged.connect(self.url_changed)
         self.web_view.loadFinished.connect(self.load_finished)
+        
+        # 连接标题变更信号
+        self.web_view.titleChanged.connect(self.title_changed)
+        # 连接图标变更信号
+        self.web_view.iconChanged.connect(self.icon_changed)
+        
         layout.addWidget(self.web_view)
         
         # 加载空白页
@@ -126,8 +132,55 @@ class WebView(QWidget):
         """页面加载完成时的处理"""
         if success:
             self.refresh_button.setIcon(qta.icon("fa5s.sync"))
+            
+            # 获取页面标题
+            title = self.web_view.title()
+            if title:
+                self.update_tab_title(title)
         else:
             self.refresh_button.setIcon(qta.icon("fa5s.exclamation-triangle"))
+    
+    def title_changed(self, title):
+        """网页标题变更时更新标签页标题"""
+        if title:
+            if title == "about:blank":
+                # 重置为"新标签页"
+                self.update_tab_title("新标签页")
+            else:
+                self.update_tab_title(title)
+    
+    def icon_changed(self, icon):
+        """网页图标变更时更新标签页图标"""
+        # 只有当图标不为空时更新
+        if not icon.isNull():
+            self.update_tab_icon(icon)
+    
+    def update_tab_title(self, title):
+        """更新所在标签页的标题"""
+        # 查找父标签容器
+        tab_widget = self.find_parent_tab_widget()
+        if tab_widget:
+            # 找到当前标签页的索引
+            index = tab_widget.indexOf(self)
+            if index != -1:
+                tab_widget.setTabText(index, title)
+    
+    def update_tab_icon(self, icon):
+        """更新所在标签页的图标"""
+        tab_widget = self.find_parent_tab_widget()
+        if tab_widget:
+            index = tab_widget.indexOf(self)
+            if index != -1:
+                tab_widget.setTabIcon(index, icon)
+    
+    def find_parent_tab_widget(self):
+        """查找父TabWidget组件"""
+        parent = self.parent()
+        while parent:
+            if isinstance(parent, QTabWidget):
+                return parent
+            parent = parent.parent()
+        return None
     
     def go_back(self):
         """后退"""
