@@ -1,6 +1,9 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
+# web_view.py: 定义 WebView 组件
+# 该组件用于"新标签页"功能，提供通用的网页浏览视图，包含地址栏、导航按钮等。
+
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QLineEdit, QPushButton, QHBoxLayout
 from PyQt6.QtCore import QUrl, Qt
 from PyQt6.QtWebEngineWidgets import QWebEngineView

@@ -1,6 +1,10 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
+# auxiliary_window.py: 定义 AuxiliaryWindow 类
+# 该窗口作为辅助窗口，包含文件浏览器、提示词输入框和提示词历史记录。
+# 用于管理和同步提示词到主窗口的 AI 对话页面。
+
 from PyQt6.QtWidgets import QMainWindow, QWidget, QHBoxLayout
 from PyQt6.QtCore import Qt
 import qtawesome as qta
