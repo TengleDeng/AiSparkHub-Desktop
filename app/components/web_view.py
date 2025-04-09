@@ -22,6 +22,8 @@ class WebView(QWidget):
         
         # 创建工具栏
         toolbar = QWidget()
+        toolbar.setMaximumHeight(38) # 设置最大高度
+        toolbar.setObjectName("addressToolbar")
         toolbar_layout = QHBoxLayout(toolbar)
         toolbar_layout.setContentsMargins(8, 4, 8, 4)
         toolbar_layout.setSpacing(4)
@@ -63,7 +65,7 @@ class WebView(QWidget):
         
         # 设置样式
         self.setStyleSheet("""
-            QWidget {
+            #addressToolbar {
                 background: #2E3440;
             }
             QPushButton {
