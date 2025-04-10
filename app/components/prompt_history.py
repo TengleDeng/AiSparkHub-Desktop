@@ -49,11 +49,6 @@ class PromptHistory(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(8)
         
-        # 创建标题
-        title = QLabel("历史记录")
-        title.setStyleSheet("font-weight: bold; color: #88C0D0;")
-        layout.addWidget(title)
-        
         # 创建搜索框
         self.search_input = QLineEdit()
         self.search_input.setPlaceholderText("搜索历史记录...")

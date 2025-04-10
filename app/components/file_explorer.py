@@ -21,11 +21,6 @@ class FileExplorer(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(4)
         
-        # 创建标题
-        title = QLabel("文件浏览")
-        title.setStyleSheet("font-weight: bold; color: #88C0D0; padding: 4px;")
-        layout.addWidget(title)
-        
         # 创建文件系统模型
         self.model = QFileSystemModel()
         # 设置根目录为系统根目录，以显示完整的文件系统树
