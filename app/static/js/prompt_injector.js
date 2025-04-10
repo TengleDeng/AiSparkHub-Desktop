@@ -204,6 +204,10 @@ window.AiSparkHub.getPlatformFromURL = getPlatformFromURL;
 
 // 简单高亮功能
 (function() {
+    console.log("======== AiSparkHub 高亮和复制功能初始化 ========");
+    console.log("navigator.clipboard是否可用:", typeof navigator.clipboard !== 'undefined');
+    console.log("document.execCommand是否可用:", typeof document.execCommand === 'function');
+    
     console.log("初始化简单高亮功能");
     
     // 创建高亮菜单
@@ -384,48 +388,113 @@ window.AiSparkHub.getPlatformFromURL = getPlatformFromURL;
     // 复制选中文本
     function copySelection() {
         const selection = window.getSelection();
-        if (!selection.rangeCount) return;
+        if (!selection.rangeCount) {
+            console.error('复制失败: 未选中任何文本');
+            showToast('复制失败: 未选中任何文本');
+            return;
+        }
+        
+        const text = selection.toString();
+        console.log('准备复制的文本:', text);
+        console.log('文本长度:', text.length);
         
         try {
-            // 复制到剪贴板
-            const text = selection.toString();
-            navigator.clipboard.writeText(text)
-                .then(() => {
-                    // 复制成功提示
-                    showToast('复制成功');
-                })
-                .catch(err => {
-                    console.error('复制失败:', err);
-                    // 尝试备用方法
-                    backupCopy(text);
-                });
+            console.log('复制操作开始...');
+            console.log('document.execCommand 可用状态:', typeof document.execCommand === 'function');
+            console.log('navigator.clipboard 可用状态:', typeof navigator.clipboard !== 'undefined');
+            
+            // 先尝试使用execCommand (更可靠的方法)
+            const execCommandResult = useExecCommand(text);
+            
+            if (!execCommandResult) {
+                console.log('execCommand方法失败，尝试使用navigator.clipboard...');
+                // 尝试使用navigator.clipboard作为备用
+                if (typeof navigator.clipboard !== 'undefined' && typeof navigator.clipboard.writeText === 'function') {
+                    console.log('尝试使用 navigator.clipboard.writeText...');
+                    navigator.clipboard.writeText(text)
+                        .then(() => {
+                            console.log('成功: navigator.clipboard.writeText 成功');
+                            showToast('复制成功 (现代API)');
+                        })
+                        .catch(err => {
+                            console.error('复制失败 (现代API):', err);
+                            showToast('复制失败: 无法访问剪贴板');
+                            // 显示手动复制对话框
+                            showCopyDialog(text);
+                        });
+                } else {
+                    console.error('所有复制方法均失败');
+                    showToast('复制失败: 浏览器不支持任何复制方法');
+                    // 显示手动复制对话框
+                    showCopyDialog(text);
+                }
+            }
         } catch (e) {
-            console.error('复制失败:', e);
-            backupCopy(selection.toString());
+            console.error('复制操作异常:', e);
+            showToast('复制失败: ' + e.message);
+            // 显示手动复制对话框
+            showCopyDialog(text);
         }
     }
     
-    // 备用复制方法
-    function backupCopy(text) {
-        // 创建临时文本区域
-        const textArea = document.createElement('textarea');
-        textArea.value = text;
-        textArea.style.position = 'fixed';
-        textArea.style.opacity = '0';
-        document.body.appendChild(textArea);
-        textArea.select();
+    // 使用execCommand复制
+    function useExecCommand(text) {
+        console.log('执行execCommand复制方法...');
+        console.log('文本长度:', text.length);
         
         try {
+            console.log('创建临时文本区域...');
+            const textArea = document.createElement('textarea');
+            textArea.value = text;
+            textArea.style.position = 'fixed';
+            textArea.style.top = '0';
+            textArea.style.left = '0';
+            textArea.style.width = '2em';
+            textArea.style.height = '2em';
+            textArea.style.padding = '0';
+            textArea.style.border = 'none';
+            textArea.style.outline = 'none';
+            textArea.style.boxShadow = 'none';
+            textArea.style.background = 'transparent';
+            textArea.style.opacity = '0';
+            
+            document.body.appendChild(textArea);
+            console.log('临时文本区域已添加到DOM');
+            
+            // 确认内容已设置
+            console.log('textarea value设置成功:', textArea.value === text);
+            console.log('textarea value长度:', textArea.value.length);
+            
+            console.log('选择textarea内容...');
+            textArea.select();
+            
+            // 检查选择是否成功
+            const isSelected = document.activeElement === textArea && 
+                               textArea.selectionStart === 0 && 
+                               textArea.selectionEnd === text.length;
+            console.log('选择状态:', isSelected ? '成功' : '失败');
+            
             // 执行复制命令
-            document.execCommand('copy');
-            showToast('复制成功');
+            console.log('执行document.execCommand("copy")...');
+            const copySuccess = document.execCommand('copy');
+            console.log('document.execCommand("copy") 结果:', copySuccess);
+            
+            // 移除临时元素
+            document.body.removeChild(textArea);
+            console.log('临时文本区域已移除');
+            
+            if (copySuccess) {
+                console.log('execCommand复制方法成功');
+                showToast('复制成功');
+                return true;
+            } else {
+                console.error('execCommand复制失败: execCommand返回false');
+                return false;
+            }
         } catch (e) {
-            console.error('备用复制失败:', e);
-            showToast('复制失败');
+            console.error('execCommand复制方法异常:', e);
+            return false;
         }
-        
-        // 移除临时元素
-        document.body.removeChild(textArea);
     }
     
     // 显示toast提示
@@ -630,4 +699,54 @@ window.AiSparkHub.getPlatformFromURL = getPlatformFromURL;
     }
     
     console.log("简单高亮功能初始化完成");
-})(); 
+})();
+
+// 修改全局复制函数，优先使用execCommand
+window.copyTextThroughJs = function(text) {
+    console.log("Python端请求复制文本:", text);
+    try {
+        // 先尝试使用execCommand方法
+        console.log("全局复制函数: 优先尝试execCommand");
+        const textarea = document.createElement('textarea');
+        textarea.value = text;
+        textarea.style.position = 'fixed';
+        textarea.style.left = '-9999px';
+        document.body.appendChild(textarea);
+        textarea.select();
+        
+        const successful = document.execCommand('copy');
+        document.body.removeChild(textarea);
+        
+        if (successful) {
+            console.log("全局复制函数: execCommand成功");
+            alert("文本已复制到剪贴板");
+            return true;
+        } else {
+            console.log("全局复制函数: execCommand失败，尝试navigator.clipboard");
+            // 尝试navigator.clipboard作为备用
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(text)
+                    .then(() => {
+                        console.log("全局复制函数: navigator.clipboard成功");
+                        alert("文本已复制到剪贴板");
+                        return true;
+                    })
+                    .catch(err => {
+                        console.error("全局复制函数: 所有方法均失败:", err);
+                        alert("复制失败: 无法访问剪贴板");
+                        return false;
+                    });
+            } else {
+                console.error("全局复制函数: 所有方法均失败");
+                alert("复制失败: 浏览器不支持任何复制方法");
+                return false;
+            }
+        }
+    } catch (e) {
+        console.error("全局复制函数: 异常:", e);
+        alert("复制失败: " + e.message);
+        return false;
+    }
+    
+    return false;
+}; 
