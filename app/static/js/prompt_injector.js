@@ -200,4 +200,309 @@ async function injectPrompt(message) {
 // 将函数暴露给外部调用
 window.AiSparkHub = window.AiSparkHub || {};
 window.AiSparkHub.injectPrompt = injectPrompt;
-window.AiSparkHub.getPlatformFromURL = getPlatformFromURL; 
+window.AiSparkHub.getPlatformFromURL = getPlatformFromURL;
+
+// 简单高亮功能
+(function() {
+    console.log("初始化简单高亮功能");
+    
+    // 创建高亮菜单
+    const menu = document.createElement('div');
+    menu.id = 'highlight-menu';
+    menu.style.cssText = `
+        position: fixed;
+        display: none;
+        background: white;
+        border: none;
+        border-radius: 8px;
+        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        z-index: 10000;
+        padding: 6px;
+        font-family: 'Segoe UI', Arial, sans-serif;
+        max-width: 210px;
+        animation: fadeIn 0.2s ease-out;
+    `;
+    
+    // 添加标题
+    const title = document.createElement('div');
+    title.textContent = '文本工具';
+    title.style.cssText = `
+        font-size: 13px;
+        color: #333;
+        padding: 2px 6px 6px 6px;
+        border-bottom: 1px solid #eee;
+        margin-bottom: 6px;
+        font-weight: bold;
+    `;
+    menu.appendChild(title);
+    
+    // 容器用于水平排列按钮
+    const buttonContainer = document.createElement('div');
+    buttonContainer.style.cssText = `
+        display: flex;
+        justify-content: space-between;
+        padding: 0 2px;
+    `;
+    menu.appendChild(buttonContainer);
+    
+    // 定义颜色和按钮
+    const colors = [
+        { name: '复制', color: '#f8f8f8', border: '2px solid #ccc', icon: '📋', action: 'copy' },
+        { name: '红色', color: 'rgba(255,0,0,0.3)', border: '2px solid red', icon: '🔴', action: 'highlight' },
+        { name: '黄色', color: 'rgba(255,255,0,0.3)', border: '2px solid gold', icon: '🟡', action: 'highlight' },
+        { name: '绿色', color: 'rgba(0,255,0,0.3)', border: '2px solid green', icon: '🟢', action: 'highlight' }
+    ];
+    
+    // 添加颜色按钮
+    colors.forEach(c => {
+        const btn = document.createElement('div');
+        btn.style.cssText = `
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            margin: 0 3px;
+            cursor: pointer;
+            transition: transform 0.1s;
+            user-select: none;
+            width: 42px;
+        `;
+        
+        // 按钮图标带色块
+        const iconDiv = document.createElement('div');
+        iconDiv.style.cssText = `
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            background-color: ${c.color};
+            border: ${c.border};
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            margin-bottom: 3px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            font-size: 12px;
+        `;
+        
+        // 复制按钮使用图标文本
+        if (c.action === 'copy') {
+            iconDiv.innerHTML = '📋';
+        }
+        
+        // 按钮文字
+        const textDiv = document.createElement('div');
+        textDiv.textContent = c.name;
+        textDiv.style.cssText = `
+            font-size: 11px;
+            color: #555;
+        `;
+        
+        btn.appendChild(iconDiv);
+        btn.appendChild(textDiv);
+        
+        // 鼠标悬停和点击效果
+        btn.onmouseover = () => {
+            iconDiv.style.transform = 'scale(1.1)';
+            textDiv.style.color = '#333';
+        };
+        btn.onmouseout = () => {
+            iconDiv.style.transform = 'scale(1)';
+            textDiv.style.color = '#555';
+        };
+        btn.onmousedown = () => {
+            iconDiv.style.transform = 'scale(0.95)';
+        };
+        btn.onmouseup = () => {
+            iconDiv.style.transform = 'scale(1.1)';
+        };
+        
+        btn.onclick = () => {
+            if (c.action === 'copy') {
+                copySelection();
+            } else {
+                highlightSelection(c.color, c.border);
+            }
+            menu.style.display = 'none';
+        };
+        
+        buttonContainer.appendChild(btn);
+    });
+    
+    // 添加CSS动画
+    const style = document.createElement('style');
+    style.textContent = `
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+    `;
+    document.head.appendChild(style);
+    
+    // 添加到文档
+    document.body.appendChild(menu);
+    
+    // 监听选择事件
+    document.addEventListener('mouseup', function(e) {
+        const selection = window.getSelection();
+        if (selection.toString().trim()) {
+            // 如果有选中文本，显示菜单
+            menu.style.display = 'block';
+            
+            // 计算位置，避免超出屏幕边缘
+            const menuWidth = 210; // 更新菜单宽度
+            const menuHeight = 90; // 更新菜单高度
+            
+            let leftPos = e.pageX - menuWidth / 2;
+            let topPos = e.pageY + 10;
+            
+            // 确保不超出右边
+            if (leftPos + menuWidth > window.innerWidth + window.scrollX) {
+                leftPos = window.innerWidth + window.scrollX - menuWidth - 10;
+            }
+            
+            // 确保不超出左边
+            if (leftPos < window.scrollX) {
+                leftPos = window.scrollX + 10;
+            }
+            
+            // 确保不超出底部
+            if (topPos + menuHeight > window.innerHeight + window.scrollY) {
+                topPos = e.pageY - menuHeight - 10;
+            }
+            
+            menu.style.left = `${leftPos}px`;
+            menu.style.top = `${topPos}px`;
+        }
+    });
+    
+    // 点击其他地方关闭菜单
+    document.addEventListener('mousedown', function(e) {
+        if (!menu.contains(e.target)) {
+            menu.style.display = 'none';
+        }
+    });
+    
+    // 复制选中文本
+    function copySelection() {
+        const selection = window.getSelection();
+        if (!selection.rangeCount) return;
+        
+        try {
+            // 复制到剪贴板
+            const text = selection.toString();
+            navigator.clipboard.writeText(text)
+                .then(() => {
+                    // 复制成功提示
+                    showToast('复制成功');
+                })
+                .catch(err => {
+                    console.error('复制失败:', err);
+                    // 尝试备用方法
+                    backupCopy(text);
+                });
+        } catch (e) {
+            console.error('复制失败:', e);
+            backupCopy(selection.toString());
+        }
+    }
+    
+    // 备用复制方法
+    function backupCopy(text) {
+        // 创建临时文本区域
+        const textArea = document.createElement('textarea');
+        textArea.value = text;
+        textArea.style.position = 'fixed';
+        textArea.style.opacity = '0';
+        document.body.appendChild(textArea);
+        textArea.select();
+        
+        try {
+            // 执行复制命令
+            document.execCommand('copy');
+            showToast('复制成功');
+        } catch (e) {
+            console.error('备用复制失败:', e);
+            showToast('复制失败');
+        }
+        
+        // 移除临时元素
+        document.body.removeChild(textArea);
+    }
+    
+    // 显示toast提示
+    function showToast(message) {
+        // 创建提示元素
+        const toast = document.createElement('div');
+        toast.textContent = message;
+        toast.style.cssText = `
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0, 0, 0, 0.7);
+            color: white;
+            padding: 8px 16px;
+            border-radius: 4px;
+            font-size: 14px;
+            z-index: 10001;
+            animation: fadeInOut 2s forwards;
+        `;
+        
+        // 添加动画
+        const toastStyle = document.createElement('style');
+        toastStyle.textContent = `
+            @keyframes fadeInOut {
+                0% { opacity: 0; transform: translate(-50%, 20px); }
+                15% { opacity: 1; transform: translate(-50%, 0); }
+                85% { opacity: 1; transform: translate(-50%, 0); }
+                100% { opacity: 0; transform: translate(-50%, -20px); }
+            }
+        `;
+        document.head.appendChild(toastStyle);
+        
+        // 添加到文档
+        document.body.appendChild(toast);
+        
+        // 2秒后移除
+        setTimeout(() => {
+            if (document.body.contains(toast)) {
+                document.body.removeChild(toast);
+            }
+            if (document.head.contains(toastStyle)) {
+                document.head.removeChild(toastStyle);
+            }
+        }, 2000);
+    }
+    
+    // 高亮选中文本
+    function highlightSelection(bgColor, border) {
+        const selection = window.getSelection();
+        if (!selection.rangeCount) return;
+        
+        const range = selection.getRangeAt(0);
+        
+        // 创建高亮元素
+        const span = document.createElement('span');
+        span.style.backgroundColor = bgColor;
+        span.style.borderBottom = border;
+        span.style.transition = 'background-color 0.3s';
+        
+        try {
+            // 尝试包裹选择内容
+            range.surroundContents(span);
+            selection.removeAllRanges();
+            console.log('已高亮文本');
+            
+            // 添加短暂闪烁效果以提供视觉反馈
+            const originalBg = span.style.backgroundColor;
+            span.style.backgroundColor = 'rgba(255,255,255,0.9)';
+            setTimeout(() => {
+                span.style.backgroundColor = originalBg;
+            }, 150);
+        } catch (e) {
+            console.error('高亮失败:', e);
+            showToast('无法高亮选中的内容，请尝试选择更简单的文本块');
+        }
+    }
+    
+    console.log("简单高亮功能初始化完成");
+})(); 
