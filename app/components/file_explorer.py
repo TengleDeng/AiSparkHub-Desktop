@@ -4,9 +4,10 @@
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QTreeView, QHeaderView, 
                            QToolBar, QFileDialog, QPushButton, QHBoxLayout, 
                            QListWidget, QStackedWidget, QSplitter, QLabel,
-                           QMenu, QTabWidget, QAbstractItemView)
+                           QMenu, QTabWidget, QAbstractItemView, QScrollBar)
 from PyQt6.QtCore import Qt, QDir, QModelIndex, pyqtSignal, QSettings, QSize, QTimer, QUrl, QMimeData
 from PyQt6.QtGui import QFileSystemModel, QIcon, QAction, QDrag
+import qtawesome as qta
 import os
 import json
 
@@ -96,18 +97,6 @@ class FileExplorer(QWidget):
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(0)
         
-        # 创建工具栏
-        self.toolbar = QToolBar()
-        self.toolbar.setIconSize(QSize(16, 16))
-        self.toolbar.setMovable(False)
-        
-        # 添加工具栏按钮
-        self.add_folder_action = QAction(QIcon.fromTheme("folder-new", QIcon(":/icons/folder-add.png")), "添加文件夹", self)
-        self.add_folder_action.triggered.connect(self.add_folder)
-        self.toolbar.addAction(self.add_folder_action)
-        
-        main_layout.addWidget(self.toolbar)
-        
         # 创建选项卡控件，每个文件夹一个选项卡
         self.tab_widget = QTabWidget()
         self.tab_widget.setTabsClosable(True)
@@ -125,24 +114,11 @@ class FileExplorer(QWidget):
         
         # 设置样式
         self.setStyleSheet("""
-            QToolBar {
-                background-color: #2E3440;
-                border: none;
-                spacing: 4px;
-                padding: 4px;
-            }
-            QToolBar QToolButton {
-                background-color: #3B4252;
-                border: none;
-                border-radius: 4px;
-                color: #D8DEE9;
-                padding: 4px;
-            }
-            QToolBar QToolButton:hover {
-                background-color: #4C566A;
-            }
             QTabWidget::pane {
                 border: none;
+                background-color: #2E3440;
+            }
+            QTabBar {
                 background-color: #2E3440;
             }
             QTabBar::tab {
@@ -152,6 +128,7 @@ class FileExplorer(QWidget):
                 border: none;
                 border-top-left-radius: 4px;
                 border-top-right-radius: 4px;
+                margin-top: 1px; /* 稍微从顶部下移1px，避免与分隔线重叠 */
             }
             QTabBar::tab:selected {
                 background-color: #4C566A;
@@ -161,11 +138,14 @@ class FileExplorer(QWidget):
                 background-color: #434C5E;
             }
             QTabBar::close-button {
-                image: url(:/icons/close.png);
-                subcontrol-position: right;
+                image: none;
+                background: transparent;
+                border: none;
+                margin: 0px;
+                padding: 0px;
             }
             QTabBar::close-button:hover {
-                background-color: #BF616A;
+                background: #BF616A;
                 border-radius: 2px;
             }
             QTreeView {
@@ -188,7 +168,57 @@ class FileExplorer(QWidget):
             QTreeView::branch:selected {
                 background-color: #4C566A;
             }
+            /* 统一滚动条样式 */
+            QScrollBar:vertical {
+                background: #2E3440;
+                width: 14px;
+                margin: 0px;
+            }
+            QScrollBar::handle:vertical {
+                background: #4C566A;
+                min-height: 20px;
+                border-radius: 7px;
+            }
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+                height: 0px;
+            }
+            QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
+                background: none;
+            }
+            QScrollBar:horizontal {
+                background: #2E3440;
+                height: 14px;
+                margin: 0px;
+            }
+            QScrollBar::handle:horizontal {
+                background: #4C566A;
+                min-width: 20px;
+                border-radius: 7px;
+            }
+            QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
+                width: 0px;
+            }
+            QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {
+                background: none;
+            }
         """)
+        
+        # 监听标签页添加事件，为新标签页设置关闭图标
+        self.tab_widget.tabBarClicked.connect(self._check_tab_close_buttons)
+        self.tab_widget.currentChanged.connect(self._check_tab_close_buttons)
+    
+    def _check_tab_close_buttons(self, index):
+        """检查并设置标签页关闭按钮图标"""
+        # 为标签页设置qtawesome图标
+        close_icon = qta.icon('fa5s.times', color='#D8DEE9')
+        
+        # 遍历所有标签页，检查是否有未设置图标的关闭按钮
+        for i in range(self.tab_widget.count()):
+            close_button = self.tab_widget.tabBar().tabButton(i, self.tab_widget.tabBar().ButtonPosition.RightSide)
+            if close_button and close_button.icon().isNull():
+                close_button.setIcon(close_icon)
+                close_button.setText("")  # 移除文本，只显示图标
+                close_button.setIconSize(QSize(12, 12))  # 设置合适的图标大小
     
     def init_tabs(self):
         """初始化所有文件夹选项卡"""

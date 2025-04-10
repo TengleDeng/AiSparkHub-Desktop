@@ -6,7 +6,8 @@
 # 用于管理和同步提示词到主窗口的 AI 对话页面。
 
 from PyQt6.QtWidgets import QMainWindow, QWidget, QHBoxLayout, QPushButton, QVBoxLayout, QLabel, QSplitter, QFrame, QToolBar, QStackedWidget, QTabWidget
-from PyQt6.QtCore import Qt, QPoint, pyqtSignal, QSize
+from PyQt6.QtCore import Qt, QPoint, pyqtSignal, QSize, QTimer
+from PyQt6.QtGui import QIcon
 import qtawesome as qta
 import os
 
@@ -137,14 +138,15 @@ class PanelWidget(QWidget):
             # 保存按钮引用便于后续访问
             window.minimize_button = minimize_button
             window.maximize_button = maximize_button
-            
-        # 创建分隔线
+        
+        # 创建分隔线（设置为非常细的线条）
         separator = QFrame()
         separator.setFrameShape(QFrame.Shape.HLine)
         separator.setFrameShadow(QFrame.Shadow.Plain)
         separator.setLineWidth(0)
-        separator.setMidLineWidth(1)
-        separator.setStyleSheet("color: #4C566A;")
+        separator.setMidLineWidth(0)  # 将中线宽度设为0以获得更细的线条
+        separator.setFixedHeight(1)  # 将高度固定为1px
+        separator.setStyleSheet("background-color: #3B4252;")  # 使用与中间标签栏一致的颜色
         
         # 添加标题栏和分隔线到主布局
         layout.addWidget(self.title_bar)
@@ -244,9 +246,87 @@ class AuxiliaryWindow(QMainWindow):
     
     def init_components(self):
         """初始化窗口组件"""
+        # 设置全局滚动条样式
+        self.setStyleSheet("""
+            QScrollBar:vertical {
+                background: #2E3440;
+                width: 14px;
+                margin: 0px;
+            }
+            QScrollBar::handle:vertical {
+                background: #4C566A;
+                min-height: 20px;
+                border-radius: 7px;
+            }
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+                height: 0px;
+            }
+            QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
+                background: none;
+            }
+            QScrollBar:horizontal {
+                background: #2E3440;
+                height: 14px;
+                margin: 0px;
+            }
+            QScrollBar::handle:horizontal {
+                background: #4C566A;
+                min-width: 20px;
+                border-radius: 7px;
+            }
+            QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
+                width: 0px;
+            }
+            QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {
+                background: none;
+            }
+        """)
+        
         # 文件浏览器
         self.file_explorer = FileExplorer()
-        file_panel = PanelWidget("文件浏览", self.file_explorer, self)
+        
+        # 添加特殊样式使标签页顶部没有边框
+        self.file_explorer.tab_widget.setStyleSheet("""
+            QTabWidget::pane {
+                border-top: none;
+                background-color: #2E3440;
+            }
+        """)
+        
+        # 创建自定义标题栏
+        title_bar = QWidget()
+        title_bar.setFixedHeight(38)
+        title_bar.setObjectName("panelTitleBar")
+        title_layout = QHBoxLayout(title_bar)
+        title_layout.setContentsMargins(8, 0, 8, 0)
+        
+        # 添加文件夹按钮 - 靠左显示
+        add_folder_btn = QPushButton()
+        add_folder_btn.setIcon(qta.icon('fa5s.folder-plus'))
+        add_folder_btn.setToolTip("添加文件夹")
+        add_folder_btn.clicked.connect(self.file_explorer.add_folder)
+        
+        # 设置按钮样式
+        button_style = """
+            QPushButton {
+                background: transparent;
+                border: none;
+                padding: 6px 8px;
+                margin: 0;
+                color: #D8DEE9;
+            }
+            QPushButton:hover {
+                background: #3B4252;
+            }
+        """
+        add_folder_btn.setStyleSheet(button_style)
+        
+        # 添加按钮到标题栏（靠左）
+        title_layout.addWidget(add_folder_btn)
+        # 添加伸缩空间在按钮之后，使其余空间填充到右侧
+        title_layout.addStretch(1)
+        
+        file_panel = PanelWidget("", self.file_explorer, self, custom_titlebar=title_bar)
         
         # 创建标签页控件
         self.tabs = QTabWidget()
@@ -262,7 +342,7 @@ class AuxiliaryWindow(QMainWindow):
         # 自定义标签页样式，使其更像标题栏
         self.tabs.setStyleSheet("""
             QTabWidget::pane {
-                border-top: 1px solid #4C566A;
+                border-top: 1px solid #3B4252;
                 background-color: #2E3440;
             }
             QTabWidget::tab-bar {
@@ -292,14 +372,63 @@ class AuxiliaryWindow(QMainWindow):
                 background: #434C5E;
             }
             QTabBar::close-button {
-                image: url(:/icons/close.png);
-                subcontrol-position: right;
+                image: none;
+                background: transparent;
+                border: none;
+                margin: 0px;
+                padding: 0px;
             }
             QTabBar::close-button:hover {
                 background: #BF616A;
                 border-radius: 2px;
             }
+            /* 添加滚动条样式 */
+            QScrollBar:vertical {
+                background: #2E3440;
+                width: 14px;
+                margin: 0px;
+            }
+            QScrollBar::handle:vertical {
+                background: #4C566A;
+                min-height: 20px;
+                border-radius: 7px;
+            }
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+                height: 0px;
+            }
+            QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
+                background: none;
+            }
+            QScrollBar:horizontal {
+                background: #2E3440;
+                height: 14px;
+                margin: 0px;
+            }
+            QScrollBar::handle:horizontal {
+                background: #4C566A;
+                min-width: 20px;
+                border-radius: 7px;
+            }
+            QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
+                width: 0px;
+            }
+            QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {
+                background: none;
+            }
         """)
+        
+        # 自定义标签页关闭按钮为qtawesome图标
+        close_icon = qta.icon('fa5s.times', color='#D8DEE9')
+        for i in range(self.tabs.count()):
+            # 为已有标签页设置关闭图标
+            if self.tabs.tabBar().tabButton(i, QTabWidget.ButtonPosition.RightSide):
+                close_button = self.tabs.tabBar().tabButton(i, QTabWidget.ButtonPosition.RightSide)
+                close_button.setIcon(close_icon)
+        
+        # 监听标签页添加事件，为新标签页设置关闭图标
+        self.tabs.tabBarClicked.connect(self._check_tab_close_buttons)
+        # 监听标签页添加事件
+        self.tabs.currentChanged.connect(self._check_tab_close_buttons)
         
         # 创建提示词输入
         self.prompt_input = PromptInput()
@@ -498,4 +627,17 @@ class AuxiliaryWindow(QMainWindow):
                 return True  # 事件已处理
         
         # 调用父类的事件过滤器
-        return super().eventFilter(obj, event) 
+        return super().eventFilter(obj, event)
+
+    def _check_tab_close_buttons(self, index):
+        """检查并设置标签页关闭按钮图标"""
+        # 为标签页设置qtawesome图标
+        close_icon = qta.icon('fa5s.times', color='#D8DEE9')
+        
+        # 遍历所有标签页，检查是否有未设置图标的关闭按钮
+        for i in range(self.tabs.count()):
+            close_button = self.tabs.tabBar().tabButton(i, self.tabs.tabBar().ButtonPosition.RightSide)
+            if close_button and close_button.icon().isNull():
+                close_button.setIcon(close_icon)
+                close_button.setText("")  # 移除文本，只显示图标
+                close_button.setIconSize(QSize(12, 12))  # 设置合适的图标大小 
