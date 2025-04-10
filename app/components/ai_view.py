@@ -13,13 +13,19 @@ from PyQt6.QtWebEngineCore import QWebEnginePage
 from PyQt6.QtGui import QPixmap, QIcon
 import os
 import qtawesome as qta
+import sys
 
 from app.config import SUPPORTED_AI_PLATFORMS
 from app.controllers.web_profile_manager import WebProfileManager
 from app.controllers.settings_manager import SettingsManager
 
-# 图标文件夹路径
+# 图标文件夹路径 - 考虑打包环境和开发环境
 ICON_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "icons")
+if not os.path.exists(ICON_DIR) and getattr(sys, 'frozen', False):
+    # 打包环境下可能路径不同，尝试相对于可执行文件的路径
+    base_dir = os.path.dirname(sys.executable)
+    ICON_DIR = os.path.join(base_dir, "icons")
+
 # 注入脚本路径
 INJECTOR_SCRIPT_PATH = os.path.join(os.path.dirname(os.path.dirname(__file__)), "static", "js", "prompt_injector.js")
 
@@ -243,23 +249,59 @@ class AIView(QWidget):
         # 为每个平台创建图标和添加到下拉菜单
         print(f"--- Populating dropdown for container expecting AI: {ai_config['name']} (key: {ai_config['key']}) ---")
         for i, (dict_key, platform_config) in enumerate(platforms):
-            # 尝试加载本地图标
-            icon_path = os.path.join(ICON_DIR, f"{platform_config['key']}.png") # 使用小写key找图标
+            icon = None
+            lowercase_key = platform_config["key"]
+            
+            # 先尝试加载本地图标文件
+            icon_path = os.path.join(ICON_DIR, f"{lowercase_key}.png") # 先尝试png
             if not os.path.exists(icon_path):
-                icon_path = os.path.join(ICON_DIR, f"{platform_config['key']}.ico")
+                icon_path = os.path.join(ICON_DIR, f"{lowercase_key}.ico") # 再尝试ico
             
             if os.path.exists(icon_path):
                 # 加载图标
-                if icon_path.endswith('.ico'):
-                    icon = QIcon(icon_path)
-                else:
-                    icon = QIcon(QPixmap(icon_path))
+                try:
+                    if icon_path.endswith('.ico'):
+                        icon = QIcon(icon_path)
+                    else:
+                        icon = QIcon(QPixmap(icon_path))
+                    print(f"  Loaded icon from {icon_path}")
+                except Exception as e:
+                    print(f"  Error loading icon from {icon_path}: {e}")
+                    icon = None  # 加载失败，设为None以便尝试qtawesome
             else:
-                # 使用默认图标
-                print(f"  Warning: Icon not found for {platform_config['key']}. Using default.")
-                icon = qta.icon("fa5s.comment")
+                print(f"  Local icon not found for {lowercase_key}. Will try qtawesome.")
             
-            lowercase_key = platform_config["key"]
+            # 如果本地图标加载失败，尝试使用qtawesome
+            if icon is None:
+                try:
+                    # 根据AI平台选择合适的图标
+                    icon_map = {
+                        "chatgpt": "fa5b.chrome",      # ChatGPT使用Chrome图标
+                        "kimi": "fa5s.robot",          # Kimi使用机器人图标
+                        "doubao": "fa5s.comment",      # 其他平台使用通用对话图标
+                        "yuanbao": "fa5s.comment-dots",
+                        "perplexity": "fa5s.search",   # Perplexity用搜索图标
+                        "metaso": "fa5s.search",       # 元搜索用搜索图标
+                        "grok": "fa5b.twitter",        # Grok关联Twitter/X
+                        "yiyan": "fa5b.baidu",         # 文心一言用百度图标
+                        "gemini": "fa5b.google",       # Gemini用Google图标
+                        "tongyi": "fa5b.alipay",       # 通义用阿里图标
+                        "chatglm": "fa5s.brain",       # ChatGLM用脑图标
+                        "biji": "fa5s.sticky-note",    # 笔记用便签图标
+                        "n": "fa5s.yin-yang",          # N用特殊图标
+                        "deepseek": "fa5s.power-off"   # DeepSeek用电源图标
+                    }
+                    
+                    # 获取该平台对应的图标名，如果没有指定则使用评论图标
+                    icon_name = icon_map.get(lowercase_key, "fa5s.comment")
+                    icon = qta.icon(icon_name)
+                    print(f"  Using qtawesome icon: {icon_name}")
+                except Exception as e:
+                    print(f"  Error using qtawesome icon for {lowercase_key}: {e}")
+                    # 如果qtawesome也失败，使用默认图标
+                    icon = qta.icon("fa5s.comment")
+                    print(f"  Falling back to default qtawesome icon: fa5s.comment")
+            
             # 添加到下拉菜单，将平台 key (小写) 作为 userData 存储
             ai_selector.addItem(icon, platform_config["name"], userData=lowercase_key)
             print(f"  Added item: Index={i}, Name='{platform_config['name']}', UserData='{lowercase_key}' (Type: {type(lowercase_key)})")

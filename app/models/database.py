@@ -8,15 +8,21 @@
 import os
 import json
 import sqlite3
+import sys
+from pathlib import Path
 from datetime import datetime
 
 class DatabaseManager:
     """数据库管理类 - 管理SQLite数据库的连接和操作"""
     
-    def __init__(self, db_path="data/prompts.db"):
+    def __init__(self, db_name="prompts.db"):
         """初始化数据库管理器"""
+        # 获取应用数据目录
+        data_dir = self._get_data_directory()
+        db_path = os.path.join(data_dir, db_name)
+        
         # 确保数据目录存在
-        os.makedirs(os.path.dirname(db_path), exist_ok=True)
+        os.makedirs(data_dir, exist_ok=True)
         
         # 连接数据库
         self.conn = sqlite3.connect(db_path)
@@ -28,6 +34,35 @@ class DatabaseManager:
         # 初始化数据库
         self.init_database()
     
+    def _get_data_directory(self):
+        """获取应用数据目录
+        
+        根据不同操作系统获取合适的用户数据目录
+        
+        Returns:
+            str: 应用数据目录路径
+        """
+        # 应用名称
+        app_name = "AiSparkHub"
+        
+        # 运行在打包环境中
+        if getattr(sys, 'frozen', False):
+            # PyInstaller打包环境
+            if sys.platform == 'win32':
+                # Windows: %APPDATA%\AiSparkHub
+                base_dir = os.environ.get('APPDATA', '')
+                return os.path.join(base_dir, app_name, "database")
+            elif sys.platform == 'darwin':
+                # macOS: ~/Library/Application Support/AiSparkHub
+                return os.path.join(str(Path.home()), "Library", "Application Support", app_name, "database")
+            else:
+                # Linux: ~/.local/share/AiSparkHub
+                return os.path.join(str(Path.home()), ".local", "share", app_name, "database")
+        else:
+            # 开发环境直接使用项目目录下的data文件夹
+            data_dir = os.path.abspath("data")
+            return os.path.join(data_dir, "database")
+        
     def init_database(self):
         """初始化数据库表结构"""
         cursor = self.conn.cursor()
