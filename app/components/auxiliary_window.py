@@ -5,13 +5,14 @@
 # 该窗口作为辅助窗口，包含文件浏览器、提示词输入框和提示词历史记录。
 # 用于管理和同步提示词到主窗口的 AI 对话页面。
 
-from PyQt6.QtWidgets import QMainWindow, QWidget, QHBoxLayout, QPushButton, QVBoxLayout, QLabel, QSplitter, QFrame, QToolBar
+from PyQt6.QtWidgets import QMainWindow, QWidget, QHBoxLayout, QPushButton, QVBoxLayout, QLabel, QSplitter, QFrame, QToolBar, QStackedWidget
 from PyQt6.QtCore import Qt, QPoint, pyqtSignal, QSize
 import qtawesome as qta
 
 from app.components.file_explorer import FileExplorer
 from app.components.prompt_input import PromptInput
 from app.components.prompt_history import PromptHistory
+from app.components.file_viewer import FileViewer  # 导入文件查看器组件
 from app.controllers.prompt_sync import PromptSync
 
 class RibbonToolBar(QToolBar):
@@ -234,9 +235,63 @@ class AuxiliaryWindow(QMainWindow):
         self.file_explorer = FileExplorer()
         file_panel = PanelWidget("文件浏览", self.file_explorer, self)
         
-        # 提示词输入区
+        # 创建中间面板 - 包含文件查看器和提示词输入
+        middle_container = QWidget()
+        middle_layout = QVBoxLayout(middle_container)
+        middle_layout.setContentsMargins(0, 0, 0, 0)
+        middle_layout.setSpacing(0)
+        
+        # 创建工具栏，用于在文件查看时提供返回按钮
+        self.file_toolbar = QToolBar()
+        self.file_toolbar.setIconSize(QSize(16, 16))
+        self.file_toolbar.setStyleSheet("""
+            QToolBar {
+                background-color: #3B4252;
+                border: none;
+                spacing: 4px;
+                padding: 4px;
+            }
+            QToolButton {
+                background-color: transparent;
+                border: none;
+                border-radius: 4px;
+                padding: 4px;
+            }
+            QToolButton:hover {
+                background-color: #4C566A;
+            }
+        """)
+        
+        # 添加返回按钮
+        self.back_to_prompt_action = self.file_toolbar.addAction(
+            qta.icon('fa5s.arrow-left', color='#D8DEE9'), 
+            "返回到提示词输入"
+        )
+        self.back_to_prompt_action.triggered.connect(self.switch_to_prompt_input)
+        
+        # 初始隐藏工具栏
+        self.file_toolbar.setVisible(False)
+        middle_layout.addWidget(self.file_toolbar)
+        
+        # 创建一个堆叠小部件，用于切换文件查看器和提示词输入
+        self.middle_stack = QStackedWidget()
+        
+        # 创建文件查看器
+        self.file_viewer = FileViewer()
+        self.middle_stack.addWidget(self.file_viewer)
+        
+        # 创建提示词输入
         self.prompt_input = PromptInput()
-        prompt_panel = PanelWidget("提示词输入", self.prompt_input, self)
+        self.middle_stack.addWidget(self.prompt_input)
+        
+        # 默认显示提示词输入
+        self.middle_stack.setCurrentWidget(self.prompt_input)
+        
+        # 添加堆叠小部件到中间布局
+        middle_layout.addWidget(self.middle_stack)
+        
+        # 创建中间面板
+        middle_panel = PanelWidget("提示词输入", middle_container, self)
         
         # 提示词历史记录 (作为控制面板，包含窗口控制按钮)
         self.prompt_history = PromptHistory(self.db_manager)
@@ -244,18 +299,26 @@ class AuxiliaryWindow(QMainWindow):
         
         # 添加面板到分割器
         self.splitter.addWidget(file_panel)
-        self.splitter.addWidget(prompt_panel)
+        self.splitter.addWidget(middle_panel)
         self.splitter.addWidget(history_panel)
         
         # 设置初始比例 (3:4:3)
         self.splitter.setSizes([300, 400, 300])
         
-        # 初始化提示词同步管理器
-        self.prompt_sync = PromptSync()
-        
-        # 连接信号和槽
+        # 连接信号
         self.prompt_input.prompt_submitted.connect(self.on_prompt_submitted)
+        
+        # 连接历史记录的选择信号
         self.prompt_history.prompt_selected.connect(self.prompt_input.set_text)
+        
+        # 连接文件浏览器的fileOpenRequest信号到打开文件方法
+        self.file_explorer.fileOpenRequest.connect(self.open_file)
+        
+        # 连接文件查看器的file_content_to_prompt信号到提示词输入
+        self.file_viewer.file_content_to_prompt.connect(self.on_file_content_to_prompt)
+        
+        # 创建同步控制器
+        self.prompt_sync = PromptSync()
     
     def on_prompt_submitted(self, prompt_text):
         """处理提示词提交事件"""
@@ -299,4 +362,53 @@ class AuxiliaryWindow(QMainWindow):
 
     def mouseReleaseEvent(self, event):
         """处理鼠标释放事件"""
-        self._drag_pos = None 
+        self._drag_pos = None
+
+    def open_file(self, file_path, file_type):
+        """打开文件
+        
+        Args:
+            file_path (str): 文件路径
+            file_type (str): 文件类型
+        """
+        # 打开文件到文件查看器
+        self.file_viewer.open_file(file_path, file_type)
+        
+        # 切换到文件查看器
+        self.middle_stack.setCurrentWidget(self.file_viewer)
+        
+        # 显示工具栏
+        self.file_toolbar.setVisible(True)
+        
+        # 更新面板标题
+        middle_panel = self.splitter.widget(1)  # 中间面板索引为1
+        if isinstance(middle_panel, PanelWidget):
+            title_label = middle_panel.title_bar.findChild(QLabel)
+            if title_label:
+                title_label.setText("文件查看")
+                
+    def switch_to_prompt_input(self):
+        """切换到提示词输入"""
+        self.middle_stack.setCurrentWidget(self.prompt_input)
+        
+        # 隐藏工具栏
+        self.file_toolbar.setVisible(False)
+        
+        # 更新面板标题
+        middle_panel = self.splitter.widget(1)  # 中间面板索引为1
+        if isinstance(middle_panel, PanelWidget):
+            title_label = middle_panel.title_bar.findChild(QLabel)
+            if title_label:
+                title_label.setText("提示词输入")
+    
+    def on_file_content_to_prompt(self, content):
+        """处理文件内容复制到提示词
+        
+        Args:
+            content (str): 文件内容
+        """
+        # 设置提示词输入的内容
+        self.prompt_input.set_text(content)
+        
+        # 切换到提示词输入
+        self.switch_to_prompt_input() 
