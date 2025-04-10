@@ -35,6 +35,7 @@ ENV/
 env.bak/
 venv.bak/
 .conda/
+clipboard_test_env/
 
 # IDE相关
 .idea/

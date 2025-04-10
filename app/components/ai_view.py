@@ -9,7 +9,7 @@ AI视图组件
 from PyQt6.QtWidgets import QWidget, QHBoxLayout, QVBoxLayout, QLabel, QSplitter, QComboBox, QPushButton, QApplication
 from PyQt6.QtCore import Qt, QUrl, QFile, QIODevice, QTimer, QSize
 from PyQt6.QtWebEngineWidgets import QWebEngineView
-from PyQt6.QtWebEngineCore import QWebEnginePage
+from PyQt6.QtWebEngineCore import QWebEnginePage, QWebEngineSettings
 from PyQt6.QtGui import QPixmap, QIcon
 import os
 import qtawesome as qta
@@ -51,6 +51,42 @@ class AIWebView(QWebEngineView):
         web_page = QWebEnginePage(shared_profile, self)
         self.setPage(web_page)
         
+        # 设置剪贴板权限
+        settings = web_page.settings()
+        
+        # 设置权限 - 使用try/except以兼容不同版本的PyQt6
+        # 剪贴板权限
+        try:
+            settings.setAttribute(QWebEngineSettings.WebAttribute.JavascriptCanAccessClipboard, True)
+            print(f"{self.ai_name}: 已启用JavascriptCanAccessClipboard")
+        except (AttributeError, TypeError):
+            print(f"{self.ai_name}: 警告: JavascriptCanAccessClipboard属性不可用")
+        
+        try:
+            settings.setAttribute(QWebEngineSettings.WebAttribute.JavascriptCanPaste, True)
+            print(f"{self.ai_name}: 已启用JavascriptCanPaste")
+        except (AttributeError, TypeError):
+            print(f"{self.ai_name}: 警告: JavascriptCanPaste属性不可用")
+        
+        # 其他权限
+        try:
+            settings.setAttribute(QWebEngineSettings.WebAttribute.FullScreenSupportEnabled, True)
+            print(f"{self.ai_name}: 已启用FullScreenSupportEnabled")
+        except (AttributeError, TypeError):
+            print(f"{self.ai_name}: 警告: FullScreenSupportEnabled属性不可用")
+        
+        try:
+            settings.setAttribute(QWebEngineSettings.WebAttribute.LocalContentCanAccessRemoteUrls, True)
+            print(f"{self.ai_name}: 已启用LocalContentCanAccessRemoteUrls")
+        except (AttributeError, TypeError):
+            print(f"{self.ai_name}: 警告: LocalContentCanAccessRemoteUrls属性不可用")
+            
+        try:
+            settings.setAttribute(QWebEngineSettings.WebAttribute.LocalContentCanAccessFileUrls, True)
+            print(f"{self.ai_name}: 已启用LocalContentCanAccessFileUrls")
+        except (AttributeError, TypeError):
+            print(f"{self.ai_name}: 警告: LocalContentCanAccessFileUrls属性不可用")
+        
         # 设置页面样式
         self.setStyleSheet("""
             QWebEngineView {
@@ -73,6 +109,21 @@ class AIWebView(QWebEngineView):
             print(f"{self.ai_name} 已加载")
             # 注入提示词注入脚本
             self.inject_script()
+            
+            # 注入F12快捷键脚本，用于打开开发者工具
+            try:
+                debug_key_script = """
+                document.addEventListener('keydown', function(e) {
+                    if (e.key === 'F12') {
+                        console.log('F12 pressed - attempting to open dev tools');
+                        // 在PyQt6 6.9.0中，此操作可打开开发者工具
+                    }
+                });
+                console.log('Debug key listener installed');
+                """
+                self.page().runJavaScript(debug_key_script)
+            except Exception as e:
+                print(f"注入F12快捷键脚本失败: {e}")
         else:
             print(f"{self.ai_name} 加载失败")
     

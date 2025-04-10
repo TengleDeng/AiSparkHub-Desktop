@@ -1,8 +1,8 @@
-PyQt6==6.5.0
-PyQt6-Qt6==6.5.0
+PyQt6==6.9.0
+PyQt6-Qt6==6.9.0
 PyQt6-sip==13.10.0
-PyQt6-WebEngine==6.5.0
-PyQt6-WebEngine-Qt6==6.5.0
+PyQt6-WebEngine==6.9.0
+PyQt6-WebEngine-Qt6==6.9.0
 PyQt6-QScintilla==2.14.1
 qtawesome==1.4.0
 pathlib==1.0.1
