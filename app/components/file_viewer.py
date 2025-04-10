@@ -3,7 +3,7 @@
 
 """
 文件查看器组件
-在提示词输入区域显示HTML、Markdown、Word、Excel、PowerPoint、PDF和文本文件内容
+用于在标签页中显示HTML、Markdown、Word、Excel、PowerPoint、PDF和文本文件内容
 """
 
 import os
@@ -13,8 +13,8 @@ import tempfile
 import qtawesome as qta
 from PyQt6.QtCore import Qt, QUrl, QSize, pyqtSignal
 from PyQt6.QtWidgets import (
-    QTabWidget, QWidget, QTextEdit, QVBoxLayout, QToolBar, 
-    QPushButton, QLabel, QSplitter
+    QWidget, QTextEdit, QVBoxLayout, QToolBar, 
+    QPushButton, QLabel
 )
 from PyQt6.QtWebEngineWidgets import QWebEngineView
 from PyQt6.QtGui import QFont, QIcon, QColor, QTextCharFormat, QTextCursor, QAction
@@ -44,8 +44,8 @@ try:
 except ImportError:
     PDF_SUPPORT = False
 
-class FileViewer(QTabWidget):
-    """文件查看器，管理多个文件标签页，允许关闭和移动标签页"""
+class FileViewer(QWidget):
+    """文件查看器组件，用于显示单个文件内容"""
     
     # 添加信号，用于将文件内容复制到提示词
     file_content_to_prompt = pyqtSignal(str)
@@ -53,47 +53,42 @@ class FileViewer(QTabWidget):
     def __init__(self):
         super().__init__()
         
-        # 设置样式
-        self.setStyleSheet("""
-            QTabWidget::pane {
-                border: none;
-                background-color: #2E3440;
-            }
-            QTabBar::tab {
+        # 创建布局
+        self.layout = QVBoxLayout(self)
+        self.layout.setContentsMargins(0, 0, 0, 0)
+        self.layout.setSpacing(0)
+        
+        # 创建工具栏
+        self.toolbar = QToolBar()
+        self.toolbar.setIconSize(QSize(16, 16))
+        self.toolbar.setStyleSheet("""
+            QToolBar {
                 background-color: #3B4252;
-                color: #D8DEE9;
-                border-top-left-radius: 4px;
-                border-top-right-radius: 4px;
-                min-width: 8ex;
-                padding: 6px 10px;
-                margin-right: 2px;
+                border: none;
+                spacing: 5px;
+                padding: 5px;
             }
-            QTabBar::tab:selected {
+            QToolButton {
+                background-color: transparent;
+                border: none;
+                border-radius: 4px;
+                padding: 5px;
+            }
+            QToolButton:hover {
                 background-color: #4C566A;
-                color: #ECEFF4;
-            }
-            QTabBar::tab:hover:!selected {
-                background-color: #434C5E;
             }
         """)
         
-        # 启用关闭按钮和可移动标签
-        self.setTabsClosable(True)
-        self.setMovable(True)
+        # 添加工具栏
+        self.layout.addWidget(self.toolbar)
         
-        # 连接关闭按钮的信号
-        self.tabCloseRequested.connect(self.close_tab)
-    
-    def close_tab(self, index):
-        """关闭指定索引的标签页
-        
-        Args:
-            index (int): 标签页索引
-        """
-        self.removeTab(index)
+        # 初始化成员变量
+        self.file_path = None
+        self.file_type = None
+        self.viewer = None
     
     def open_file(self, file_path, file_type=None):
-        """打开文件并在新标签页中显示
+        """打开文件并显示内容
         
         Args:
             file_path (str): 文件路径
@@ -102,8 +97,8 @@ class FileViewer(QTabWidget):
         if not os.path.exists(file_path):
             return
         
-        # 获取文件名作为标签名
-        file_name = os.path.basename(file_path)
+        # 保存文件路径和类型
+        self.file_path = file_path
         
         # 如果没有指定文件类型，根据扩展名判断
         if file_type is None:
@@ -123,67 +118,35 @@ class FileViewer(QTabWidget):
             else:
                 file_type = 'text'
         
-        # 创建查看器
-        viewer = self._create_viewer(file_path, file_type)
+        self.file_type = file_type
         
-        # 获取文件图标
-        icon = self._get_file_icon(file_type)
+        # 清空工具栏
+        self.toolbar.clear()
         
-        # 检查是否已经有同名标签
-        for i in range(self.count()):
-            if self.tabText(i) == file_name:
-                # 如果存在，关闭它
-                self.removeTab(i)
-                break
-                
-        # 添加新标签页
-        index = self.addTab(viewer, icon, file_name)
-        self.setCurrentIndex(index)
+        # 添加复制到提示词按钮
+        copy_to_prompt_action = QAction(qta.icon('fa5s.copy', color='#D8DEE9'), "复制到提示词", self)
+        copy_to_prompt_action.triggered.connect(self._copy_to_prompt)
+        self.toolbar.addAction(copy_to_prompt_action)
+        
+        # 如果已有查看器，移除它
+        if self.viewer is not None:
+            self.layout.removeWidget(self.viewer)
+            self.viewer.deleteLater()
+            self.viewer = None
+        
+        # 创建新的查看器
+        self.viewer = self._create_viewer()
+        self.layout.addWidget(self.viewer)
     
-    def _create_viewer(self, file_path, file_type):
+    def _create_viewer(self):
         """根据文件类型创建对应的查看器
         
-        Args:
-            file_path (str): 文件路径
-            file_type (str): 文件类型 ('markdown', 'html', 'text', 'docx', 'powerpoint', 'excel', 'pdf')
-            
         Returns:
-            QWidget: 包含查看器的容器
+            QWidget: 查看器组件
         """
-        container = QWidget()
-        layout = QVBoxLayout(container)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(0)
+        file_path = self.file_path
+        file_type = self.file_type
         
-        # 创建工具栏
-        toolbar = QToolBar()
-        toolbar.setStyleSheet("""
-            QToolBar {
-                background-color: #3B4252;
-                border: none;
-                spacing: 5px;
-                padding: 5px;
-            }
-            QToolButton {
-                background-color: transparent;
-                border: none;
-                border-radius: 4px;
-                padding: 5px;
-            }
-            QToolButton:hover {
-                background-color: #4C566A;
-            }
-        """)
-        
-        # 添加到提示词按钮
-        copy_to_prompt_action = QAction(qta.icon('fa5s.copy', color='#D8DEE9'), "复制到提示词", container)
-        copy_to_prompt_action.triggered.connect(lambda: self._copy_to_prompt(file_path))
-        toolbar.addAction(copy_to_prompt_action)
-        
-        # 添加工具栏
-        layout.addWidget(toolbar)
-        
-        # 根据文件类型创建查看器
         if file_type == 'html':
             # HTML查看器
             viewer = QWebEngineView()
@@ -323,11 +286,7 @@ class FileViewer(QTabWidget):
             except Exception as e:
                 viewer.setPlainText(f"无法加载文件: {e}")
         
-        # 添加查看器到容器
-        layout.addWidget(viewer, 1)  # 使查看器占据大部分空间
-        container.file_path = file_path  # 存储文件路径
-        
-        return container
+        return viewer
     
     def _create_styled_html(self, content):
         """创建带有样式的HTML内容
@@ -591,43 +550,20 @@ class FileViewer(QTabWidget):
         
         return "".join(html)
     
-    def _get_file_icon(self, file_type):
-        """根据文件类型获取图标
-        
-        Args:
-            file_type (str): 文件类型
+    def _copy_to_prompt(self):
+        """复制文件内容到提示词输入框"""
+        if not self.file_path:
+            return
             
-        Returns:
-            QIcon: 文件图标
-        """
-        icons = {
-            'html': qta.icon('fa5s.file-code', color='#EBCB8B'),
-            'markdown': qta.icon('fa5s.file-alt', color='#A3BE8C'),
-            'text': qta.icon('fa5s.file-alt', color='#81A1C1'),
-            'docx': qta.icon('fa5s.file-word', color='#5E81AC'),
-            'powerpoint': qta.icon('fa5s.file-powerpoint', color='#D08770'),
-            'excel': qta.icon('fa5s.file-excel', color='#A3BE8C'),
-            'pdf': qta.icon('fa5s.file-pdf', color='#BF616A')
-        }
-        
-        return icons.get(file_type, qta.icon('fa5s.file', color='#D8DEE9'))
-    
-    def _copy_to_prompt(self, file_path):
-        """复制文件内容到提示词输入框
-        该方法需要外部连接
-        
-        Args:
-            file_path (str): 文件路径
-        """
         try:
-            with open(file_path, 'r', encoding='utf-8') as f:
+            with open(self.file_path, 'r', encoding='utf-8') as f:
                 content = f.read()
                 # 发出信号，将内容传递给提示词输入框
                 self.file_content_to_prompt.emit(content)
         except UnicodeDecodeError:
             try:
                 # 尝试使用系统默认编码
-                with open(file_path, 'r') as f:
+                with open(self.file_path, 'r') as f:
                     content = f.read()
                     self.file_content_to_prompt.emit(content)
             except Exception as e:
