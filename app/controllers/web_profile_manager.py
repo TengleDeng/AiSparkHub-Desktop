@@ -33,14 +33,35 @@ class WebProfileManager:
         self.data_dir = self._get_data_directory()
         
         # 确保存储目录存在
-        os.makedirs(self.data_dir, exist_ok=True)
+        try:
+            if not os.path.exists(self.data_dir):
+                os.makedirs(self.data_dir, exist_ok=True)
+                print(f"Web配置管理器创建目录: {self.data_dir}")
+            
+            # 确保子目录存在
+            webdata_dir = os.path.join(self.data_dir, "webdata")
+            cache_dir = os.path.join(self.data_dir, "cache")
+            for directory in [webdata_dir, cache_dir]:
+                if not os.path.exists(directory):
+                    os.makedirs(directory, exist_ok=True)
+                    print(f"Web配置管理器创建子目录: {directory}")
+                
+        except (PermissionError, OSError) as e:
+            print(f"警告: Web配置管理器无法创建目录 '{self.data_dir}': {e}")
+            # 回退到临时目录
+            import tempfile
+            self.data_dir = tempfile.gettempdir()
+            print(f"Web配置管理器回退到临时目录: {self.data_dir}")
         
         # 创建持久化配置文件
         self.profile = QWebEngineProfile("AiSparkHub")
         
         # 设置持久化存储路径
-        self.profile.setPersistentStoragePath(os.path.join(self.data_dir, "webdata"))
-        self.profile.setCachePath(os.path.join(self.data_dir, "cache"))
+        webdata_path = os.path.join(self.data_dir, "webdata")
+        cache_path = os.path.join(self.data_dir, "cache")
+        
+        self.profile.setPersistentStoragePath(webdata_path)
+        self.profile.setCachePath(cache_path)
         
         # 启用持久化cookie存储
         self.profile.setPersistentCookiesPolicy(QWebEngineProfile.PersistentCookiesPolicy.AllowPersistentCookies)

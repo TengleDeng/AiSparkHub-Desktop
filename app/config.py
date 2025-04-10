@@ -125,6 +125,14 @@ SUPPORTED_AI_PLATFORMS = {
         "submit_selector": '.n-button',
         "response_selector": "#response-textarea"
     },
+    "metaso": {
+        "key": 'metaso',
+        "name": 'metaso',
+        "url": 'https://metaso.cn/',
+        "input_selector": ".search-consult-textarea",
+        "submit_selector": ".send-arrow-button",
+        "response_selector": "#response-textarea"
+    },
     "DEEPSEEK": {
         "key": "deepseek",
         "name": "DeepSeek",

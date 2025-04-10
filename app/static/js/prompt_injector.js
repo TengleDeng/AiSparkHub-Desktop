@@ -9,18 +9,20 @@ const PLATFORM_SELECTORS = {
     chatgpt: {
         input: '#prompt-textarea',
         button: 'button[data-testid="send-button"]',
-        altInput: 'textarea[placeholder="Message ChatGPT…"]'
+        responseSelector: '.markdown.prose'
+
     },
     // Kimi
     kimi: {
-        input: '[id="msh-chateditor"]',
-        button: '[id="send-button"]',
-        altInput: '.chat-input-editor'
+        input: '.chat-input-editor',
+        button: '.send-button',
+        responseSelector: '.markdown___vuBDJ'
     },
     // 豆包
     doubao: {
         input: 'textarea.semi-input-textarea',
-        button: '#flow-end-msg-send'
+        button: '#flow-end-msg-send',
+        responseSelector: '[data-testid="receive_message"]'
     },
     // 元宝
     yuanbao: {
@@ -30,7 +32,8 @@ const PLATFORM_SELECTORS = {
     // Perplexity
     perplexity: {
         input: 'textarea.overflow-auto',
-        button: 'button[aria-label="Submit"]'
+        button: 'button[aria-label="Submit"]',
+        responseSelector: "#response-textarea"
     },
     // N
     n: {
@@ -45,15 +48,12 @@ const PLATFORM_SELECTORS = {
     // ChatGLM
     chatglm: {
         input: 'textarea.scroll-display-none',
-        button: '.enter',
-        altButton: '.enter_icon'
+        button: '.enter_icon'
     },
     // Grok
     grok: {
-        input: 'textarea.r-30o5oe',
-        button: 'button.r-1f2l425',
-        altInput: 'textarea[aria-label="向Grok提任何问题"]',
-        altButton: 'button[type="submit"][aria-label="提交"]'
+        input: 'textarea[aria-label=\"向Grok提任何问题\"]',
+        button: 'button[type=\"submit\"][aria-label=\"提交\"]'
     },
     // Get笔记
     biji: {
@@ -83,9 +83,7 @@ const PLATFORM_SELECTORS = {
     // DeepSeek
     deepseek: {
         input: '#chat-input',
-        button: '[role="button"][aria-disabled="false"]',
-        altInput: 'textarea.text-base',
-        altButton: 'button.send-button'
+        button: '[role="button"][aria-disabled="false"]'
     }
 };
 
