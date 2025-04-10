@@ -34,6 +34,10 @@ class WindowManager(QObject):
             print("已将AI视图注册到提示词同步器")
         else:
             print("警告：未找到主窗口的AI视图")
+        
+        # 连接辅助窗口的"打开主窗口"请求信号
+        self.auxiliary_window.request_open_main_window.connect(self.show_main_window)
+        print("已连接辅助窗口的打开主窗口请求信号")
     
     def set_initial_display_mode(self):
         """根据屏幕情况设置初始显示模式"""
@@ -150,4 +154,11 @@ class WindowManager(QObject):
         if self.current_mode == self.MODE_DUAL_SCREEN:
             self.set_single_screen_mode()
         else:
-            self.set_dual_screen_mode() 
+            self.set_dual_screen_mode()
+    
+    def show_main_window(self):
+        """显示主窗口，响应辅助窗口的请求"""
+        print("收到打开主窗口请求")
+        if not self.main_window.isVisible():
+            self.main_window.show()
+            print("主窗口已显示") 
