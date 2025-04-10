@@ -478,30 +478,155 @@ window.AiSparkHub.getPlatformFromURL = getPlatformFromURL;
         const selection = window.getSelection();
         if (!selection.rangeCount) return;
         
-        const range = selection.getRangeAt(0);
-        
-        // 创建高亮元素
-        const span = document.createElement('span');
-        span.style.backgroundColor = bgColor;
-        span.style.borderBottom = border;
-        span.style.transition = 'background-color 0.3s';
-        
         try {
-            // 尝试包裹选择内容
-            range.surroundContents(span);
+            // 获取原始范围
+            const originalRange = selection.getRangeAt(0);
+            
+            // 创建一个文档片段来分析选择的内容
+            const fragment = originalRange.cloneContents();
+            const nodes = getAllTextNodes(fragment);
+            
+            // 如果是简单选择（仅包含一个文本节点），使用传统方法
+            if (nodes.length <= 1 && !originalRange.startContainer.contains(originalRange.endContainer) &&
+                originalRange.startContainer === originalRange.endContainer) {
+                // 创建高亮元素
+                const span = document.createElement('span');
+                span.style.backgroundColor = bgColor;
+                span.style.borderBottom = border;
+                span.style.transition = 'background-color 0.3s';
+                
+                // 尝试简单包裹
+                originalRange.surroundContents(span);
+                
+                // 添加短暂闪烁效果以提供视觉反馈
+                const originalBg = span.style.backgroundColor;
+                span.style.backgroundColor = 'rgba(255,255,255,0.9)';
+                setTimeout(() => {
+                    span.style.backgroundColor = originalBg;
+                }, 150);
+            } else {
+                // 复杂选择（跨多个元素），采用分段高亮方法
+                highlightComplexSelection(originalRange, bgColor, border);
+            }
+            
+            // 清除选择
             selection.removeAllRanges();
             console.log('已高亮文本');
             
-            // 添加短暂闪烁效果以提供视觉反馈
-            const originalBg = span.style.backgroundColor;
-            span.style.backgroundColor = 'rgba(255,255,255,0.9)';
-            setTimeout(() => {
-                span.style.backgroundColor = originalBg;
-            }, 150);
         } catch (e) {
-            console.error('高亮失败:', e);
-            showToast('无法高亮选中的内容，请尝试选择更简单的文本块');
+            console.error('高亮操作失败:', e);
+            
+            // 尝试使用备用的分段高亮方法
+            try {
+                const range = selection.getRangeAt(0);
+                highlightComplexSelection(range, bgColor, border);
+                selection.removeAllRanges();
+                console.log('使用备用方法成功高亮文本');
+            } catch (backupError) {
+                console.error('备用高亮方法也失败:', backupError);
+                showToast('无法高亮选中的内容，请尝试选择更简单的文本块');
+            }
         }
+    }
+    
+    // 用于复杂选择（跨多个DOM元素）的高亮处理函数
+    function highlightComplexSelection(range, bgColor, border) {
+        // 创建一个TreeWalker来遍历范围内的所有文本节点
+        const startNode = range.startContainer;
+        const endNode = range.endContainer;
+        const commonAncestor = range.commonAncestorContainer;
+        
+        // 创建一个文档片段来获取范围内的所有节点
+        const fragment = range.cloneContents();
+        const walker = document.createTreeWalker(
+            commonAncestor,
+            NodeFilter.SHOW_TEXT,
+            {
+                acceptNode: function(node) {
+                    // 只接受范围内的文本节点
+                    const nodeRange = document.createRange();
+                    nodeRange.selectNode(node);
+                    
+                    // 检查节点是否与选择范围有交集
+                    if (range.compareBoundaryPoints(Range.END_TO_START, nodeRange) <= 0 &&
+                        range.compareBoundaryPoints(Range.START_TO_END, nodeRange) >= 0) {
+                        return NodeFilter.FILTER_ACCEPT;
+                    }
+                    return NodeFilter.FILTER_REJECT;
+                }
+            }
+        );
+        
+        // 收集范围内的所有文本节点
+        const textNodes = [];
+        let currentNode = walker.nextNode();
+        
+        while (currentNode) {
+            // 只处理可见文本内容的节点
+            if (currentNode.textContent.trim() !== '') {
+                textNodes.push(currentNode);
+            }
+            currentNode = walker.nextNode();
+        }
+        
+        // 处理每个文本节点
+        textNodes.forEach((node, index) => {
+            try {
+                // 为每个节点创建一个新范围
+                const nodeRange = document.createRange();
+                
+                // 设置范围的开始和结束
+                if (node === startNode) {
+                    // 第一个节点，从选择的起始位置开始
+                    nodeRange.setStart(node, range.startOffset);
+                    nodeRange.setEnd(node, node.length);
+                } else if (node === endNode) {
+                    // 最后一个节点，到选择的结束位置结束
+                    nodeRange.setStart(node, 0);
+                    nodeRange.setEnd(node, range.endOffset);
+                } else {
+                    // 中间节点，包含整个文本
+                    nodeRange.selectNode(node);
+                }
+                
+                // 创建高亮元素
+                const span = document.createElement('span');
+                span.style.backgroundColor = bgColor;
+                span.style.borderBottom = border;
+                span.style.transition = 'background-color 0.3s';
+                
+                // 使用surroundContents高亮此节点
+                nodeRange.surroundContents(span);
+                
+                // 添加闪烁效果
+                const originalBg = span.style.backgroundColor;
+                span.style.backgroundColor = 'rgba(255,255,255,0.9)';
+                setTimeout(() => {
+                    span.style.backgroundColor = originalBg;
+                }, 150);
+                
+            } catch (e) {
+                console.warn(`无法高亮文本节点 ${index}:`, e);
+            }
+        });
+    }
+    
+    // 获取所有文本节点的辅助函数
+    function getAllTextNodes(node) {
+        const textNodes = [];
+        
+        function collectTextNodes(currentNode) {
+            if (currentNode.nodeType === Node.TEXT_NODE && currentNode.textContent.trim() !== '') {
+                textNodes.push(currentNode);
+            } else {
+                for (let i = 0; i < currentNode.childNodes.length; i++) {
+                    collectTextNodes(currentNode.childNodes[i]);
+                }
+            }
+        }
+        
+        collectTextNodes(node);
+        return textNodes;
     }
     
     console.log("简单高亮功能初始化完成");
