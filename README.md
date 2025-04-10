@@ -250,3 +250,48 @@ AiSparkHub 是一个基于 Python 的桌面应用程序，旨在为用户提供�
   ```
 
 ---
+
+## 打包和安装
+
+### 打包应用程序
+
+我们提供了一套完整的打包工具，可以将应用程序打包为Windows安装程序。
+
+#### 前提条件
+
+1. 安装Python 3.8或更高版本
+2. 安装必要的依赖项：`PyQt6`, `PyQt6-WebEngine`, `qtawesome`
+3. 安装Inno Setup（可选，用于创建安装程序）：[下载地址](https://jrsoftware.org/isdl.php)
+
+#### 打包步骤
+
+1. 运行批处理文件 `build.bat`，它会自动：
+   - 检查并安装必要的依赖
+   - 使用PyInstaller打包应用程序
+   - 创建Inno Setup脚本
+   - 如果安装了Inno Setup，自动编译安装程序
+
+2. 如果没有安装Inno Setup，请手动打开生成的 `installer_script.iss` 文件并编译它。
+
+3. 完成后，安装程序将存放在 `installer` 目录中。
+
+### 手动打包
+
+如果需要手动执行打包过程，可以按照以下步骤操作：
+
+1. 清理之前的构建：
+   ```
+   rmdir /s /q build dist
+   ```
+
+2. 使用PyInstaller打包应用：
+   ```
+   python -m PyInstaller --name AiSparkHub --windowed --noconfirm --clean --log-level INFO --onedir main.py
+   ```
+
+3. 使用Inno Setup打开并编译 `installer_script.iss` 文件。
+
+## 注意事项
+
+- 安装包中包含完整的应用程序和运行时环境，无需单独安装Python
+- 用户设置和数据库存储在本地应用数据目录中

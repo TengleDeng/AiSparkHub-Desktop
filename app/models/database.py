@@ -21,18 +21,33 @@ class DatabaseManager:
         data_dir = self._get_data_directory()
         db_path = os.path.join(data_dir, db_name)
         
-        # 确保数据目录存在
-        os.makedirs(data_dir, exist_ok=True)
+        # 安全创建目录 - 如果不使用主程序的预创建目录功能，这里确保目录存在
+        # 在大多数情况下，这个目录已经被主程序创建
+        try:
+            if not os.path.exists(data_dir):
+                os.makedirs(data_dir, exist_ok=True)
+                print(f"数据库管理器创建目录: {data_dir}")
+        except (PermissionError, OSError) as e:
+            print(f"警告: 无法创建数据库目录 '{data_dir}': {e}")
+            # 尝试回退到临时目录
+            import tempfile
+            data_dir = tempfile.gettempdir()
+            db_path = os.path.join(data_dir, db_name)
+            print(f"回退到临时目录: {data_dir}")
         
-        # 连接数据库
-        self.conn = sqlite3.connect(db_path)
-        # 将查询结果作为字典返回
-        self.conn.row_factory = sqlite3.Row
-        # 启用外键支持
-        self.conn.execute("PRAGMA foreign_keys = ON")
-        
-        # 初始化数据库
-        self.init_database()
+        try:
+            # 连接数据库
+            self.conn = sqlite3.connect(db_path)
+            # 将查询结果作为字典返回
+            self.conn.row_factory = sqlite3.Row
+            # 启用外键支持
+            self.conn.execute("PRAGMA foreign_keys = ON")
+            
+            # 初始化数据库
+            self.init_database()
+        except sqlite3.Error as e:
+            print(f"数据库连接错误: {e}")
+            self.conn = None  # 确保连接失败时设置为None，避免后续错误
     
     def _get_data_directory(self):
         """获取应用数据目录
