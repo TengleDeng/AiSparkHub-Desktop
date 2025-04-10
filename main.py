@@ -36,8 +36,15 @@ def main():
     # 初始化窗口管理器
     window_manager = WindowManager(main_window, auxiliary_window)
     
-    # 根据屏幕情况设置初始显示模式
-    window_manager.set_initial_display_mode()
+    # 检测屏幕数量，根据情况选择显示模式
+    screens = app.screens()
+    print(f"检测到 {len(screens)} 个屏幕")
+    if len(screens) > 1:
+        print("检测到多个屏幕，启用双屏幕模式")
+        window_manager.set_dual_screen_mode()
+    else:
+        print("检测到单个屏幕，使用初始显示模式")
+        window_manager.set_initial_display_mode()
     
     # 应用退出时执行清理操作
     app.aboutToQuit.connect(db_manager.close_connection)

@@ -45,21 +45,49 @@ class WindowManager(QObject):
         screen = QApplication.primaryScreen()
         screen_size = screen.availableGeometry()
         
-        # 主窗口位置和大小
+        # 首先重置窗口状态
+        self.main_window.showNormal()
+        self.auxiliary_window.showNormal()
+        
+        # 暂时禁用无边框以便可以正确设置位置
+        main_flags = self.main_window.windowFlags()
+        aux_flags = self.auxiliary_window.windowFlags()
+        
+        self.main_window.setWindowFlags(main_flags & ~Qt.WindowType.FramelessWindowHint)
+        self.auxiliary_window.setWindowFlags(aux_flags & ~Qt.WindowType.FramelessWindowHint)
+        
+        # 重新显示窗口（更改flags后需要重新show）
+        self.main_window.show()
+        self.auxiliary_window.show()
+        
+        # 设置窗口在屏幕中央
         main_width = min(1200, screen_size.width() - 100)
         main_height = min(800, screen_size.height() - 100)
         main_x = (screen_size.width() - main_width) // 2
-        main_y = (screen_size.height() - main_height - 300) // 2
+        main_y = (screen_size.height() - main_height) // 2
         
-        # 辅助窗口位置和大小
-        aux_width = main_width
-        aux_height = 300
-        aux_x = main_x
-        aux_y = main_y + main_height
+        # 设置辅助窗口与主窗口大小相似，稍微错开位置避免完全重叠
+        aux_x = main_x + 50
+        aux_y = main_y + 50
         
         # 设置窗口位置和大小
-        self.main_window.setGeometry(QRect(main_x, main_y, main_width, main_height))
-        self.auxiliary_window.setGeometry(QRect(aux_x, aux_y, aux_width, aux_height))
+        self.main_window.setGeometry(main_x, main_y, main_width, main_height)
+        self.auxiliary_window.setGeometry(aux_x, aux_y, main_width, main_height)
+        
+        # 强制处理事件，确保位置设置完成
+        QApplication.processEvents()
+        
+        # 恢复无边框
+        self.main_window.setWindowFlags(main_flags)
+        self.auxiliary_window.setWindowFlags(aux_flags)
+        
+        # 重新显示窗口
+        self.main_window.show()
+        self.auxiliary_window.show()
+        
+        # 初始设置主窗口最大化，辅助窗口不最大化
+        self.main_window.showMaximized()
+        print("单屏幕模式：主窗口已最大化显示")
     
     def set_dual_screen_mode(self):
         """设置为双屏幕模式"""
@@ -73,17 +101,108 @@ class WindowManager(QObject):
         # 获取屏幕列表，假设第一个屏幕是主屏幕
         screens = QApplication.instance().screens()
         if len(screens) > 1:
-            # 将主窗口移到第二个屏幕
+            print("检测到多个屏幕，设置双屏幕模式")
+            
+            # ===== 处理主窗口 =====
+            # 首先重置窗口状态
+            self.main_window.showNormal()
+            
+            # 暂时禁用无边框
+            original_flags = self.main_window.windowFlags()
+            self.main_window.setWindowFlags(original_flags & ~Qt.WindowType.FramelessWindowHint)
+            self.main_window.show()  # 窗口标志修改后需要重新show
+            
+            # 获取第二个屏幕的几何信息
             second_screen_geometry = screens[1].availableGeometry()
-            self.main_window.setGeometry(second_screen_geometry)
+            print(f"第二屏幕几何信息: {second_screen_geometry}")
             
-            # 将辅助窗口移到第一个屏幕（通常是主屏幕）
+            # 将窗口移到第二个屏幕上
+            self.main_window.setGeometry(
+                second_screen_geometry.x() + 50,
+                second_screen_geometry.y() + 50,
+                second_screen_geometry.width() - 100,
+                second_screen_geometry.height() - 100
+            )
+            
+            # 强制处理事件，确保窗口移动完成
+            QApplication.processEvents()
+            
+            # 恢复无边框
+            self.main_window.setWindowFlags(original_flags)
+            self.main_window.show()
+            
+            # 最大化窗口
+            self.main_window.showMaximized()
+            print("主窗口已设置在第二屏幕上并最大化")
+            
+            # ===== 处理辅助窗口 =====
+            # 首先重置窗口状态
+            self.auxiliary_window.showNormal()
+            
+            # 暂时禁用无边框
+            original_flags = self.auxiliary_window.windowFlags()
+            self.auxiliary_window.setWindowFlags(original_flags & ~Qt.WindowType.FramelessWindowHint)
+            self.auxiliary_window.show()  # 窗口标志修改后需要重新show
+            
+            # 获取第一个屏幕的几何信息
             first_screen_geometry = screens[0].availableGeometry()
-            self.auxiliary_window.setGeometry(first_screen_geometry)
+            print(f"第一屏幕几何信息: {first_screen_geometry}")
             
-            # 确保窗口都可见
+            # 将窗口移到第一个屏幕上
+            self.auxiliary_window.setGeometry(
+                first_screen_geometry.x() + 50,
+                first_screen_geometry.y() + 50,
+                first_screen_geometry.width() - 100,
+                first_screen_geometry.height() - 100
+            )
+            
+            # 强制处理事件，确保窗口移动完成
+            QApplication.processEvents()
+            
+            # 恢复无边框
+            self.auxiliary_window.setWindowFlags(original_flags)
+            self.auxiliary_window.show()
+            
+            # 最大化窗口
+            self.auxiliary_window.showMaximized()
+            print("辅助窗口已设置在第一屏幕上并最大化")
+        else:
+            print("只检测到一个屏幕，将在单屏幕上显示两个窗口")
+            
+            # 首先重置窗口状态
+            self.main_window.showNormal()
+            self.auxiliary_window.showNormal()
+            
+            # 暂时禁用无边框
+            main_flags = self.main_window.windowFlags()
+            aux_flags = self.auxiliary_window.windowFlags()
+            
+            self.main_window.setWindowFlags(main_flags & ~Qt.WindowType.FramelessWindowHint)
+            self.auxiliary_window.setWindowFlags(aux_flags & ~Qt.WindowType.FramelessWindowHint)
+            
+            # 重新显示窗口
             self.main_window.show()
             self.auxiliary_window.show()
+            
+            # 错开位置避免完全重叠
+            screen_size = QApplication.primaryScreen().availableGeometry()
+            self.main_window.move(screen_size.x() + 20, screen_size.y() + 20)
+            self.auxiliary_window.move(screen_size.x() + 70, screen_size.y() + 70)
+            
+            # 强制处理事件，确保位置设置完成
+            QApplication.processEvents()
+            
+            # 恢复无边框
+            self.main_window.setWindowFlags(main_flags)
+            self.auxiliary_window.setWindowFlags(aux_flags)
+            
+            # 重新显示窗口
+            self.main_window.show()
+            self.auxiliary_window.show()
+            
+            # 最大化主窗口
+            self.main_window.showMaximized()
+            print("单屏幕模式：主窗口已最大化显示")
             
         self.current_mode = self.MODE_DUAL_SCREEN
     
