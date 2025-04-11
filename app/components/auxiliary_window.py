@@ -10,6 +10,8 @@ from PyQt6.QtCore import Qt, QPoint, pyqtSignal, QSize, QTimer
 from PyQt6.QtGui import QIcon
 import qtawesome as qta
 import os
+from datetime import datetime
+import sqlite3
 
 from app.components.file_explorer import FileExplorer
 from app.components.prompt_input import PromptInput
@@ -491,11 +493,17 @@ class AuxiliaryWindow(QMainWindow):
         
         # 连接历史记录的提示词直接发送请求信号
         self.prompt_history.request_send_prompt.connect(self.on_request_send_prompt)
+        
+        # 连接历史记录的总结AI回复请求信号
+        self.prompt_history.request_summarize_responses.connect(self.on_request_summarize_responses)
     
     def on_prompt_submitted(self, prompt_text):
         """处理提示词提交事件"""
-        # 不再使用旧的历史表保存方法
-        # self.db_manager.add_prompt(prompt_text, ["ChatGPT", "DeepSeek"])
+        if not prompt_text or not prompt_text.strip():
+            print("提示词为空，不执行发送操作")
+            return
+            
+        print(f"发送提示词: {prompt_text[:30]}...")
         
         # 直接同步提示词到主窗口的AI网页
         # prompt_sync.sync_prompt会处理存储到prompt_details表
@@ -802,10 +810,403 @@ class AuxiliaryWindow(QMainWindow):
             print("提示词为空，不执行发送操作")
             return
             
-        print(f"直接发送提示词: {prompt_text[:30]}...")
+        print(f"直接发送原始提示词: {prompt_text[:30]}...")
         
         # 使用同步控制器直接发送提示词（复用现有的prompt_sync机制）
         self.prompt_sync.sync_prompt(prompt_text)
         
         # 刷新历史记录区域
-        QTimer.singleShot(500, self.prompt_history.refresh_history) 
+        QTimer.singleShot(500, self.prompt_history.refresh_history)
+
+    def on_request_summarize_responses(self, prompt_id):
+        """处理总结AI回复的请求
+        
+        Args:
+            prompt_id (str): 提示词ID
+        """
+        if not prompt_id:
+            print("无效的提示词ID，无法总结AI回复")
+            return
+            
+        print(f"\n====== 开始处理总结AI回复请求 ======")
+        print(f"提示词ID: {prompt_id}")
+        
+        try:
+            # 从数据库中获取原始提示词和各个平台的回复
+            prompt_data = self.get_prompt_with_responses(prompt_id)
+            if not prompt_data:
+                print(f"找不到ID为 {prompt_id} 的提示词记录或记录获取失败")
+                QMessageBox.warning(self, "总结失败", f"无法找到该提示词的记录或无法获取提示词数据")
+                return
+                
+            # 检查是否有平台回复
+            if not prompt_data.get('responses') or len(prompt_data['responses']) == 0:
+                print(f"提示词ID为 {prompt_id} 的记录没有任何AI平台回复")
+                QMessageBox.warning(self, "总结失败", f"该提示词没有任何AI平台的回复内容")
+                return
+                
+            # 构建总结提示词
+            summary_prompt = self.build_summary_prompt(prompt_data)
+            
+            # 发送总结提示词
+            if summary_prompt:
+                print(f"总结提示词构建成功，长度: {len(summary_prompt)}")
+                print(f"正在发送总结提示词...")
+                # 使用sync_prompt方法发送总结提示词到AI平台
+                self.prompt_sync.sync_prompt(summary_prompt)
+                # 刷新历史记录区域
+                QTimer.singleShot(1000, self.prompt_history.refresh_history)
+                print(f"总结提示词已发送")
+            else:
+                print("无法构建总结提示词，返回值为None")
+                QMessageBox.warning(self, "总结失败", "无法构建总结提示词，请检查该提示词是否有AI平台回复")
+        except Exception as e:
+            print(f"总结AI回复时出错: {e}")
+            import traceback
+            traceback.print_exc()
+            QMessageBox.warning(self, "总结失败", f"无法总结AI回复: {str(e)}")
+        finally:
+            print(f"====== 总结AI回复请求处理结束 ======\n")
+    
+    def get_prompt_with_responses(self, prompt_id):
+        """从数据库获取提示词及其所有AI平台回复
+        
+        Args:
+            prompt_id (str): 提示词ID
+            
+        Returns:
+            dict: 包含提示词和回复的数据字典
+        """
+        try:
+            print(f"\n===== 开始从数据库获取提示词及回复 =====")
+            print(f"查询提示词ID: {prompt_id}")
+            
+            # 检查数据库连接
+            if not self.db_manager or not self.db_manager.conn:
+                print("数据库管理器或连接不可用")
+                return None
+            
+            # 获取sqlite3模块
+            import sqlite3
+            
+            # 最直接的方式：使用数据库管理器自己的connection
+            conn = self.db_manager.conn
+            # 确保row_factory设置正确
+            original_row_factory = conn.row_factory
+            conn.row_factory = sqlite3.Row
+            
+            cursor = conn.cursor()
+            
+            # 查看数据库表结构
+            cursor.execute("PRAGMA table_info(prompt_details)")
+            columns = cursor.fetchall()
+            column_names = [col['name'] for col in columns]
+            print(f"数据库表结构: {column_names}")
+            
+            # 使用直接的SQL查询获取数据
+            query = """
+                SELECT 
+                    id, prompt, timestamp,
+                    ai1_url, ai1_reply,
+                    ai2_url, ai2_reply,
+                    ai3_url, ai3_reply,
+                    ai4_url, ai4_reply,
+                    ai5_url, ai5_reply,
+                    ai6_url, ai6_reply
+                FROM prompt_details 
+                WHERE id = ?
+            """
+            
+            cursor.execute(query, (prompt_id,))
+            row = cursor.fetchone()
+            
+            if not row:
+                print(f"找不到ID为 {prompt_id} 的提示词记录")
+                # 恢复原始工厂方法
+                conn.row_factory = original_row_factory
+                return None
+            
+            # 打印行的类型和访问方法
+            print(f"查询结果类型: {type(row)}")
+            print(f"查询结果是否支持按键访问: {'keys' in dir(row)}")
+            print(f"查询结果长度: {len(row)}")
+            
+            # 构造包含所有平台回复的数据字典
+            prompt_data = {
+                'id': prompt_id,
+                'prompt_text': row['prompt'],
+                'timestamp': row['timestamp'],
+                'responses': []
+            }
+            
+            # 直接检查ai*_url和ai*_reply字段
+            print("\n检查AI平台回复字段内容:")
+            for i in range(1, 7):
+                url_key = f"ai{i}_url"
+                reply_key = f"ai{i}_reply"
+                
+                url = row[url_key] if url_key in row else None
+                reply = row[reply_key] if reply_key in row else None
+                
+                print(f"AI {i}:")
+                print(f"  - URL({url_key}): {url}")
+                print(f"  - 回复({reply_key}): {reply and len(reply)}")
+                
+                if url and reply and reply.strip():
+                    preview = reply[:30] + "..." if len(reply) > 30 else reply
+                    print(f"  - 回复预览: {preview}")
+                    
+                    platform = self.extract_platform_from_url(url)
+                    prompt_data['responses'].append({
+                        'platform': platform,
+                        'url': url,
+                        'response': reply
+                    })
+                    print(f"添加平台 {platform} 的回复，长度: {len(reply)}")
+            
+            # 如果没有找到任何回复，尝试使用索引访问
+            if len(prompt_data['responses']) == 0:
+                print("\n尝试使用索引访问:")
+                
+                # 创建列名到索引的映射
+                column_indices = {name: i for i, name in enumerate(row.keys())}
+                print(f"列名到索引映射: {column_indices}")
+                
+                for i in range(1, 7):
+                    url_key = f"ai{i}_url"
+                    reply_key = f"ai{i}_reply"
+                    
+                    if url_key in column_indices and reply_key in column_indices:
+                        url_index = column_indices[url_key]
+                        reply_index = column_indices[reply_key]
+                        
+                        try:
+                            url = row[url_index]
+                            reply = row[reply_index]
+                            
+                            print(f"AI {i} (索引方式):")
+                            print(f"  - URL({url_key})[{url_index}]: {url}")
+                            print(f"  - 回复({reply_key})[{reply_index}]: {reply and len(reply)}")
+                            
+                            if url and reply and reply.strip():
+                                platform = self.extract_platform_from_url(url)
+                                prompt_data['responses'].append({
+                                    'platform': platform,
+                                    'url': url,
+                                    'response': reply
+                                })
+                                print(f"通过索引添加平台 {platform} 的回复，长度: {len(reply)}")
+                        except Exception as e:
+                            print(f"索引访问失败({url_index}, {reply_index}): {e}")
+            
+            # 最后的兜底方案：直接查询数据库
+            if len(prompt_data['responses']) == 0:
+                print("\n尝试使用裸SQL查询:")
+                try:
+                    # 创建新的独立连接，完全重新查询
+                    import os
+                    data_dir = os.path.join(os.path.abspath("data"), "database")
+                    if not os.path.exists(data_dir):
+                        # 尝试其它可能的路径
+                        base_dir = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+                        data_dir = os.path.join(base_dir, "data", "database")
+                    
+                    db_path = os.path.join(data_dir, "prompts.db")
+                    if os.path.exists(db_path):
+                        print(f"找到数据库文件: {db_path}")
+                        temp_conn = sqlite3.connect(db_path)
+                        temp_cursor = temp_conn.cursor()
+                        
+                        # 直接查询
+                        temp_cursor.execute("""
+                            SELECT 
+                                ai1_url, ai1_reply,
+                                ai2_url, ai2_reply,
+                                ai3_url, ai3_reply,
+                                ai4_url, ai4_reply,
+                                ai5_url, ai5_reply,
+                                ai6_url, ai6_reply
+                            FROM prompt_details WHERE id = ?
+                        """, (prompt_id,))
+                        
+                        raw_row = temp_cursor.fetchone()
+                        if raw_row:
+                            print(f"原始查询返回类型: {type(raw_row)}")
+                            print(f"原始查询返回长度: {len(raw_row)}")
+                            
+                            # 打印原始值，不使用索引
+                            for i in range(0, len(raw_row), 2):
+                                if i+1 < len(raw_row):
+                                    url = raw_row[i]
+                                    reply = raw_row[i+1]
+                                    print(f"原始查询 字段{i}: URL={url}, 回复长度={reply and len(reply)}")
+                                    
+                                    if url and reply and reply.strip():
+                                        platform = self.extract_platform_from_url(url)
+                                        prompt_data['responses'].append({
+                                            'platform': platform,
+                                            'url': url,
+                                            'response': reply
+                                        })
+                                        print(f"通过原始SQL添加平台 {platform} 的回复，长度: {len(reply)}")
+                        
+                        temp_conn.close()
+                except Exception as e:
+                    print(f"裸SQL查询失败: {e}")
+            
+            # 最后检查响应数量
+            print(f"总共找到 {len(prompt_data['responses'])} 个平台的回复")
+            if len(prompt_data['responses']) == 0:
+                print("警告: 没有找到任何平台的回复!")
+                
+                # 一个临时的解决方案：添加一个占位符回复，让用户知道有问题
+                prompt_data['responses'].append({
+                    'platform': '系统消息',
+                    'url': '',
+                    'response': '无法从数据库中检索到任何AI平台的回复。这可能是因为数据库查询问题、数据格式不匹配或者这条记录没有任何AI回复内容。'
+                })
+            
+            # 恢复原始工厂方法
+            conn.row_factory = original_row_factory
+            
+            print(f"===== 提示词数据获取完成 =====\n")
+            return prompt_data
+            
+        except Exception as e:
+            print(f"获取提示词及回复时出错: {e}")
+            import traceback
+            traceback.print_exc()
+            return None
+            
+    def extract_platform_from_url(self, url):
+        """从URL提取平台名称
+        
+        Args:
+            url (str): AI平台的URL
+            
+        Returns:
+            str: 平台名称
+        """
+        from urllib.parse import urlparse
+        
+        # URL到平台名称的映射
+        url_to_platform = {
+            'chat.openai.com': 'ChatGPT',
+            'chatgpt.com': 'ChatGPT',
+            'kimi.moonshot.cn': 'Kimi',
+            'www.doubao.com': 'DouBao',
+            'doubao.com': 'DouBao',
+            'www.perplexity.ai': 'Perplexity',
+            'perplexity.ai': 'Perplexity',
+            'n.cn': 'N',
+            'metaso.cn': 'MetaSo',
+            'www.metaso.cn': 'MetaSo',
+            'chatglm.cn': 'ChatGLM',
+            'www.chatglm.cn': 'ChatGLM',
+            'yuanbao.tencent.com': 'YuanBao',
+            'www.biji.com': 'BiJi',
+            'biji.com': 'BiJi',
+            'x.com': 'Grok',
+            'grok.com': 'Grok',
+            'www.grok.com': 'Grok',
+            'yiyan.baidu.com': 'Yiyan',
+            'tongyi.aliyun.com': 'Tongyi',
+            'gemini.google.com': 'Gemini',
+            'chat.deepseek.com': 'DeepSeek',
+            'claude.ai': 'Claude',
+            'anthropic.com': 'Claude',
+            'bing.com': 'Bing',
+            'spark.internxt.com': 'Spark'
+        }
+        
+        try:
+            # 提取域名
+            domain = urlparse(url).netloc
+            if domain.startswith('www.'):
+                domain = domain[4:]
+            
+            # 尝试精确匹配
+            if domain in url_to_platform:
+                return url_to_platform[domain]
+            
+            # 尝试部分匹配
+            for host, platform in url_to_platform.items():
+                if host in domain:
+                    return platform
+            
+            # 如果无法识别，返回域名
+            return domain or "未知平台"
+        except:
+            return "未知平台"
+    
+    def build_summary_prompt(self, prompt_data):
+        """构建用于总结多个AI回复的提示词
+        
+        Args:
+            prompt_data (dict): 包含原始提示词和各平台回复的数据
+            
+        Returns:
+            str: 构建好的总结提示词，如果数据无效则返回None
+        """
+        if not prompt_data:
+            print("构建总结提示词失败：数据为空")
+            return None
+            
+        # 确保'responses'键存在且为列表
+        if not isinstance(prompt_data.get('responses'), list):
+            print(f"构建总结提示词失败：'responses'不是列表或不存在 ({type(prompt_data.get('responses'))})")
+            return None
+            
+        # 确保至少有一个有效的响应
+        valid_responses = [r for r in prompt_data['responses'] 
+                          if isinstance(r, dict) and r.get('response') and r.get('platform')]
+                          
+        if not valid_responses:
+            print("构建总结提示词失败：没有有效的响应")
+            return None
+            
+        # 如果只有一个响应，且是系统消息（通常是错误信息），则不生成总结
+        if len(valid_responses) == 1 and valid_responses[0].get('platform') == '系统消息':
+            print("构建总结提示词失败：只有系统错误消息，没有实际AI回复")
+            return None
+            
+        # 获取原始提示词文本
+        original_prompt = prompt_data.get('prompt_text', '')
+        if not original_prompt:
+            print("构建总结提示词失败：原始提示词为空")
+            return None
+            
+        # 构建总结提示词模板
+        summary_prompt = f"""我需要你帮我总结以下几个AI平台对同一个问题的回复，并分析它们的异同点。
+        
+原始问题是：
+{original_prompt}
+
+各平台的回复内容如下：
+"""
+        
+        # 添加各平台回复
+        for i, response_data in enumerate(valid_responses, 1):
+            platform = response_data.get('platform', f'未知平台{i}')
+            response = response_data.get('response', '').strip()
+            
+            # 如果响应过长，截断它
+            max_length = 6000  # 约2000个汉字
+            if len(response) > max_length:
+                response = response[:max_length] + f"\n...[内容过长，已截断，完整长度{len(response)}字符]"
+                
+            # 添加到总结提示词
+            summary_prompt += f"\n【{platform}的回复】：\n{response}\n"
+            
+        # 添加总结要求
+        summary_prompt += """
+请你帮我完成以下任务：
+1. 简要总结每个AI平台的回答要点（以要点列表形式）
+2. 分析不同平台回答的共同点和差异点
+3. 综合所有平台的回复，给出一个最全面、准确的答案
+4. 评价哪个平台的回答质量最高，并说明理由
+
+请注意，我需要一个全面但简洁的总结，重点突出有价值的信息和见解。"""
+
+        print(f"总结提示词构建完成，长度: {len(summary_prompt)}")
+        return summary_prompt 

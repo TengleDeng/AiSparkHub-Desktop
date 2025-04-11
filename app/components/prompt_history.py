@@ -23,6 +23,7 @@ class PromptItemWidget(QWidget):
     open_all_urls = pyqtSignal(list)  # 打开所有链接信号
     prompt_text_selected = pyqtSignal(str)  # 双击选择提示词信号
     send_prompt = pyqtSignal(str)  # 发送提示词信号
+    summarize_ai_responses = pyqtSignal(str)  # 总结AI回复信号，参数为提示词ID
     
     def __init__(self, prompt_data, parent=None):
         super().__init__(parent)
@@ -90,15 +91,25 @@ class PromptItemWidget(QWidget):
         # 添加弹簧
         header_layout.addStretch()
         
-        # 发送按钮（替代原来的编辑按钮）
+        # 发送按钮 - 改为普通按钮，不带下拉菜单
         self.send_btn = QToolButton()
         self.send_btn.setIcon(qta.icon('fa5s.paper-plane', color='#8FBCBB'))
-        self.send_btn.setToolTip("发送提示词")
+        self.send_btn.setToolTip("发送原始提示词")
         self.send_btn.setStyleSheet(self.get_button_style())
         self.send_btn.setFixedSize(QSize(20, 20))
         self.send_btn.setIconSize(QSize(16, 16))
-        self.send_btn.clicked.connect(self.send_prompt_text)
+        self.send_btn.clicked.connect(self.send_prompt_text)  # 直接连接发送方法
         header_layout.addWidget(self.send_btn)
+        
+        # 新增总结按钮
+        self.summarize_btn = QToolButton()
+        self.summarize_btn.setIcon(qta.icon('fa5s.chart-bar', color='#B48EAD'))  # 使用不同图标标识总结功能
+        self.summarize_btn.setToolTip("总结AI回复")
+        self.summarize_btn.setStyleSheet(self.get_button_style())
+        self.summarize_btn.setFixedSize(QSize(20, 20))
+        self.summarize_btn.setIconSize(QSize(16, 16))
+        self.summarize_btn.clicked.connect(self.summarize_responses)  # 直接连接总结方法
+        header_layout.addWidget(self.summarize_btn)
         
         # 收藏按钮 - 使用自定义图标
         self.favorite_btn = QToolButton()
@@ -504,6 +515,13 @@ class PromptItemWidget(QWidget):
         prompt_text = self.prompt_data.get('prompt_text', '')
         if prompt_text:
             self.send_prompt.emit(prompt_text)
+    
+    def summarize_responses(self):
+        """请求总结AI回复"""
+        prompt_id = self.prompt_data.get('id')
+        if prompt_id:
+            print(f"请求总结AI回复，提示词ID: {prompt_id}")
+            self.summarize_ai_responses.emit(prompt_id)
 
 
 class PromptHistory(QWidget):
@@ -515,6 +533,7 @@ class PromptHistory(QWidget):
     open_urls = pyqtSignal(list)  # 打开URLs信号，用于传递给AI视图
     request_set_prompt = pyqtSignal(str)  # 请求设置提示词内容，需要检查现有内容
     request_send_prompt = pyqtSignal(str)  # 请求直接发送提示词的信号
+    request_summarize_responses = pyqtSignal(str)  # 请求总结AI回复的信号，参数为prompt_id
     
     def __init__(self, db_manager, parent=None):
         super().__init__(parent)
@@ -736,6 +755,7 @@ class PromptHistory(QWidget):
         item_widget.open_all_urls.connect(self.on_open_all_urls)
         item_widget.prompt_text_selected.connect(self.on_prompt_text_selected)
         item_widget.send_prompt.connect(self.on_send_prompt)
+        item_widget.summarize_ai_responses.connect(self.on_summarize_ai_responses)
         
         # 添加到布局中，在弹簧之前
         self.content_layout.insertWidget(self.content_layout.count() - 1, item_widget)
@@ -932,3 +952,18 @@ class PromptHistory(QWidget):
             # 直接转发提示词到辅助窗口处理
             self.request_send_prompt.emit(prompt_text)
             print(f"请求发送提示词: {prompt_text[:30]}...")
+            
+    def on_summarize_ai_responses(self, prompt_id):
+        """处理总结AI回复请求
+        
+        Args:
+            prompt_id (str): 提示词ID
+        """
+        if not prompt_id:
+            print("无效的提示词ID，无法总结AI回复")
+            return
+            
+        print(f"准备总结提示词ID为 {prompt_id} 的AI回复")
+        
+        # 转发请求到辅助窗口处理
+        self.request_summarize_responses.emit(prompt_id)
