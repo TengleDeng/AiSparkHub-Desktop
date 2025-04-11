@@ -52,6 +52,7 @@ data/*.db
 data/webdata/
 data/cache/
 data/*.db-journal
+data/database/prompts.db
 *.log
 logs/
 icons/
