@@ -1,0 +1,864 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Second Brain - 你的第二大脑</title>
+    <link rel="icon" type="image/x-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 576 512'><path fill='%234285f4' d='M208.1 132.5c0 48.6 39.4 88 88 88s88-39.4 88-88s-39.4-88-88-88s-88 39.4-88 88zm88-88c-48.6 0-88 39.4-88 88s39.4 88 88 88s88-39.4 88-88s-39.4-88-88-88zM296.1 320c-48.6 0-88 39.4-88 88s39.4 88 88 88s88-39.4 88-88s-39.4-88-88-88zm0 176c-48.6 0-88-39.4-88-88s39.4-88 88-88s88 39.4 88 88s-39.4 88-88 88z'/></svg>">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
+    <link rel="stylesheet" href="styles.css">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    
+    <!-- 使用ES模块方式引入OramaClient -->
+    <script type="module">
+        import { OramaClient } from 'https://esm.sh/@oramacloud/client';
+
+        const client = new OramaClient({
+            endpoint: 'https://cloud.orama.run/v1/indexes/tengledeng-vmoxv8',
+            api_key: 'HFsJsLE3dwn6StXKYcgap3ZIHbGHu9bY'
+        });
+        
+        // 将client实例暴露给全局，以便script.js可以使用
+        window.oramaClient = client;
+        window.oramaLoaded = true;
+        console.log("Orama客户端ES模块加载成功");
+    </script>
+</head>
+<body>
+    <div class="search-area">
+        <div class="header">
+            <div class="logo" onclick="goHome()">
+                <i class="fas fa-brain"></i>
+                <span>Second Brain</span>
+            </div>
+        </div>
+        
+        <div class="search-container">
+            <div class="search-wrapper">
+                <div class="search-box">
+                    <i class="fas fa-search search-icon"></i>
+                    <input type="text" id="searchInput" class="search-input" placeholder="搜索Tengle's知识库..." autocomplete="off">
+                    <select id="searchType" class="search-type">
+                        <optgroup label="Second Brain 内部搜索">
+                            <option value="orama_cloud">混合搜索</option>
+                            <option value="orama_cloud_keyword">关键词</option>
+                            <option value="orama_cloud_vector">语义</option>
+                        </optgroup>
+                        <optgroup label="外部搜索引擎">
+                            <option value="google">Google</option>
+                            <option value="baidu">百度</option>
+                            <option value="bing">必应</option>
+                            <option value="zhihu">知乎</option>
+                            <option value="wiki">维基百科</option>
+                        </optgroup>
+                    </select>
+                    <i class="fas fa-paper-plane voice-icon" onclick="performSearch()"></i>
+                </div>
+                
+                <div id="searchHistory" class="search-history"></div>
+            </div>
+            
+            <div class="search-buttons">
+                <button onclick="performSearch()" class="search-button">搜索</button>
+            </div>
+        </div>
+
+        <div id="error" class="error" style="display: none;"></div>
+        <div id="results" class="results"></div>
+    </div>
+
+    <!-- 底部励志金句状态条 -->
+    <div class="footer-status-bar" id="motivationalQuoteBar">
+        <div class="footer-links left-links">
+            <a href="#" onclick="toggleQuoteSettings()"><i class="fas fa-cog"></i></a>
+        </div>
+        <div class="quote-container">
+            <i class="fas fa-lightbulb quote-icon" onclick="refreshQuote()"></i>
+            <span id="motivationalQuote">知识就是力量，行动才能改变命运</span>
+            <span class="datetime-display" id="datetimeDisplay"></span>
+        </div>
+        <div class="footer-links right-links">
+            <span></span>
+        </div>
+    </div>
+
+    <!-- 设置弹窗 -->
+    <div class="quote-settings-modal" id="quoteSettingsModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>系统设置</h3>
+                <span class="close-modal" onclick="toggleQuoteSettings()">&times;</span>
+            </div>
+            <div class="modal-body">
+                <!-- 标签切换 -->
+                <div class="settings-tabs">
+                    <button class="tab-button active" onclick="switchTab('general')">常规设置</button>
+                    <button class="tab-button" onclick="switchTab('quotes')">励志金句</button>
+                    <button class="tab-button" onclick="switchTab('text')">界面文字</button>
+                </div>
+                
+                <!-- 常规设置面板 -->
+                <div class="tab-panel" id="generalPanel">
+                    <div class="settings-group">
+                        <h4>搜索设置</h4>
+                        <div class="settings-row">
+                            <label>
+                                搜索结果数量：
+                                <input type="number" id="searchResultLimit" min="5" max="50" value="10">
+                            </label>
+                        </div>
+                        <div class="settings-row">
+                            <label>
+                                搜索后打开方式（外部搜索引擎）：
+                                <select id="externalSearchOption">
+                                    <option value="new_tab">在新标签页打开</option>
+                                    <option value="same_tab">在当前标签页打开</option>
+                                </select>
+                            </label>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- 励志金句面板 -->
+                <div class="tab-panel" id="quotesPanel" style="display: none;">
+                    <div class="settings-group">
+                        <h4>励志金句设置</h4>
+                        <div class="settings-row">
+                            <label>
+                                自动切换间隔: 
+                                <select id="quoteChangeInterval">
+                                    <option value="30000">30秒</option>
+                                    <option value="60000">1分钟</option>
+                                    <option value="300000">5分钟</option>
+                                    <option value="1800000">30分钟</option>
+                                    <option value="3600000">1小时</option>
+                                </select>
+                            </label>
+                        </div>
+                        <div class="settings-row">
+                            <label for="quotesListArea">金句列表 (每行一条):</label>
+                            <textarea id="quotesListArea" placeholder="每行一条金句，保存后生效"></textarea>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- 界面文字面板 -->
+                <div class="tab-panel" id="textPanel" style="display: none;">
+                    <div class="settings-group">
+                        <h4>界面文字设置</h4>
+                        <div class="settings-row">
+                            <label>
+                                应用标题:
+                                <input type="text" id="appTitle" placeholder="Second Brain">
+                            </label>
+                        </div>
+                        <div class="settings-row">
+                            <label>
+                                搜索框占位文字:
+                                <input type="text" id="searchPlaceholder" placeholder="搜索Tengle's知识库...">
+                            </label>
+                        </div>
+                    </div>
+                </div>
+                
+                <button class="save-button" onclick="saveSettings()">保存设置</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+    
+    <!-- 标签切换和保存设置的临时脚本 -->
+    <script>
+    // 应用配置对象
+    window.APP_CONFIG = {
+        title: "Second Brain",
+        searchPlaceholder: "搜索Tengle's知识库...",
+        searchResultLimit: 10,
+        externalSearchOption: "new_tab"
+    };
+
+    // 金句相关变量
+    window.DEFAULT_QUOTES = [
+        "知识就是力量，行动才能改变命运",
+        "成功不是偶然，而是日积月累的结果",
+        "每一次尝试都是成长的机会",
+        "坚持不一定成功，放弃一定失败",
+        "当你感到疲惫时，记住为什么开始",
+        "把每一次挫折当作成功的垫脚石",
+        "伟大的成就，来自不倦的努力",
+        "学会享受孤独，因为知识的获取常常是一个人的旅程",
+        "你所知道的东西远不如你如何去学习重要",
+        "今天你不为自己投资，明天你就为自己贫穷买单"
+    ];
+    window.quotesList = [];
+    window.quoteChangeInterval = 60000;
+    window.quoteTimer = null;
+
+    // 页面加载时初始化设置
+    document.addEventListener('DOMContentLoaded', function() {
+        loadSettings();
+        applySettings();
+        startQuoteTimer();
+        updateDateTime();
+        setInterval(updateDateTime, 1000);
+    });
+
+    // 加载设置
+    function loadSettings() {
+        // 加载应用配置
+        const savedConfig = localStorage.getItem('appConfig');
+        if (savedConfig) {
+            try {
+                const config = JSON.parse(savedConfig);
+                Object.assign(window.APP_CONFIG, config);
+                console.log("加载配置:", window.APP_CONFIG);
+            } catch (e) {
+                console.error("配置加载失败:", e);
+            }
+        }
+        
+        // 加载金句列表
+        const savedQuotes = localStorage.getItem('motivationalQuotes');
+        if (savedQuotes) {
+            try {
+                window.quotesList = JSON.parse(savedQuotes);
+            } catch (e) {
+                window.quotesList = [...window.DEFAULT_QUOTES];
+            }
+        } else {
+            window.quotesList = [...window.DEFAULT_QUOTES];
+        }
+        
+        // 加载金句切换间隔
+        const savedInterval = localStorage.getItem('quoteChangeInterval');
+        if (savedInterval) {
+            window.quoteChangeInterval = parseInt(savedInterval, 10);
+        }
+    }
+
+    // 应用设置到界面
+    function applySettings() {
+        // 设置标题
+        document.title = window.APP_CONFIG.title;
+        const logoText = document.querySelector('.logo span');
+        if (logoText) {
+            logoText.textContent = window.APP_CONFIG.title;
+        }
+        
+        // 设置搜索框占位文字
+        const searchInput = document.getElementById('searchInput');
+        if (searchInput) {
+            searchInput.placeholder = window.APP_CONFIG.searchPlaceholder;
+        }
+        
+        // 填充设置表单
+        populateSettingsForm();
+        
+        // 显示第一条金句
+        refreshQuote();
+    }
+
+    // 在设置面板中填充当前设置
+    function populateSettingsForm() {
+        // 填充常规设置
+        const searchResultLimit = document.getElementById('searchResultLimit');
+        if (searchResultLimit) {
+            searchResultLimit.value = window.APP_CONFIG.searchResultLimit;
+        }
+        
+        const externalSearchOption = document.getElementById('externalSearchOption');
+        if (externalSearchOption) {
+            for (let i = 0; i < externalSearchOption.options.length; i++) {
+                if (externalSearchOption.options[i].value === window.APP_CONFIG.externalSearchOption) {
+                    externalSearchOption.selectedIndex = i;
+                    break;
+                }
+            }
+        }
+        
+        // 填充界面文字设置
+        const appTitle = document.getElementById('appTitle');
+        if (appTitle) {
+            appTitle.value = window.APP_CONFIG.title;
+        }
+        
+        const searchPlaceholder = document.getElementById('searchPlaceholder');
+        if (searchPlaceholder) {
+            searchPlaceholder.value = window.APP_CONFIG.searchPlaceholder;
+        }
+        
+        // 填充金句设置
+        const quotesListArea = document.getElementById('quotesListArea');
+        if (quotesListArea) {
+            quotesListArea.value = window.quotesList.join('\n');
+        }
+        
+        const intervalSelect = document.getElementById('quoteChangeInterval');
+        if (intervalSelect) {
+            for (let i = 0; i < intervalSelect.options.length; i++) {
+                if (intervalSelect.options[i].value == window.quoteChangeInterval.toString()) {
+                    intervalSelect.selectedIndex = i;
+                    break;
+                }
+            }
+        }
+    }
+
+    // 切换设置标签页
+    function switchTab(tabName) {
+        // 隐藏所有面板
+        document.querySelectorAll('.tab-panel').forEach(panel => {
+            panel.style.display = 'none';
+        });
+        
+        // 移除所有标签的活动状态
+        document.querySelectorAll('.tab-button').forEach(tab => {
+            tab.classList.remove('active');
+        });
+        
+        // 显示选中的面板
+        const selectedPanel = document.getElementById(`${tabName}Panel`);
+        if (selectedPanel) {
+            selectedPanel.style.display = 'block';
+        }
+        
+        // 设置选中标签的活动状态
+        const activeTab = document.querySelector(`.tab-button[onclick="switchTab('${tabName}')"]`);
+        if (activeTab) {
+            activeTab.classList.add('active');
+        }
+    }
+
+    // 切换设置弹窗
+    function toggleQuoteSettings() {
+        const modal = document.getElementById('quoteSettingsModal');
+        if (modal) {
+            const isVisible = modal.style.display === 'block';
+            
+            if (!isVisible) {
+                // 显示弹窗前，先填充当前设置
+                populateSettingsForm();
+                
+                // 默认显示常规设置标签页
+                switchTab('general');
+                
+                modal.style.display = 'block';
+            } else {
+                modal.style.display = 'none';
+            }
+        }
+    }
+
+    // 保存设置
+    function saveSettings() {
+        // 保存常规设置
+        const searchResultLimit = document.getElementById('searchResultLimit');
+        if (searchResultLimit) {
+            window.APP_CONFIG.searchResultLimit = parseInt(searchResultLimit.value) || 10;
+        }
+        
+        const externalSearchOption = document.getElementById('externalSearchOption');
+        if (externalSearchOption) {
+            window.APP_CONFIG.externalSearchOption = externalSearchOption.value;
+        }
+        
+        // 保存界面文字设置
+        const appTitle = document.getElementById('appTitle');
+        if (appTitle && appTitle.value.trim()) {
+            window.APP_CONFIG.title = appTitle.value.trim();
+        }
+        
+        const searchPlaceholder = document.getElementById('searchPlaceholder');
+        if (searchPlaceholder && searchPlaceholder.value.trim()) {
+            window.APP_CONFIG.searchPlaceholder = searchPlaceholder.value.trim();
+        }
+        
+        // 保存到localStorage
+        localStorage.setItem('appConfig', JSON.stringify(window.APP_CONFIG));
+        
+        // 保存金句设置
+        const quotesListArea = document.getElementById('quotesListArea');
+        const intervalSelect = document.getElementById('quoteChangeInterval');
+        
+        if (quotesListArea) {
+            // 解析并保存金句列表
+            const quotesText = quotesListArea.value.trim();
+            if (quotesText) {
+                window.quotesList = quotesText.split('\n')
+                    .map(quote => quote.trim())
+                    .filter(quote => quote.length > 0);
+            } else {
+                window.quotesList = [...window.DEFAULT_QUOTES];
+            }
+            
+            // 保存到localStorage
+            localStorage.setItem('motivationalQuotes', JSON.stringify(window.quotesList));
+        }
+        
+        if (intervalSelect) {
+            // 保存切换间隔设置
+            window.quoteChangeInterval = parseInt(intervalSelect.value, 10);
+            localStorage.setItem('quoteChangeInterval', window.quoteChangeInterval.toString());
+        }
+        
+        // 应用设置
+        applySettings();
+        
+        // 重启定时器
+        startQuoteTimer();
+        
+        // 显示成功提示
+        showError("设置保存成功");
+        
+        // 关闭弹窗
+        toggleQuoteSettings();
+    }
+
+    // 刷新金句
+    function refreshQuote() {
+        if (window.quotesList.length === 0) return;
+        
+        const quoteElement = document.getElementById('motivationalQuote');
+        if (!quoteElement) return;
+        
+        // 获取当前金句，确保不重复
+        const currentQuote = quoteElement.textContent;
+        let newQuote = currentQuote;
+        
+        // 如果只有一条金句，直接使用
+        if (window.quotesList.length === 1) {
+            newQuote = window.quotesList[0];
+        } else {
+            // 确保不重复，随机选择新的金句
+            while (newQuote === currentQuote) {
+                const randomIndex = Math.floor(Math.random() * window.quotesList.length);
+                newQuote = window.quotesList[randomIndex];
+            }
+        }
+        
+        // 添加淡入淡出效果
+        quoteElement.style.opacity = '0';
+        
+        setTimeout(() => {
+            quoteElement.textContent = newQuote;
+            quoteElement.style.opacity = '1';
+        }, 300);
+    }
+
+    // 启动金句定时切换
+    function startQuoteTimer() {
+        // 清除现有定时器
+        if (window.quoteTimer) {
+            clearInterval(window.quoteTimer);
+        }
+        
+        // 设置新定时器
+        window.quoteTimer = setInterval(refreshQuote, window.quoteChangeInterval);
+    }
+
+    // 更新日期时间显示
+    function updateDateTime() {
+        const datetimeElement = document.getElementById('datetimeDisplay');
+        if (!datetimeElement) return;
+        
+        const now = new Date();
+        const dateOptions = { year: 'numeric', month: '2-digit', day: '2-digit', weekday: 'short' };
+        const timeOptions = { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false };
+        
+        const dateStr = now.toLocaleDateString('zh-CN', dateOptions);
+        const timeStr = now.toLocaleTimeString('zh-CN', timeOptions);
+        
+        datetimeElement.textContent = `${timeStr} | ${dateStr}`;
+    }
+
+    // 显示错误信息
+    function showError(message) {
+        const errorDiv = document.getElementById('error');
+        errorDiv.textContent = message;
+        errorDiv.style.display = 'block';
+        setTimeout(() => {
+            errorDiv.style.display = 'none';
+        }, 3000);
+    }
+    
+    // 外部搜索引擎搜索
+    function searchExternal(searchEngine, searchTerm) {
+        if (!searchTerm) return;
+        
+        let searchUrl;
+        
+        switch (searchEngine) {
+            case 'google':
+                searchUrl = `https://www.google.com/search?q=${encodeURIComponent(searchTerm)}`;
+                break;
+            case 'baidu':
+                searchUrl = `https://www.baidu.com/s?wd=${encodeURIComponent(searchTerm)}`;
+                break;
+            case 'bing':
+                searchUrl = `https://www.bing.com/search?q=${encodeURIComponent(searchTerm)}`;
+                break;
+            case 'zhihu':
+                searchUrl = `https://www.zhihu.com/search?type=content&q=${encodeURIComponent(searchTerm)}`;
+                break;
+            case 'wiki':
+                searchUrl = `https://zh.wikipedia.org/wiki/Special:Search?search=${encodeURIComponent(searchTerm)}`;
+                break;
+            default:
+                showError('未知的搜索引擎');
+                return;
+        }
+        
+        // 根据设置决定打开方式
+        if (window.APP_CONFIG.externalSearchOption === 'new_tab') {
+            window.open(searchUrl, '_blank');
+        } else {
+            window.location.href = searchUrl;
+        }
+    }
+    
+    // 执行搜索
+    function performSearch() {
+        const searchType = document.getElementById('searchType').value;
+        const searchTerm = document.getElementById('searchInput').value;
+        
+        if (!searchTerm) {
+            showError('请输入搜索关键词');
+            return;
+        }
+        
+        // 保存到搜索历史
+        saveToHistory(searchTerm);
+        
+        // 判断搜索类型
+        if (searchType.startsWith('orama_')) {
+            // 使用已有的Orama搜索
+            if (typeof window.searchWithClient === 'function') {
+                // 获取搜索模式
+                const searchMode = searchType.replace('orama_cloud_', '').replace('orama_cloud', 'hybrid');
+                
+                // 准备搜索参数
+                const searchParams = {
+                    term: searchTerm,
+                    limit: parseInt(window.APP_CONFIG.searchResultLimit) || 10,
+                    mode: searchMode === 'vector' ? 'vector' : 
+                          searchMode === 'keyword' ? 'fulltext' : 'hybrid'
+                };
+                
+                // 执行Orama搜索
+                clearResults();
+                executeOramaSearch(searchParams);
+            } else {
+                // 如果script.js中的函数不可用，则直接调用这里定义的方法
+                clearResults();
+                showError("正在使用Orama搜索...");
+            }
+        } else {
+            // 外部搜索引擎
+            clearResults();
+            searchExternal(searchType, searchTerm);
+        }
+    }
+    
+    // 执行Orama搜索
+    async function executeOramaSearch(params) {
+        try {
+            // 显示加载状态
+            const searchBtn = document.querySelector('.search-button');
+            if (searchBtn) {
+                searchBtn.disabled = true;
+                searchBtn.textContent = "搜索中...";
+            }
+            
+            console.log("使用ES模块客户端搜索:", params);
+            
+            // 检查客户端是否可用
+            if (!window.oramaClient) {
+                throw new Error("Orama客户端未加载，请刷新页面重试");
+            }
+            
+            // 执行搜索
+            const results = await window.oramaClient.search(params);
+            console.log("客户端搜索结果:", results);
+            
+            // 将客户端返回的结果格式转换为标准格式
+            let formattedResults = results;
+            if (results && typeof results === 'object') {
+                if (!results.hits && results.data) {
+                    formattedResults = {
+                        hits: results.data.map(item => ({
+                            document: item.document,
+                            score: item.score
+                        }))
+                    };
+                }
+            }
+            
+            // 使用script.js中的函数渲染结果
+            if (typeof window.renderResults === 'function') {
+                window.renderResults(formattedResults, params.term);
+            } else {
+                // 如果script.js的函数不可用，则使用这里定义的渲染函数
+                renderResults(formattedResults, params.term);
+            }
+            
+            // 恢复按钮状态
+            if (searchBtn) {
+                searchBtn.disabled = false;
+                searchBtn.textContent = "搜索";
+            }
+        } catch (error) {
+            console.error("搜索失败:", error);
+            showError(`搜索失败: ${error.message}`);
+            
+            // 恢复按钮状态
+            const searchBtn = document.querySelector('.search-button');
+            if (searchBtn) {
+                searchBtn.disabled = false;
+                searchBtn.textContent = "搜索";
+            }
+        }
+    }
+    
+    // 设置全局函数，供其他脚本使用
+    window.executeOramaSearch = executeOramaSearch;
+
+    // 渲染搜索结果
+    function renderResults(results, searchTerm) {
+        const resultsDiv = document.getElementById('results');
+        document.body.classList.add('has-results');
+        
+        if (!results || !results.hits || results.hits.length === 0) {
+            resultsDiv.innerHTML = '<div style="text-align: center; padding: 20px; color: #70757a;">未找到相关结果</div>';
+            return;
+        }
+
+        const resultCount = results.hits.length;
+
+        let html = `
+            <div class="sort-container">
+                找到 ${resultCount} 个结果
+                <select id="sortSelect" onchange="sortResults()" style="margin-left: 10px;">
+                    <option value="relevance">按相关度排序</option>
+                    <option value="time">按时间排序</option>
+                </select>
+            </div>
+            <div id="resultsContainer"></div>
+        `;
+
+        resultsDiv.innerHTML = html;
+        const resultsContainer = document.getElementById('resultsContainer');
+
+        // 存储原始结果用于排序
+        window.searchResults = results.hits;
+
+        results.hits.forEach(hit => {
+            const doc = hit.document;
+            const resultItem = document.createElement('div');
+            resultItem.className = 'result-item';
+            
+            // 显示标题
+            const titleElement = document.createElement('h3');
+            titleElement.textContent = doc.title || '无标题';
+            if (searchTerm) {
+                titleElement.innerHTML = highlightKeywords(titleElement.textContent, searchTerm);
+            }
+            resultItem.appendChild(titleElement);
+
+            // 显示文件路径（在web版本中，路径只是展示不可点击）
+            if (doc.path) {
+                const pathElement = document.createElement('p');
+                pathElement.className = 'file-link';
+                pathElement.textContent = doc.path;
+                resultItem.appendChild(pathElement);
+            }
+
+            // 显示内容
+            if (doc.content) {
+                const contentElement = document.createElement('p');
+                contentElement.className = 'content';
+                contentElement.textContent = doc.content;
+                if (searchTerm) {
+                    contentElement.innerHTML = highlightKeywords(contentElement.textContent, searchTerm);
+                }
+                resultItem.appendChild(contentElement);
+            }
+
+            // 显示元数据
+            const metaElement = document.createElement('div');
+            metaElement.className = 'meta-info';
+            
+            // 显示相关度分数
+            const scoreElement = document.createElement('span');
+            scoreElement.textContent = `相关度: ${hit.score.toFixed(2)} | `;
+            metaElement.appendChild(scoreElement);
+
+            // 显示创建时间
+            if (doc.ctime) {
+                const ctimeElement = document.createElement('span');
+                ctimeElement.textContent = `创建时间: ${formatTimestamp(doc.ctime)} | `;
+                metaElement.appendChild(ctimeElement);
+            }
+
+            // 显示修改时间
+            if (doc.mtime) {
+                const mtimeElement = document.createElement('span');
+                mtimeElement.textContent = `修改时间: ${formatTimestamp(doc.mtime)}`;
+                metaElement.appendChild(mtimeElement);
+            }
+
+            resultItem.appendChild(metaElement);
+            resultsContainer.appendChild(resultItem);
+        });
+    }
+    
+    // 排序结果
+    function sortResults() {
+        const sortSelect = document.getElementById('sortSelect');
+        const sortBy = sortSelect.value;
+        const hits = [...window.searchResults];
+
+        if (sortBy === 'time') {
+            hits.sort((a, b) => {
+                // 优先使用mtime，如果没有则使用ctime
+                const timeA = a.document.mtime || a.document.ctime || 0;
+                const timeB = b.document.mtime || b.document.ctime || 0;
+                return timeB - timeA;
+            });
+        } else {
+            // 默认按相关度排序
+            hits.sort((a, b) => b.score - a.score);
+        }
+
+        const resultsContainer = document.getElementById('resultsContainer');
+        resultsContainer.innerHTML = '';
+        
+        hits.forEach(hit => {
+            const doc = hit.document;
+            const resultItem = document.createElement('div');
+            resultItem.className = 'result-item';
+            
+            // 显示标题
+            const titleElement = document.createElement('h3');
+            titleElement.textContent = doc.title || '无标题';
+            resultItem.appendChild(titleElement);
+
+            // 显示文件路径
+            if (doc.path) {
+                const pathElement = document.createElement('p');
+                pathElement.className = 'file-link';
+                pathElement.textContent = doc.path;
+                resultItem.appendChild(pathElement);
+            }
+
+            // 显示内容
+            if (doc.content) {
+                const contentElement = document.createElement('p');
+                contentElement.className = 'content';
+                contentElement.textContent = doc.content;
+                resultItem.appendChild(contentElement);
+            }
+
+            // 显示元数据
+            const metaElement = document.createElement('div');
+            metaElement.className = 'meta-info';
+            
+            // 显示相关度分数
+            const scoreElement = document.createElement('span');
+            scoreElement.textContent = `相关度: ${hit.score.toFixed(2)} | `;
+            metaElement.appendChild(scoreElement);
+
+            // 显示创建时间
+            if (doc.ctime) {
+                const ctimeElement = document.createElement('span');
+                ctimeElement.textContent = `创建时间: ${formatTimestamp(doc.ctime)} | `;
+                metaElement.appendChild(ctimeElement);
+            }
+
+            // 显示修改时间
+            if (doc.mtime) {
+                const mtimeElement = document.createElement('span');
+                mtimeElement.textContent = `修改时间: ${formatTimestamp(doc.mtime)}`;
+                metaElement.appendChild(mtimeElement);
+            }
+
+            resultItem.appendChild(metaElement);
+            resultsContainer.appendChild(resultItem);
+        });
+    }
+
+    // 高亮关键词
+    function highlightKeywords(text, keywords) {
+        if (!keywords || typeof text !== 'string') return text;
+        
+        // 将搜索词按空格分割
+        const keywordArr = keywords.split(/\s+/).filter(k => k.length > 0);
+        
+        if (keywordArr.length === 0) return text;
+        
+        // 转义正则表达式特殊字符
+        const escapedKeywords = keywordArr.map(k => 
+            k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+        );
+        
+        // 构建正则表达式
+        const regex = new RegExp(`(${escapedKeywords.join('|')})`, 'gi');
+        
+        // 替换并高亮
+        return text.replace(regex, '<span style="background-color: #ffeb3b; padding: 0 2px;">$1</span>');
+    }
+    
+    // 格式化时间戳
+    function formatTimestamp(timestamp) {
+        if (!timestamp) return '未知';
+        
+        const date = new Date(timestamp);
+        
+        if (isNaN(date.getTime())) {
+            // 尝试处理Unix时间戳（秒）
+            const dateFromSeconds = new Date(timestamp * 1000);
+            if (!isNaN(dateFromSeconds.getTime())) {
+                return dateFromSeconds.toLocaleString('zh-CN', {
+                    year: 'numeric',
+                    month: '2-digit',
+                    day: '2-digit',
+                    hour: '2-digit',
+                    minute: '2-digit'
+                });
+            }
+            return '未知';
+        }
+        
+        return date.toLocaleString('zh-CN', {
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit'
+        });
+    }
+    
+    // 清除搜索结果
+    function clearResults() {
+        const resultsDiv = document.getElementById('results');
+        if (resultsDiv) {
+            resultsDiv.innerHTML = '';
+        }
+        document.body.classList.remove('has-results');
+    }
+    
+    // 保存搜索历史
+    function saveToHistory(term) {
+        if (!term) return;
+        let searchHistory = JSON.parse(localStorage.getItem('searchHistory') || '[]');
+        searchHistory = [term, ...searchHistory.filter(t => t !== term)].slice(0, 10);
+        localStorage.setItem('searchHistory', JSON.stringify(searchHistory));
+    }
+    
+    // 回到首页
+    function goHome() {
+        clearResults();
+        document.getElementById('searchInput').value = '';
+    }
+    </script>
+</body>
+</html> 
