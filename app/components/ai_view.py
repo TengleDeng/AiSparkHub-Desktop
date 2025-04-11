@@ -43,7 +43,6 @@ class AIWebView(QWebEngineView):
         self.ai_url = ai_config["url"]
         self.input_selector = ai_config["input_selector"]
         self.submit_selector = ai_config["submit_selector"]
-        self.script_injected = False
         
         # 使用共享的profile，保存登录信息
         self.profile_manager = WebProfileManager()
@@ -129,9 +128,6 @@ class AIWebView(QWebEngineView):
     
     def inject_script(self):
         """注入提示词注入脚本"""
-        if self.script_injected:
-            return
-            
         try:
             # 读取脚本文件
             script_file = QFile(INJECTOR_SCRIPT_PATH)
@@ -140,32 +136,13 @@ class AIWebView(QWebEngineView):
                 script_content = script_file.readAll().data().decode('utf-8')
                 script_file.close()
                 
-                # 注入脚本
-                self.page().runJavaScript(script_content, lambda success: self._script_injected_callback(success))
+                # 注入脚本 - 移除回调
+                self.page().runJavaScript(script_content)
+                print(f"已尝试向 {self.ai_name} 注入提示词脚本") # 更新日志信息
             else:
                 print(f"无法打开脚本文件: {INJECTOR_SCRIPT_PATH}")
         except Exception as e:
             print(f"注入脚本时出错: {e}")
-    
-    def _script_injected_callback(self, success):
-        """脚本注入回调"""
-        if success != False:  # 只要不是明确的失败，就认为成功
-            self.script_injected = True
-            print(f"已向 {self.ai_name} 注入提示词脚本")
-            
-            # 验证脚本是否可用
-            verify_code = "typeof window.AiSparkHub !== 'undefined' && typeof window.AiSparkHub.injectPrompt === 'function'"
-            self.page().runJavaScript(verify_code, lambda result: self._verify_script_callback(result))
-        else:
-            print(f"向 {self.ai_name} 注入提示词脚本失败")
-    
-    def _verify_script_callback(self, result):
-        """验证脚本是否可用的回调"""
-        if not result:
-            print(f"警告: {self.ai_name} 的提示词脚本未正确加载，尝试重新注入")
-            self.script_injected = False
-            # 延迟一秒后重试
-            QTimer.singleShot(1000, self.inject_script)
     
     def fill_prompt(self, prompt_text):
         """填充提示词并提交
@@ -173,10 +150,6 @@ class AIWebView(QWebEngineView):
         Args:
             prompt_text (str): 提示词文本
         """
-        # 确保脚本已注入
-        if not self.script_injected:
-            self.inject_script()
-            
         # 确保特殊字符的正确转义 (单引号、换行符、回车符和反斜杠)
         escaped_text = prompt_text.replace('\\', '\\\\').replace("'", "\\'").replace('\n', '\\n').replace('\r', '\\r')
             
