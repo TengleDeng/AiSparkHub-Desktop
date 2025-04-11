@@ -76,6 +76,14 @@ class PromptInput(QWidget):
         """设置输入框文本"""
         self.text_edit.setPlainText(text)
     
+    def get_text(self):
+        """获取输入框文本
+        
+        Returns:
+            str: 当前输入框的文本内容
+        """
+        return self.text_edit.toPlainText()
+    
     def eventFilter(self, obj, event):
         """事件过滤器，处理快捷键"""
         if obj == self.text_edit and event.type() == event.Type.KeyPress:

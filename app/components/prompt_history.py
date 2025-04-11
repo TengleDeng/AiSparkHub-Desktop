@@ -21,6 +21,7 @@ class PromptItemWidget(QWidget):
     favorite_toggled = pyqtSignal(str, bool)  # 收藏切换信号
     deleted = pyqtSignal(str)  # 删除信号
     open_all_urls = pyqtSignal(list)  # 打开所有链接信号
+    prompt_text_selected = pyqtSignal(str)  # 双击选择提示词信号
     
     def __init__(self, prompt_data, parent=None):
         super().__init__(parent)
@@ -488,6 +489,14 @@ class PromptItemWidget(QWidget):
             # 发送删除信号
             self.deleted.emit(prompt_id)
 
+    def mouseDoubleClickEvent(self, event):
+        """双击事件处理"""
+        prompt_text = self.prompt_data.get('prompt_text', '')
+        if prompt_text:
+            # 发送提示词文本给父组件
+            self.prompt_text_selected.emit(prompt_text)
+        super().mouseDoubleClickEvent(event)
+
 
 class PromptHistory(QWidget):
     """提示词历史记录组件"""
@@ -496,6 +505,7 @@ class PromptHistory(QWidget):
     prompt_selected = pyqtSignal(str)  # 提示词选中信号
     favorite_toggled = pyqtSignal(str, bool)  # 收藏状态切换信号，参数: prompt_id, is_favorite
     open_urls = pyqtSignal(list)  # 打开URLs信号，用于传递给AI视图
+    request_set_prompt = pyqtSignal(str)  # 请求设置提示词内容，需要检查现有内容
     
     def __init__(self, db_manager, parent=None):
         super().__init__(parent)
@@ -715,6 +725,7 @@ class PromptHistory(QWidget):
         item_widget.deleted.connect(self.delete_prompt)
         item_widget.copied.connect(self.copy_prompt_to_clipboard)
         item_widget.open_all_urls.connect(self.on_open_all_urls)
+        item_widget.prompt_text_selected.connect(self.on_prompt_text_selected)
         
         # 添加到布局中，在弹簧之前
         self.content_layout.insertWidget(self.content_layout.count() - 1, item_widget)
@@ -890,3 +901,13 @@ class PromptHistory(QWidget):
         if urls:
             print(f"PromptHistory: 转发打开 {len(urls)} 个链接的请求")
             self.open_urls.emit(urls)
+
+    def on_prompt_text_selected(self, prompt_text):
+        """处理提示词文本被选中
+        
+        Args:
+            prompt_text (str): 被选中的提示词文本
+        """
+        if prompt_text:
+            # 将请求转发给AuxiliaryWindow处理，确保检查现有内容
+            self.request_set_prompt.emit(prompt_text)

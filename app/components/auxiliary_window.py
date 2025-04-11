@@ -5,7 +5,7 @@
 # 该窗口作为辅助窗口，包含文件浏览器、提示词输入框和提示词历史记录。
 # 用于管理和同步提示词到主窗口的 AI 对话页面。
 
-from PyQt6.QtWidgets import QMainWindow, QWidget, QHBoxLayout, QPushButton, QVBoxLayout, QLabel, QSplitter, QFrame, QToolBar, QStackedWidget, QTabWidget, QApplication
+from PyQt6.QtWidgets import QMainWindow, QWidget, QHBoxLayout, QPushButton, QVBoxLayout, QLabel, QSplitter, QFrame, QToolBar, QStackedWidget, QTabWidget, QApplication, QMessageBox
 from PyQt6.QtCore import Qt, QPoint, pyqtSignal, QSize, QTimer
 from PyQt6.QtGui import QIcon
 import qtawesome as qta
@@ -485,6 +485,9 @@ class AuxiliaryWindow(QMainWindow):
         
         # 连接历史记录的open_urls信号到处理方法
         self.prompt_history.open_urls.connect(self.on_open_urls)
+        
+        # 连接历史记录的提示词设置请求信号
+        self.prompt_history.request_set_prompt.connect(self.on_request_set_prompt)
     
     def on_prompt_submitted(self, prompt_text):
         """处理提示词提交事件"""
@@ -728,3 +731,60 @@ class AuxiliaryWindow(QMainWindow):
             
         # 请求AI视图打开所有URL
         ai_view.open_multiple_urls(urls) 
+
+    def on_request_set_prompt(self, prompt_text):
+        """处理设置提示词内容的请求
+        
+        Args:
+            prompt_text (str): 要设置的提示词文本
+        """
+        # 检查当前提示词输入区是否有内容
+        current_text = self.prompt_input.get_text()
+        
+        if current_text and current_text.strip():
+            # 如果已有内容，弹出确认对话框
+            msg_box = QMessageBox()
+            msg_box.setWindowTitle("确认替换")
+            msg_box.setText("提示词输入区已有内容。")
+            msg_box.setInformativeText("是否要用历史记录中的内容替换当前内容？")
+            msg_box.setIcon(QMessageBox.Icon.Question)
+            msg_box.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+            msg_box.setDefaultButton(QMessageBox.StandardButton.No)
+            
+            # 设置对话框样式
+            msg_box.setStyleSheet("""
+                QMessageBox {
+                    background-color: #2E3440;
+                    color: #D8DEE9;
+                }
+                QLabel {
+                    color: #E5E9F0;
+                }
+                QPushButton {
+                    background-color: #4C566A;
+                    color: #E5E9F0;
+                    border: none;
+                    border-radius: 4px;
+                    padding: 6px 12px;
+                    min-width: 80px;
+                }
+                QPushButton:hover {
+                    background-color: #5E81AC;
+                }
+                QPushButton:pressed {
+                    background-color: #81A1C1;
+                }
+            """)
+            
+            # 显示对话框并获取用户选择
+            response = msg_box.exec()
+            
+            # 如果用户选择"否"，则不替换
+            if response == QMessageBox.StandardButton.No:
+                return
+        
+        # 设置提示词内容
+        self.prompt_input.set_text(prompt_text)
+        
+        # 切换到提示词标签页
+        self.tabs.setCurrentIndex(0) 
