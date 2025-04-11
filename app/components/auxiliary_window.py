@@ -714,9 +714,17 @@ class AuxiliaryWindow(QMainWindow):
             print("找不到AI视图，无法打开URLs")
             return
             
+        # 如果窗口没有显示，则显示它，但不要改变其位置和大小
+        if not main_window.isVisible():
+            main_window.show()
+            main_window.activateWindow()
+        elif main_window.isMinimized():
+            # 如果窗口最小化了，只恢复它，不要最大化
+            main_window.showNormal()
+            main_window.activateWindow()
+        else:
+            # 窗口已经可见，只需要激活它
+            main_window.activateWindow()
+            
         # 请求AI视图打开所有URL
-        ai_view.open_multiple_urls(urls)
-        
-        # 显示主窗口（如果它被最小化或隐藏）
-        main_window.showNormal()
-        main_window.activateWindow() 
+        ai_view.open_multiple_urls(urls) 

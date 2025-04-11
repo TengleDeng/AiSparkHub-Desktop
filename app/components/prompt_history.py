@@ -312,11 +312,10 @@ class PromptItemWidget(QWidget):
     
     def open_url(self, url):
         """打开URL链接"""
-        try:
-            webbrowser.open(url)
-        except Exception as e:
-            print(f"打开链接失败: {e}")
-            QMessageBox.warning(self, "打开失败", f"无法打开链接: {url}\n错误: {str(e)}")
+        # 将单个URL打包成列表发送给AI视图
+        urls = [url]
+        print(f"准备在AI视图中打开单个链接: {url}")
+        self.open_all_urls.emit(urls)
     
     def update_data(self, prompt_data):
         """更新显示数据"""
