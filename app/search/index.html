@@ -8,6 +8,24 @@
     <link rel="stylesheet" href="styles.css">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <style>
+        /* 全局 Box Sizing */
+        *, *::before, *::after {
+            box-sizing: border-box;
+        }
+        
+        /* 防止 Body 出现水平滚动条，但允许垂直滚动 */
+        body {
+            overflow-x: hidden;
+        }
+
+        /* 确保结果项内的长文本（如路径和内容）能够换行 */
+        .result-item .file-link,
+        .result-item .content {
+            word-wrap: break-word; /* 旧版浏览器 */
+            overflow-wrap: break-word; /* 标准 */
+            white-space: normal; /* 确保不是 nowrap */
+        }
+        
         .ask-ai-button {
             background-color: #4285f4;
             border: 1px solid #4285f4;
@@ -22,13 +40,38 @@
         }
         
         .ask-ai-button:hover {
-            background-color: #3b78e7;
+            background-color: #3b78e7; /* 深一点的蓝色 */
             box-shadow: 0 1px 2px rgba(0,0,0,.2);
         }
         
         .ask-ai-button:disabled {
-            background-color: #a1c1fa;
+            background-color: #a1c1fa; /* 浅蓝色 */
             border-color: #a1c1fa;
+            cursor: not-allowed;
+        }
+        
+        /* 搜索按钮样式 */
+        .search-button {
+            background-color: #34a853; /* 绿色背景 */
+            border: 1px solid #34a853;
+            border-radius: 4px;
+            color: #fff;
+            font-size: 14px;
+            padding: 0 16px;
+            height: 36px;
+            cursor: pointer;
+            text-align: center;
+            /* 如果需要与"问AI"按钮间隔，可以在ask-ai-button上加margin-left */
+        }
+        
+        .search-button:hover {
+            background-color: #2b8c42; /* 深一点的绿色 */
+            box-shadow: 0 1px 2px rgba(0,0,0,.2);
+        }
+        
+        .search-button:disabled {
+            background-color: #a3d9b0; /* 浅绿色 */
+            border-color: #a3d9b0;
             cursor: not-allowed;
         }
     </style>
