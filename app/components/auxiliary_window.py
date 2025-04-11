@@ -674,8 +674,8 @@ class AuxiliaryWindow(QMainWindow):
             responses (list): 响应信息列表
         """
         print(f"收集到AI回复，ID: {prompt_id}, 共{len(responses)}个回复")
-        # 这里可以添加其他处理逻辑，例如刷新UI等
-        # 目前数据已经保存到数据库中 
+        # 收集完成后，刷新历史记录区域
+        self.prompt_history.refresh_history()
 
     def on_favorite_toggled(self, prompt_id, is_favorite):
         """处理提示词收藏状态切换
