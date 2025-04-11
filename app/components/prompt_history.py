@@ -12,6 +12,7 @@ from datetime import datetime
 import webbrowser
 from urllib.parse import urlparse
 import os
+import sys
 
 class PromptItemWidget(QWidget):
     """自定义提示词历史记录小部件"""
@@ -19,33 +20,18 @@ class PromptItemWidget(QWidget):
     copied = pyqtSignal(str)  # 复制提示词信号
     favorite_toggled = pyqtSignal(str, bool)  # 收藏切换信号
     deleted = pyqtSignal(str)  # 删除信号
+    open_all_urls = pyqtSignal(list)  # 打开所有链接信号
     
     def __init__(self, prompt_data, parent=None):
         super().__init__(parent)
         self.prompt_data = prompt_data
         # 获取图标目录路径（与AI_view一致）
-        # 修正：使用项目根目录下的resources/icons
-        # 先获取app目录的父目录（即项目根目录）
-        project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        self.icon_dir = os.path.join(project_root, "resources", "icons")
-        
-        # 检查图标目录是否存在，如果不存在，尝试使用其他可能的路径
-        if not os.path.exists(self.icon_dir):
-            print(f"警告: 未找到图标目录: {self.icon_dir}")
-            # 尝试其他可能的路径
-            alt_paths = [
-                os.path.join(os.path.dirname(project_root), "resources", "icons"),  # 上一级目录
-                os.path.join(project_root, "app", "resources", "icons"),  # app/resources/icons
-                os.path.join(project_root, "..", "resources", "icons"),  # 并列目录
-            ]
-            
-            for path in alt_paths:
-                if os.path.exists(path):
-                    self.icon_dir = path
-                    print(f"找到替代图标目录: {self.icon_dir}")
-                    break
-        else:
-            print(f"图标目录正确: {self.icon_dir}")
+        # 图标文件夹路径 - 考虑打包环境和开发环境
+        self.icon_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "icons")
+        if not os.path.exists(self.icon_dir) and getattr(sys, 'frozen', False):
+            # 打包环境下可能路径不同，尝试相对于可执行文件的路径
+            base_dir = os.path.dirname(sys.executable)
+            self.icon_dir = os.path.join(base_dir, "icons")
             
         # 列出图标目录中的所有文件，帮助调试
         try:
@@ -53,7 +39,7 @@ class PromptItemWidget(QWidget):
                 files = os.listdir(self.icon_dir)
                 print(f"图标目录中的文件: {files}")
             else:
-                print("图标目录不存在，无法列出文件")
+                print(f"图标目录不存在: {self.icon_dir}")
         except Exception as e:
             print(f"列出图标目录内容出错: {e}")
             
@@ -76,8 +62,11 @@ class PromptItemWidget(QWidget):
         self.time_label.setStyleSheet("""
             color: #81A1C1;
             font-size: 12px;
+            text-align: left;
+            padding: 0;
         """)
-        self.time_label.setFixedWidth(110)  # 固定宽度确保一致性
+        self.time_label.setFixedWidth(70)  # 减小宽度，因为现在是两行显示
+        self.time_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)  # 文本左对齐
         header_layout.addWidget(self.time_label)
         
         # 添加一个水平框架作为图标容器
@@ -86,12 +75,14 @@ class PromptItemWidget(QWidget):
             QFrame {
                 background-color: transparent;
                 border: none;
+                padding: 0px;
             }
         """)
-        self.icons_frame.setFixedHeight(20)
+        self.icons_frame.setFixedHeight(20)  # 设置为20px高度
         self.icons_layout = QHBoxLayout(self.icons_frame)
         self.icons_layout.setContentsMargins(0, 0, 0, 0)
-        self.icons_layout.setSpacing(6)  # 极小的间距，几乎连在一起
+        self.icons_layout.setSpacing(4)  # 减小间距
+        self.icons_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
         header_layout.addWidget(self.icons_frame)
         
         # 添加弹簧
@@ -102,14 +93,16 @@ class PromptItemWidget(QWidget):
         self.edit_btn.setIcon(qta.icon('fa5s.edit', color='#D8DEE9'))
         self.edit_btn.setToolTip("编辑提示词")
         self.edit_btn.setStyleSheet(self.get_button_style())
-        self.edit_btn.setFixedSize(QSize(24, 24))
+        self.edit_btn.setFixedSize(QSize(20, 20))
+        self.edit_btn.setIconSize(QSize(16, 16))
         header_layout.addWidget(self.edit_btn)
         
         # 收藏按钮 - 使用自定义图标
         self.favorite_btn = QToolButton()
         self.favorite_btn.setToolTip("收藏提示词")
         self.favorite_btn.setStyleSheet(self.get_button_style())
-        self.favorite_btn.setFixedSize(QSize(24, 24))
+        self.favorite_btn.setFixedSize(QSize(20, 20))
+        self.favorite_btn.setIconSize(QSize(16, 16))
         self.favorite_btn.clicked.connect(self.toggle_favorite)
         
         # 创建图标并存储以便重复使用
@@ -134,7 +127,8 @@ class PromptItemWidget(QWidget):
         self.delete_btn.setIcon(qta.icon('fa5s.trash-alt', color='#BF616A'))
         self.delete_btn.setToolTip("删除提示词")
         self.delete_btn.setStyleSheet(self.get_button_style())
-        self.delete_btn.setFixedSize(QSize(24, 24))
+        self.delete_btn.setFixedSize(QSize(20, 20))
+        self.delete_btn.setIconSize(QSize(16, 16))
         self.delete_btn.clicked.connect(self.delete_prompt)
         header_layout.addWidget(self.delete_btn)
         
@@ -170,7 +164,7 @@ class PromptItemWidget(QWidget):
         return """
             QToolButton {
                 background-color: #3B4252;
-                border-radius: 12px;
+                border-radius: 10px;
                 padding: 2px;
                 border: none;
             }
@@ -196,24 +190,46 @@ class PromptItemWidget(QWidget):
         
         # 尝试根据域名获取合适的AI平台标识
         ai_key = None
-        if 'openai' in domain or 'chatgpt' in domain:
-            ai_key = 'chatgpt'
-        elif 'gemini' in domain or 'google' in domain:
-            ai_key = 'gemini'
-        elif 'anthropic' in domain or 'claude' in domain:
-            ai_key = 'claude'
-        elif 'perplexity' in domain:
-            ai_key = 'perplexity'
-        elif 'bing' in domain or 'microsoft' in domain:
-            ai_key = 'bing'
-        elif 'baidu' in domain or 'yiyan' in domain:
-            ai_key = 'yiyan'
-        elif 'ali' in domain or 'tongyi' in domain:
-            ai_key = 'tongyi'
-        elif 'xunfei' in domain or 'spark' in domain:
-            ai_key = 'spark'
-            
-        # 调试：输出尝试加载的AI平台
+        
+        # URL到平台标识的映射(保持与prompt_injector.js的一致性)
+        url_to_platform = {
+            'chat.openai.com': 'chatgpt',
+            'chatgpt.com': 'chatgpt',
+            'kimi.moonshot.cn': 'kimi',
+            'www.doubao.com': 'doubao',
+            'doubao.com': 'doubao',
+            'www.perplexity.ai': 'perplexity',
+            'perplexity.ai': 'perplexity',
+            'n.cn': 'n',
+            'metaso.cn': 'metaso',
+            'www.metaso.cn': 'metaso',
+            'chatglm.cn': 'chatglm',
+            'www.chatglm.cn': 'chatglm',
+            'yuanbao.tencent.com': 'yuanbao',
+            'www.biji.com': 'biji',
+            'biji.com': 'biji',
+            'x.com': 'grok',
+            'grok.com': 'grok',
+            'www.grok.com': 'grok',
+            'yiyan.baidu.com': 'yiyan',
+            'tongyi.aliyun.com': 'tongyi',
+            'gemini.google.com': 'gemini',
+            'chat.deepseek.com': 'deepseek',
+            'claude.ai': 'claude',
+            'anthropic.com': 'claude',
+            'bing.com': 'bing'
+        }
+        
+        # 根据域名获取平台标识
+        ai_key = url_to_platform.get(domain)
+        
+        # 如果找不到精确匹配，尝试部分匹配
+        if not ai_key:
+            for host, key in url_to_platform.items():
+                if host in domain:
+                    ai_key = key
+                    break
+        
         print(f"为URL: {url} 尝试加载图标: {ai_key}")
         
         # 先尝试加载本地图标文件
@@ -221,15 +237,15 @@ class PromptItemWidget(QWidget):
             # 使用小写的key与文件名保持一致
             lowercase_key = ai_key.lower()
             icon_path = os.path.join(self.icon_dir, f"{lowercase_key}.png")  # 先尝试png
+            print(f"尝试加载PNG图标: {icon_path}")
             if not os.path.exists(icon_path):
                 icon_path = os.path.join(self.icon_dir, f"{lowercase_key}.ico")  # 再尝试ico
+                print(f"PNG图标不存在，尝试加载ICO图标: {icon_path}")
             
-            # 调试：输出图标路径
-            print(f"尝试从 {icon_path} 加载图标")
-                
             if os.path.exists(icon_path):
                 # 加载图标
                 try:
+                    print(f"图标文件存在，开始加载: {icon_path}")
                     if icon_path.endswith('.ico'):
                         icon = QIcon(icon_path)
                     else:
@@ -267,8 +283,9 @@ class PromptItemWidget(QWidget):
             # 获取该平台对应的图标名，如果没有指定则使用全局图标
             icon_name = icon_map.get(ai_key.lower() if ai_key else "", "fa5s.globe")
             try:
+                print(f"尝试使用qtawesome图标: {icon_name}")
                 icon = qta.icon(icon_name, color='#88C0D0')
-                print(f"使用qtawesome图标: {icon_name}")
+                print(f"成功加载qtawesome图标: {icon_name}")
             except Exception as e:
                 # 如果依然失败，使用最安全的图标
                 print(f"qtawesome图标加载失败: {e}")
@@ -281,8 +298,8 @@ class PromptItemWidget(QWidget):
         # 使用与其他按钮相同的样式
         btn.setStyleSheet(self.get_button_style())
         
-        # 使用与收藏和删除按钮相同的大小
-        btn.setFixedSize(QSize(24, 24))
+        # 使用与其他按钮相同的大小
+        btn.setFixedSize(QSize(20, 20))
         
         # 使用适当的图标尺寸
         btn.setIconSize(QSize(16, 16))
@@ -323,8 +340,11 @@ class PromptItemWidget(QWidget):
             else:
                 time_obj = datetime.now()
                 
-            time_str = time_obj.strftime("%Y-%m-%d %H:%M")
-            self.time_label.setText(time_str)
+            # 分别格式化日期和时间，使用HTML实现两行显示
+            date_str = time_obj.strftime("%Y-%m-%d")
+            time_str = time_obj.strftime("%H:%M")
+            self.time_label.setText(f"{date_str}<br>{time_str}")
+            self.time_label.setTextFormat(Qt.TextFormat.RichText)  # 启用HTML格式
         except:
             self.time_label.setText("未知时间")
         
@@ -358,6 +378,10 @@ class PromptItemWidget(QWidget):
                 self.icons_layout.addWidget(btn)
                 url_count += 1
         
+        # 如果有链接，添加"打开所有"按钮
+        if url_count > 0:
+            self.add_open_all_button()
+            
         print(f"调试 - 总共添加了 {url_count} 个链接按钮")
         
         # 更新收藏按钮状态
@@ -366,6 +390,29 @@ class PromptItemWidget(QWidget):
             self.favorite_btn.setIcon(self.star_filled_icon)
         else:
             self.favorite_btn.setIcon(self.star_empty_icon)
+    
+    def add_open_all_button(self):
+        """添加打开所有链接的按钮"""
+        btn = QToolButton()
+        btn.setIcon(qta.icon('fa5s.external-link-alt', color='#88C0D0'))
+        btn.setToolTip("在AI视图中打开所有链接")
+        btn.setStyleSheet(self.get_button_style())
+        btn.setFixedSize(QSize(20, 20))
+        btn.setIconSize(QSize(16, 16))
+        btn.clicked.connect(self.open_all_links)
+        self.icons_layout.addWidget(btn)
+        
+    def open_all_links(self):
+        """收集并打开所有链接"""
+        urls = []
+        for i in range(1, 7):
+            url_key = f"ai{i}_url"
+            if url_key in self.prompt_data and self.prompt_data[url_key] and self.prompt_data[url_key].strip():
+                urls.append(self.prompt_data[url_key])
+        
+        if urls:
+            print(f"准备打开 {len(urls)} 个链接: {urls}")
+            self.open_all_urls.emit(urls)
     
     def clear_ai_icons(self):
         """清除所有AI图标"""
@@ -449,6 +496,7 @@ class PromptHistory(QWidget):
     # 定义信号
     prompt_selected = pyqtSignal(str)  # 提示词选中信号
     favorite_toggled = pyqtSignal(str, bool)  # 收藏状态切换信号，参数: prompt_id, is_favorite
+    open_urls = pyqtSignal(list)  # 打开URLs信号，用于传递给AI视图
     
     def __init__(self, db_manager, parent=None):
         super().__init__(parent)
@@ -667,6 +715,7 @@ class PromptHistory(QWidget):
         item_widget.favorite_toggled.connect(self.on_favorite_toggled)
         item_widget.deleted.connect(self.delete_prompt)
         item_widget.copied.connect(self.copy_prompt_to_clipboard)
+        item_widget.open_all_urls.connect(self.on_open_all_urls)
         
         # 添加到布局中，在弹簧之前
         self.content_layout.insertWidget(self.content_layout.count() - 1, item_widget)
@@ -836,3 +885,9 @@ class PromptHistory(QWidget):
         """复制提示词到剪贴板"""
         from PyQt6.QtWidgets import QApplication
         QApplication.clipboard().setText(text)
+    
+    def on_open_all_urls(self, urls):
+        """处理打开所有链接请求"""
+        if urls:
+            print(f"PromptHistory: 转发打开 {len(urls)} 个链接的请求")
+            self.open_urls.emit(urls)

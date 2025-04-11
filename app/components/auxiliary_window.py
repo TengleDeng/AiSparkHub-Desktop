@@ -5,7 +5,7 @@
 # 该窗口作为辅助窗口，包含文件浏览器、提示词输入框和提示词历史记录。
 # 用于管理和同步提示词到主窗口的 AI 对话页面。
 
-from PyQt6.QtWidgets import QMainWindow, QWidget, QHBoxLayout, QPushButton, QVBoxLayout, QLabel, QSplitter, QFrame, QToolBar, QStackedWidget, QTabWidget
+from PyQt6.QtWidgets import QMainWindow, QWidget, QHBoxLayout, QPushButton, QVBoxLayout, QLabel, QSplitter, QFrame, QToolBar, QStackedWidget, QTabWidget, QApplication
 from PyQt6.QtCore import Qt, QPoint, pyqtSignal, QSize, QTimer
 from PyQt6.QtGui import QIcon
 import qtawesome as qta
@@ -482,6 +482,9 @@ class AuxiliaryWindow(QMainWindow):
         
         # 连接文件浏览器的fileOpenRequest信号到打开文件方法
         self.file_explorer.fileOpenRequest.connect(self.open_file)
+        
+        # 连接历史记录的open_urls信号到处理方法
+        self.prompt_history.open_urls.connect(self.on_open_urls)
     
     def on_prompt_submitted(self, prompt_text):
         """处理提示词提交事件"""
@@ -681,3 +684,39 @@ class AuxiliaryWindow(QMainWindow):
         # 可以在这里添加额外的操作，如通知或UI更新
         favorite_status = "收藏" if is_favorite else "取消收藏"
         print(f"提示词 {prompt_id} 已{favorite_status}") 
+
+    def on_open_urls(self, urls):
+        """处理打开多个URL的请求
+        
+        Args:
+            urls (list): 要打开的URL列表
+        """
+        if not urls:
+            print("没有URL可以打开")
+            return
+            
+        print(f"辅助窗口收到打开URLs请求: {urls}")
+        
+        # 获取主窗口
+        main_window = None
+        for window in QApplication.topLevelWidgets():
+            if window.__class__.__name__ == "MainWindow":
+                main_window = window
+                break
+                
+        if not main_window:
+            print("找不到主窗口，无法打开URLs")
+            return
+            
+        # 获取主窗口中的AI视图
+        ai_view = main_window.get_ai_view()
+        if not ai_view:
+            print("找不到AI视图，无法打开URLs")
+            return
+            
+        # 请求AI视图打开所有URL
+        ai_view.open_multiple_urls(urls)
+        
+        # 显示主窗口（如果它被最小化或隐藏）
+        main_window.showNormal()
+        main_window.activateWindow() 

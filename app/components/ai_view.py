@@ -869,4 +869,95 @@ class AIView(QWidget):
             
             # 对于最右侧的容器，隐藏向右按钮
             if hasattr(container, 'move_right_btn'):
-                container.move_right_btn.setVisible(i < count - 1) 
+                container.move_right_btn.setVisible(i < count - 1)
+    
+    def open_multiple_urls(self, urls):
+        """打开多个URL到不同的AI网页视图
+        
+        Args:
+            urls (list): 要打开的URL列表
+        """
+        if not urls:
+            print("没有URL可以打开")
+            return
+            
+        print(f"AI视图收到打开URLs请求: {urls}")
+        
+        # 清空现有视图
+        for i in range(self.splitter.count()):
+            widget = self.splitter.widget(0)
+            widget.setParent(None)
+        
+        self.ai_web_views.clear()
+        
+        # 为每个URL创建一个新的网页视图
+        for url in urls:
+            # 从URL分析AI平台
+            from urllib.parse import urlparse
+            domain = urlparse(url).netloc
+            if domain.startswith('www.'):
+                domain = domain[4:]
+                
+            # URL到平台标识的映射
+            url_to_platform = {
+                'chat.openai.com': 'chatgpt',
+                'chatgpt.com': 'chatgpt',
+                'kimi.moonshot.cn': 'kimi',
+                'doubao.com': 'doubao',
+                'perplexity.ai': 'perplexity',
+                'n.cn': 'n',
+                'metaso.cn': 'metaso',
+                'chatglm.cn': 'chatglm',
+                'yuanbao.tencent.com': 'yuanbao',
+                'biji.com': 'biji',
+                'x.com': 'grok',
+                'grok.com': 'grok',
+                'yiyan.baidu.com': 'yiyan',
+                'tongyi.aliyun.com': 'tongyi',
+                'gemini.google.com': 'gemini',
+                'chat.deepseek.com': 'deepseek',
+                'claude.ai': 'claude',
+                'anthropic.com': 'claude',
+                'bing.com': 'bing'
+            }
+            
+            # 根据域名获取平台标识
+            ai_key = url_to_platform.get(domain)
+            
+            # 如果找不到精确匹配，尝试部分匹配
+            if not ai_key:
+                for host, key in url_to_platform.items():
+                    if host in domain:
+                        ai_key = key
+                        break
+            
+            # 如果无法识别平台，使用通用配置
+            if not ai_key:
+                ai_key = "unknown"
+                ai_name = "未知平台"
+            else:
+                # 查找匹配的AI平台配置
+                ai_name = None
+                for key, config in SUPPORTED_AI_PLATFORMS.items():
+                    if config["key"] == ai_key:
+                        ai_name = config["name"]
+                        break
+                
+                if not ai_name:
+                    ai_name = ai_key.capitalize()  # 如果找不到名称，使用key的首字母大写形式
+            
+            # 创建配置
+            ai_config = {
+                "key": ai_key,
+                "name": ai_name,
+                "url": url,
+                "input_selector": "",  # 不需要输入选择器，只是查看
+                "submit_selector": "",
+                "response_selector": ""
+            }
+            
+            # 添加网页视图
+            self.add_ai_web_view_from_config(ai_config)
+        
+        # 调整视图大小
+        self.adjust_splitter_sizes() 
