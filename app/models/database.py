@@ -279,7 +279,7 @@ class DatabaseManager:
             results.append(result)
         
         return results
-        
+    
     def search_prompt_details(self, search_text, limit=50):
         """搜索提示词详细信息
         
@@ -362,7 +362,9 @@ class DatabaseManager:
         cursor = self.conn.cursor()
         
         cursor.execute(
-            "SELECT id, prompt, timestamp, favorite FROM prompt_details ORDER BY timestamp DESC LIMIT ?",
+            """SELECT id, prompt, timestamp, favorite, 
+               ai1_url, ai2_url, ai3_url, ai4_url, ai5_url, ai6_url 
+               FROM prompt_details ORDER BY timestamp DESC LIMIT ?""",
             (limit,)
         )
         
@@ -410,13 +412,21 @@ class DatabaseManager:
                 # 发生错误时使用当前时间
                 timestamp_str = datetime.now().isoformat()
             
-            results.append({
+            record = {
                 'id': row['id'],
                 'prompt_text': row['prompt'],
                 'timestamp': timestamp_str,
                 'ai_targets': ai_targets,
                 'favorite': bool(row['favorite'])
-            })
+            }
+            
+            # 添加URL字段
+            for i in range(1, 7):
+                url_key = f"ai{i}_url"
+                if url_key in row:
+                    record[url_key] = row[url_key]
+            
+            results.append(record)
         
         return results
     
@@ -434,7 +444,9 @@ class DatabaseManager:
         
         search_pattern = f"%{search_text}%"
         cursor.execute(
-            "SELECT id, prompt, timestamp, favorite FROM prompt_details WHERE prompt LIKE ? ORDER BY timestamp DESC LIMIT ?",
+            """SELECT id, prompt, timestamp, favorite,
+               ai1_url, ai2_url, ai3_url, ai4_url, ai5_url, ai6_url
+               FROM prompt_details WHERE prompt LIKE ? ORDER BY timestamp DESC LIMIT ?""",
             (search_pattern, limit)
         )
         
@@ -482,13 +494,21 @@ class DatabaseManager:
                 # 发生错误时使用当前时间
                 timestamp_str = datetime.now().isoformat()
             
-            results.append({
+            record = {
                 'id': row['id'],
                 'prompt_text': row['prompt'],
                 'timestamp': timestamp_str,
                 'ai_targets': ai_targets,
                 'favorite': bool(row['favorite'])
-            })
+            }
+            
+            # 添加URL字段
+            for i in range(1, 7):
+                url_key = f"ai{i}_url"
+                if url_key in row:
+                    record[url_key] = row[url_key]
+            
+            results.append(record)
         
         return results
     
