@@ -15,6 +15,10 @@ import sqlite3
 import http.server
 import socketserver
 import threading
+import re
+
+# 添加全局变量用于存储auxiliary_window引用
+GLOBAL_AUXILIARY_WINDOW = None
 
 from app.components.file_explorer import FileExplorer
 from app.components.prompt_input import PromptInput
@@ -22,6 +26,9 @@ from app.components.prompt_history import PromptHistory
 from app.components.file_viewer import FileViewer  # 导入文件查看器组件
 from app.controllers.prompt_sync import PromptSync
 from app.components.web_view import WebView  # 导入WebView组件
+
+# 在CustomHTTPHandler类上方添加
+_auxiliary_window_ref = None  # 类级别的引用
 
 class RibbonToolBar(QToolBar):
     """垂直工具栏，类似Obsidian的ribbon"""
@@ -193,6 +200,9 @@ class AuxiliaryWindow(QMainWindow):
     # 信号：请求打开主窗口
     request_open_main_window = pyqtSignal()
     
+    # 新增信号：用于从HTTP线程传递提示词到主线程
+    received_prompt_from_http = pyqtSignal(str)
+    
     def __init__(self, db_manager):
         super().__init__()
         self.setWindowTitle("AiSparkHub - 提示词管理")
@@ -200,6 +210,11 @@ class AuxiliaryWindow(QMainWindow):
         
         # 设置无边框窗口
         self.setWindowFlags(Qt.WindowType.FramelessWindowHint)
+        
+        # 设置全局引用，确保HTTP处理器能访问到
+        global GLOBAL_AUXILIARY_WINDOW
+        GLOBAL_AUXILIARY_WINDOW = self
+        print("已设置全局辅助窗口引用")
         
         # 设置图标 (虽然无边框，但任务栏可能需要)
         self.setWindowIcon(qta.icon('fa5s.keyboard', color='#88C0D0'))
@@ -263,6 +278,12 @@ class AuxiliaryWindow(QMainWindow):
         # 连接响应收集信号
         self.prompt_sync.response_collected.connect(self.on_response_collected)
         
+        # 连接历史记录的总结AI回复请求信号
+        self.prompt_history.request_summarize_responses.connect(self.on_request_summarize_responses)
+        
+        # 连接HTTP提示词接收信号到处理槽函数
+        self.received_prompt_from_http.connect(self.on_received_prompt_from_http)
+        
         # 使用定时器延迟加载搜索页面（确保服务器已启动）
         QTimer.singleShot(500, self.load_search_page)
     
@@ -291,8 +312,200 @@ class AuxiliaryWindow(QMainWindow):
         # 设置服务器目录
         os.chdir(server_dir)
         
-        # 创建简单的HTTP服务器
-        handler = http.server.SimpleHTTPRequestHandler
+        # 创建自定义的HTTP处理器，添加API支持
+        class CustomHTTPHandler(http.server.SimpleHTTPRequestHandler):
+            """自定义HTTP处理器，支持API请求处理"""
+            
+            def __init__(self, *args, **kwargs):
+                # 存储对辅助窗口的引用，以便访问prompt_sync
+                self.auxiliary_window = None
+                super().__init__(*args, **kwargs)
+            
+            def do_POST(self):
+                """处理POST请求"""
+                # 处理提示词API
+                if self.path == '/api/prompt':
+                    content_length = int(self.headers['Content-Length'])
+                    post_data = self.rfile.read(content_length)
+                    
+                    try:
+                        # 解析JSON数据
+                        import json
+                        import traceback
+                        print("\n" + "="*80)
+                        print("【接收到网页提示词请求】")
+                        print(f"收到原始POST数据: {post_data[:100]}...")
+                        
+                        try:
+                            data = json.loads(post_data.decode('utf-8'))
+                            print(f"解析JSON成功: {json.dumps(data, ensure_ascii=False)[:100]}...")
+                        except Exception as json_err:
+                            print(f"JSON解析错误: {str(json_err)}")
+                            raise Exception(f"JSON解析失败: {str(json_err)}")
+                            
+                        prompt = data.get('prompt', '')
+                        if not prompt:
+                            print("警告: 提示词为空")
+                        
+                        # 输出完整提示词到控制台，分段显示以提高可读性
+                        print("\n【完整提示词内容】")
+                        print("-"*40)
+                        # 将提示词分成多行输出，每行最多200个字符
+                        for i in range(0, len(prompt), 200):
+                            print(prompt[i:i+200])
+                        print("-"*40)
+                        
+                        # 验证auxiliary_window引用
+                        if not self.auxiliary_window:
+                            print("警告: 实例级auxiliary_window引用不存在，尝试使用全局引用")
+                            # 使用全局引用代替
+                            global GLOBAL_AUXILIARY_WINDOW
+                            self.auxiliary_window = GLOBAL_AUXILIARY_WINDOW
+                            
+                            if not self.auxiliary_window:
+                                print("错误: 全局auxiliary_window引用也不存在")
+                                raise Exception("服务器内部错误: auxiliary_window不可用")
+                        
+                        # 清理特殊字符并截断提示词到1000字符
+                        original_length = len(prompt)
+                        
+                        # 清理特殊字符 - 先执行基本清理
+                        cleaned_prompt = prompt
+                        # 替换可能导致JavaScript错误的字符
+                        cleaned_prompt = re.sub(r'[\\\'"]', ' ', cleaned_prompt)  # 移除引号和反斜杠
+                        
+                        # 截断到1000字符
+                        if len(cleaned_prompt) > 1000:
+                            truncated_prompt = cleaned_prompt[:1000]
+                            print(f"\n【清理并截断提示词】原始长度: {original_length}字符，清理后长度: {len(cleaned_prompt)}字符，截断到1000字符")
+                        else:
+                            truncated_prompt = cleaned_prompt
+                            print(f"\n【清理提示词】原始长度: {original_length}字符，清理后长度: {len(cleaned_prompt)}字符，无需截断")
+                        
+                        # 添加截断提示
+                        if len(truncated_prompt) < len(prompt):
+                            truncated_prompt += "\n\n[内容已截断，完整内容太长无法显示]"
+                        
+                        print("处理后内容前100字符:", truncated_prompt[:100])
+                        
+                        # 使用信号将完整提示词传递到主线程处理
+                        print("\n【使用信号发送提示词到主线程】")
+                        try:
+                            # 获取原始完整提示词(未清理、未截断)
+                            original_prompt = prompt  # 使用原始提示词，不是清理或截断的版本
+                            
+                            # 检查辅助窗口引用
+                            if self.auxiliary_window:
+                                # 使用信号发送提示词到主线程处理
+                                print(f"发送提示词到主线程，长度: {len(original_prompt)}字符")
+                                self.auxiliary_window.received_prompt_from_http.emit(original_prompt)
+                                print("信号发送成功")
+                            else:
+                                print("错误: 无法发送信号，auxiliary_window引用不存在")
+                        except Exception as e:
+                            print(f"发送信号到主线程失败: {str(e)}")
+                            print(traceback.format_exc())
+                            
+                        # 返回成功响应
+                        self.send_response(200)
+                        self.send_header('Content-type', 'application/json')
+                        self.send_header('Access-Control-Allow-Origin', '*')  # 允许跨域
+                        self.end_headers()
+                        response = {'status': 'success', 'message': '提示词已成功发送到AI视图'}
+                        self.wfile.write(json.dumps(response).encode('utf-8'))
+                        print("HTTP响应: 200 成功")
+                        print("="*80 + "\n")
+                    except Exception as e:
+                        # 详细记录错误
+                        print(f"处理/api/prompt请求出错: {str(e)}")
+                        print(traceback.format_exc())
+                        
+                        # 返回错误响应
+                        self.send_response(500)  # 改为500错误以反映服务器问题
+                        self.send_header('Content-type', 'application/json')
+                        self.send_header('Access-Control-Allow-Origin', '*')
+                        self.end_headers()
+                        error_detail = str(e)
+                        response = {
+                            'status': 'error', 
+                            'message': f'处理提示词请求失败: {error_detail}'
+                        }
+                        self.wfile.write(json.dumps(response, ensure_ascii=False).encode('utf-8'))
+                        print("HTTP响应: 500 错误")
+                        print("="*80 + "\n")
+
+            def do_GET(self):
+                """处理GET请求"""
+                # 处理URL参数方式的提示词API
+                if self.path.startswith('/api/prompt-url'):
+                    try:
+                        # 解析URL参数
+                        from urllib.parse import urlparse, parse_qs
+                        query = parse_qs(urlparse(self.path).query)
+                        prompt = query.get('prompt', [''])[0]
+                        
+                        if prompt:
+                            print(f"收到URL参数提示词请求: {prompt[:50]}...")
+                            
+                            # 转发到prompt_sync
+                            if self.auxiliary_window and hasattr(self.auxiliary_window, 'prompt_sync'):
+                                self.auxiliary_window.prompt_sync.sync_prompt(prompt)
+                                
+                                # 返回成功响应
+                                self.send_response(200)
+                                self.send_header('Content-type', 'text/html; charset=utf-8')
+                                self.end_headers()
+                                response = """
+                                <html>
+                                <head>
+                                <title>Prompt Sent</title>
+                                <meta charset="utf-8">
+                                </head>
+                                <body>
+                                <h1>Prompt has been sent to AI assistant</h1>
+                                <p>You can close this page now.</p>
+                                <script>
+                                setTimeout(function() {
+                                    window.close();
+                                }, 2000);
+                                </script>
+                                </body>
+                                </html>
+                                """.encode('utf-8')
+                                self.wfile.write(response)
+                                return
+                        
+                        # 参数缺失或prompt_sync不可用
+                        self.send_response(400)
+                        self.send_header('Content-type', 'text/html')
+                        self.end_headers()
+                        self.wfile.write(b'Bad Request: Missing prompt parameter or prompt_sync not available')
+                    except Exception as e:
+                        # 返回错误响应
+                        self.send_response(500)
+                        self.send_header('Content-type', 'text/html')
+                        self.end_headers()
+                        self.wfile.write(f'Error: {str(e)}'.encode('utf-8'))
+                else:
+                    # 其他GET请求使用标准处理
+                    super().do_GET()
+
+            def do_OPTIONS(self):
+                """处理OPTIONS请求，支持CORS"""
+                self.send_response(200)
+                self.send_header('Access-Control-Allow-Origin', '*')
+                self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
+                self.send_header('Access-Control-Allow-Headers', 'Content-Type')
+                self.end_headers()
+        
+        # 创建自定义处理器并设置对辅助窗口的引用
+        handler_class = CustomHTTPHandler
+        # 使用闭包传递self引用
+        def handler_factory(*args, **kwargs):
+            CustomHTTPHandler._auxiliary_window_ref = self  # 设置类级别引用
+            handler = handler_class(*args, **kwargs)
+            handler.auxiliary_window = self  # 仍然设置实例级别引用
+            return handler
         
         # 尝试在8080端口启动服务器，如果被占用则尝试8081
         self.port = 8080
@@ -300,7 +513,7 @@ class AuxiliaryWindow(QMainWindow):
         
         while self.port < 8090 and not self.server:
             try:
-                self.server = socketserver.TCPServer(("", self.port), handler)
+                self.server = socketserver.TCPServer(("", self.port), handler_factory)
                 print(f"本地HTTP服务器已启动在端口 {self.port}")
                 break
             except OSError:
@@ -562,9 +775,6 @@ class AuxiliaryWindow(QMainWindow):
         
         # 连接历史记录的提示词直接发送请求信号
         self.prompt_history.request_send_prompt.connect(self.on_request_send_prompt)
-        
-        # 连接历史记录的总结AI回复请求信号
-        self.prompt_history.request_summarize_responses.connect(self.on_request_summarize_responses)
     
     def load_search_page(self):
         """加载搜索页面"""
@@ -1304,3 +1514,33 @@ class AuxiliaryWindow(QMainWindow):
 
         print(f"总结提示词构建完成，长度: {len(summary_prompt)}")
         return summary_prompt 
+
+    def on_received_prompt_from_http(self, prompt_text):
+        """处理从HTTP服务器接收到的提示词
+        
+        Args:
+            prompt_text (str): 从HTTP服务器接收到的提示词文本
+        """
+        print(f"\n===== 在主线程处理从HTTP接收到的提示词 =====")
+        print(f"提示词长度: {len(prompt_text)}字符")
+        
+        # 在这里，我们已经在主线程中，可以安全地调用on_prompt_submitted或其他UI操作
+        if prompt_text and prompt_text.strip():
+            print("调用on_prompt_submitted处理提示词...")
+            self.on_prompt_submitted(prompt_text)
+            print("提示词处理完成")
+        else:
+            print("提示词为空，不处理")
+        
+        print(f"===== HTTP提示词处理结束 =====\n")
+    
+    def load_search_page(self):
+        """加载搜索页面"""
+        # 检查HTTP服务器是否已启动
+        if not hasattr(self, 'port') or not self.server:
+            print("HTTP服务器未启动，无法加载搜索页面")
+            return
+            
+        # 加载本地搜索页面
+        self.search_view.web_view.load(QUrl(f"http://localhost:{self.port}/index.html"))
+        print(f"正在加载本地搜索页面: http://localhost:{self.port}/index.html") 

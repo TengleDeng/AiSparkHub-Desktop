@@ -9,6 +9,7 @@
 from PyQt6.QtCore import QObject, pyqtSignal, QTimer
 import time
 import json
+import traceback
 
 class PromptSync(QObject):
     """提示词同步管理器，负责将提示词从输入区同步到AI视图"""
@@ -77,50 +78,118 @@ class PromptSync(QObject):
         
         Args:
             prompt_text (str): 提示词文本
+            
+        Returns:
+            bool: 是否成功开始同步过程
         """
-        # if not self.ai_views:
-        #     print("没有注册的AI视图，无法同步")
-        #     return
-        if not self.ai_view_container:
-            print("没有注册的AI视图容器，无法同步")
-            return
+        try:
+            print("="*50)
+            print("开始处理sync_prompt函数调用...")
+            print(f"提示词长度: {len(prompt_text)}字符")
+            print(f"提示词前100字符: {prompt_text[:100]}...")
             
-        print(f"开始同步提示词: {prompt_text[:50]}...") # 打印部分提示词
+            # 检查AI视图容器是否可用
+            if not self.ai_view_container:
+                print("错误: 没有注册的AI视图容器，无法同步提示词")
+                print("AI视图容器对象: None")
+                return False
+                
+            print(f"AI视图容器类型: {type(self.ai_view_container).__name__}")
             
-        # 生成唯一的提示词ID（基于时间戳）
-        self.current_prompt_id = str(int(time.time() * 1000))
-        self.current_prompt_text = prompt_text
-        
-        # 清空上次收集结果
-        self.collected_responses = []
-        self.previous_responses = {}
-        self.stability_counter = {}
-        self.pending_views = set()
-        
-        # 向容器中的所有AIWebView发送提示词
-        active_views = self.ai_view_container.ai_web_views
-        if not active_views:
-            print("AI视图容器中没有活动的AI视图。")
-            # 可以选择立即完成或等待
-            # self._finalize_collection() 
-            return
-
-        print(f"向 {len(active_views)} 个AI视图发送提示词...")
-        for ai_key, web_view in active_views.items():
-            try:
-                web_view.fill_prompt(prompt_text)
-                self.pending_views.add(ai_key) # 将 AI key 加入待处理集合
-                self.stability_counter[ai_key] = 0 # 初始化稳定计数
-                self.previous_responses[ai_key] = None # 初始化上一次响应
-                print(f"  -> 已发送至 {web_view.ai_name} (Key: {ai_key})")
-            except Exception as e:
-                print(f"  -> 发送至 {web_view.ai_name} (Key: {ai_key}) 时出错: {e}")
-        
-        # 发射同步信号
-        self.prompt_synced.emit(self.current_prompt_id)
-        
-        # 开始轮询检查响应
-        self._start_polling()
+            # 生成唯一的提示词ID（基于时间戳）
+            self.current_prompt_id = str(int(time.time() * 1000))
+            self.current_prompt_text = prompt_text
+            print(f"生成的提示词ID: {self.current_prompt_id}")
+            
+            # 清空上次收集结果
+            self.collected_responses = []
+            self.previous_responses = {}
+            self.stability_counter = {}
+            self.pending_views = set()
+            print("已清空上次收集的结果和状态")
+            
+            # 检查AI视图容器中是否有活动的视图
+            if not hasattr(self.ai_view_container, 'ai_web_views'):
+                print("错误: AI视图容器没有ai_web_views属性")
+                print(f"容器可用属性: {dir(self.ai_view_container)}")
+                return False
+                
+            # 获取活动视图
+            active_views = self.ai_view_container.ai_web_views
+            print(f"活动视图类型: {type(active_views)}")
+            
+            if not active_views:
+                print("警告: AI视图容器中没有活动的AI视图")
+                return False
+                
+            # 视图数量检查
+            view_count = len(active_views) if hasattr(active_views, '__len__') else '未知'
+            print(f"活动视图数量: {view_count}")
+            
+            # 发送提示词到所有活动视图
+            success_count = 0
+            error_count = 0
+            
+            for ai_key, web_view in active_views.items():
+                try:
+                    print(f"正在发送提示词到视图 {ai_key}...")
+                    
+                    # 验证web_view对象
+                    if not hasattr(web_view, 'fill_prompt'):
+                        print(f"错误: 视图 {ai_key} 没有fill_prompt方法")
+                        error_count += 1
+                        continue
+                    
+                    try:
+                        # 添加保护性处理以防止崩溃
+                        print(f"  尝试发送到 {ai_key}，提示词长度: {len(prompt_text)}字符")
+                        
+                        # 使用更安全的方法发送提示词（尝试单独捕获这一步的异常）
+                        web_view.fill_prompt(prompt_text)
+                        print(f"  -> fill_prompt调用成功")
+                        
+                        # 更新状态
+                        self.pending_views.add(ai_key)
+                        self.stability_counter[ai_key] = 0
+                        self.previous_responses[ai_key] = None
+                        
+                        print(f"  -> 成功发送至 {getattr(web_view, 'ai_name', 'Unknown')} (Key: {ai_key})")
+                        success_count += 1
+                    except Exception as fill_err:
+                        print(f"  -> fill_prompt调用失败: {str(fill_err)}")
+                        error_count += 1
+                        # 继续处理其他视图
+                        continue
+                    
+                except Exception as e:
+                    error_count += 1
+                    print(f"  -> 发送至视图 {ai_key} 时出错: {str(e)}")
+                    print(traceback.format_exc())
+            
+            # 汇总发送结果
+            print(f"提示词发送完成: 成功 {success_count}, 失败 {error_count}")
+            
+            if success_count == 0:
+                print("错误: 没有成功发送到任何AI视图")
+                return False
+                
+            # 发射同步信号
+            print("发送prompt_synced信号...")
+            self.prompt_synced.emit(self.current_prompt_id)
+            
+            # 开始轮询检查响应
+            print("启动轮询检查...")
+            self._start_polling()
+            
+            print("sync_prompt函数处理完成")
+            print("="*50)
+            return True
+            
+        except Exception as e:
+            print(f"sync_prompt函数执行出错: {str(e)}")
+            print(traceback.format_exc())
+            print("="*50)
+            return False
     
     def _start_polling(self):
         """开始轮询检查响应"""

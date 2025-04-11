@@ -7,6 +7,31 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
     <link rel="stylesheet" href="styles.css">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        .ask-ai-button {
+            background-color: #4285f4;
+            border: 1px solid #4285f4;
+            border-radius: 4px;
+            color: #fff;
+            font-size: 14px;
+            padding: 0 16px;
+            height: 36px;
+            cursor: pointer;
+            text-align: center;
+            margin-left: 10px;
+        }
+        
+        .ask-ai-button:hover {
+            background-color: #3b78e7;
+            box-shadow: 0 1px 2px rgba(0,0,0,.2);
+        }
+        
+        .ask-ai-button:disabled {
+            background-color: #a1c1fa;
+            border-color: #a1c1fa;
+            cursor: not-allowed;
+        }
+    </style>
     
     <!-- 使用ES模块方式引入OramaClient -->
     <script type="module">
@@ -59,6 +84,7 @@
             
             <div class="search-buttons">
                 <button onclick="performSearch()" class="search-button">搜索</button>
+                <button onclick="askAI()" class="ask-ai-button">问AI</button>
             </div>
         </div>
 
@@ -858,6 +884,265 @@
     function goHome() {
         clearResults();
         document.getElementById('searchInput').value = '';
+    }
+
+    // 问AI功能
+    function askAI() {
+        console.log("=== 开始执行askAI函数 ===");
+        const searchTerm = document.getElementById('searchInput').value;
+        console.log(`搜索词: "${searchTerm}"`);
+        
+        if (!searchTerm) {
+            showError('请输入搜索关键词');
+            console.log("错误: 未输入搜索关键词");
+            return;
+        }
+        
+        // 保存到搜索历史
+        saveToHistory(searchTerm);
+        
+        // 显示加载状态
+        const askBtn = document.querySelector('.ask-ai-button');
+        if (askBtn) {
+            askBtn.disabled = true;
+            askBtn.textContent = "处理中...";
+            console.log("UI状态: 已禁用问AI按钮，显示处理中...");
+        }
+        
+        // 检查搜索客户端状态
+        if (!window.oramaClient) {
+            showError("搜索引擎未初始化，请刷新页面重试");
+            console.log("错误: Orama客户端未初始化");
+            
+            if (askBtn) {
+                askBtn.disabled = false;
+                askBtn.textContent = "问AI";
+            }
+            return;
+        }
+        
+        // 执行搜索流程
+        try {
+            // 获取搜索类型
+            const searchType = document.getElementById('searchType').value;
+            const searchMode = searchType.replace('orama_cloud_', '').replace('orama_cloud', 'hybrid');
+            console.log(`搜索类型: ${searchType}, 模式: ${searchMode}`);
+            
+            // 准备搜索参数
+            const limit = parseInt(window.APP_CONFIG.searchResultLimit) || 5;
+            const searchParams = {
+                term: searchTerm,
+                limit: limit,
+                mode: searchMode === 'vector' ? 'vector' : 
+                      searchMode === 'keyword' ? 'fulltext' : 'hybrid'
+            };
+            
+            console.log(`搜索参数: ${JSON.stringify(searchParams)}`);
+            console.log("开始执行Orama搜索...");
+            
+            // 执行Orama搜索
+            window.oramaClient.search(searchParams)
+                .then(results => {
+                    // 记录搜索结果
+                    console.log("搜索成功，结果统计:");
+                    console.log(`- 命中结果数: ${results && results.hits ? results.hits.length : 0}`);
+                    
+                    if (!results || !results.hits || results.hits.length === 0) {
+                        console.log("警告: 没有找到匹配的搜索结果");
+                    } else {
+                        // 记录一些结果信息
+                        results.hits.forEach((hit, idx) => {
+                            const doc = hit.document;
+                            console.log(`- 结果 #${idx+1}: ${doc.title || '无标题'} (分数: ${hit.score.toFixed(2)})`);
+                        });
+                    }
+                    
+                    // 构建提示词
+                    const prompt = buildPromptFromResults(searchTerm, results);
+                    console.log(`生成的提示词长度: ${prompt.length}字符`);
+                    
+                    // 使用HTTP请求发送到Python端
+                    sendPromptViaHttp(prompt);
+                    
+                    // 恢复按钮状态
+                    if (askBtn) {
+                        askBtn.disabled = false;
+                        askBtn.textContent = "问AI";
+                        console.log("UI状态: 已恢复问AI按钮");
+                    }
+                })
+                .catch(error => {
+                    console.error("搜索失败:", error);
+                    console.log("Orama搜索出错详情: " + (error.stack || error));
+                    showError(`搜索失败: ${error.message}`);
+                    
+                    // 尝试不使用搜索结果，直接发送问题
+                    console.log("尝试备用方案: 直接发送问题，不包含搜索结果");
+                    const fallbackPrompt = `请回答我的问题: ${searchTerm}\n\n未能从知识库获取相关内容，请基于你的知识回答问题。`;
+                    sendPromptViaHttp(fallbackPrompt);
+                    
+                    // 恢复按钮状态
+                    if (askBtn) {
+                        askBtn.disabled = false;
+                        askBtn.textContent = "问AI";
+                        console.log("UI状态: 已恢复问AI按钮");
+                    }
+                });
+        } catch (error) {
+            console.error("处理搜索时出错:", error);
+            console.log("处理错误详情: " + (error.stack || error));
+            showError(`处理失败: ${error.message}`);
+            
+            // 恢复按钮状态
+            if (askBtn) {
+                askBtn.disabled = false;
+                askBtn.textContent = "问AI";
+                console.log("UI状态: 已恢复问AI按钮");
+            }
+        }
+        
+        console.log("=== askAI函数初始处理完成 ===");
+    }
+    
+    // 构建提示词
+    function buildPromptFromResults(searchTerm, results) {
+        console.log("=== 开始构建提示词 ===");
+        console.log(`搜索词: "${searchTerm}"`);
+        
+        // 检查搜索结果
+        const hasResults = results && results.hits && results.hits.length > 0;
+        console.log(`是否有搜索结果: ${hasResults}`);
+        if (hasResults) {
+            console.log(`结果数量: ${results.hits.length}`);
+        }
+        
+        // 开始构建提示词
+        let prompt = `请回答我的问题: ${searchTerm}\n\n`;
+        prompt += "以下是我个人知识库中与问题最相关的内容:\n\n";
+        
+        if (hasResults) {
+            console.log("添加搜索结果到提示词...");
+            results.hits.forEach((hit, index) => {
+                const doc = hit.document;
+                console.log(`处理结果 #${index + 1}: ${doc.title || '无标题'}`);
+                
+                prompt += `文档 ${index + 1}:\n`;
+                
+                if (doc.title) {
+                    prompt += `标题: ${doc.title}\n`;
+                }
+                
+                if (doc.path) {
+                    prompt += `路径: ${doc.path}\n`;
+                }
+                
+                if (doc.content) {
+                    // 记录内容长度和前20个字符
+                    console.log(`- 内容长度: ${doc.content.length}字符`);
+                    console.log(`- 内容开头: ${doc.content.substring(0, 20)}...`);
+                    prompt += `内容: ${doc.content}\n`;
+                } else {
+                    console.log("- 警告: 文档缺少内容字段");
+                }
+                
+                prompt += `相关度得分: ${hit.score.toFixed(2)}\n\n`;
+            });
+        } else {
+            console.log("没有找到搜索结果，添加提示信息");
+            prompt += "没有找到相关文档。\n\n";
+        }
+        
+        // 添加指令
+        prompt += "请根据以上信息以及你的知识来回答我的问题。如果知识库中的信息不足以回答我的问题，请明确指出并尽可能基于你的知识提供相关信息。";
+        
+        console.log(`最终提示词长度: ${prompt.length}字符`);
+        console.log("=== 提示词构建完成 ===");
+        
+        return prompt;
+    }
+    
+    // 通过HTTP发送提示词
+    function sendPromptViaHttp(prompt) {
+        console.log("=== 开始发送提示词 ===");
+        
+        // 验证参数
+        if (!prompt) {
+            console.error("错误: 提示词为空");
+            showError("提示词为空，无法发送");
+            return;
+        }
+        
+        const serverUrl = `http://localhost:${window.location.port}/api/prompt`;
+        console.log(`服务器URL: ${serverUrl}`);
+        console.log(`提示词长度: ${prompt.length}字符`);
+        
+        // 显示状态
+        showError("正在将问题发送给AI助手...");
+        console.log("正在准备POST请求...");
+        
+        // 准备请求数据
+        const requestData = { prompt: prompt };
+        const jsonData = JSON.stringify(requestData);
+        console.log(`JSON数据长度: ${jsonData.length}字节`);
+        
+        // 使用fetch API发送POST请求
+        console.log("开始发送HTTP请求...");
+        fetch(serverUrl, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: jsonData
+        })
+        .then(response => {
+            console.log(`收到响应，状态码: ${response.status}`);
+            // 尝试读取响应内容，即使状态码不是200
+            return response.text().then(text => {
+                // 尝试解析JSON
+                let jsonResponse;
+                try {
+                    if (text) {
+                        jsonResponse = JSON.parse(text);
+                        console.log("响应JSON:", jsonResponse);
+                    }
+                } catch (e) {
+                    console.log(`非JSON响应: ${text}`);
+                }
+                
+                // 检查HTTP状态
+                if (!response.ok) {
+                    const errorMsg = jsonResponse ? jsonResponse.message || jsonResponse.error : `HTTP错误，状态码: ${response.status}`;
+                    throw new Error(errorMsg);
+                }
+                
+                return jsonResponse || { status: "success" };
+            });
+        })
+        .then(data => {
+            console.log("提示词发送成功:", data);
+            showError("已将问题发送给AI助手，请查看AI回复");
+            console.log("=== 发送提示词完成 ===");
+        })
+        .catch(error => {
+            console.error("发送提示词失败:", error);
+            console.log("出错详情:", error.stack || error);
+            showError(`发送失败: ${error.message}，尝试其他方法...`);
+            
+            // 尝试备用方法：通过URL参数
+            console.log("尝试备用方法：通过URL参数发送...");
+            const backupUrl = `http://localhost:${window.location.port}/api/prompt-url?prompt=${encodeURIComponent(prompt)}`;
+            console.log(`备用URL: ${backupUrl.substring(0, 100)}...`);
+            
+            try {
+                window.open(backupUrl, '_blank');
+                console.log("已打开备用URL窗口");
+            } catch (e) {
+                console.error("打开备用URL失败:", e);
+                showError(`备用方法也失败: ${e.message}`);
+            }
+            
+            console.log("=== 发送提示词完成(失败) ===");
+        });
     }
     </script>
 </body>
