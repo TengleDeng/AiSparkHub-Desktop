@@ -488,6 +488,9 @@ class AuxiliaryWindow(QMainWindow):
         
         # 连接历史记录的提示词设置请求信号
         self.prompt_history.request_set_prompt.connect(self.on_request_set_prompt)
+        
+        # 连接历史记录的提示词直接发送请求信号
+        self.prompt_history.request_send_prompt.connect(self.on_request_send_prompt)
     
     def on_prompt_submitted(self, prompt_text):
         """处理提示词提交事件"""
@@ -787,4 +790,22 @@ class AuxiliaryWindow(QMainWindow):
         self.prompt_input.set_text(prompt_text)
         
         # 切换到提示词标签页
-        self.tabs.setCurrentIndex(0) 
+        self.tabs.setCurrentIndex(0)
+
+    def on_request_send_prompt(self, prompt_text):
+        """处理直接发送提示词的请求
+        
+        Args:
+            prompt_text (str): 要发送的提示词文本
+        """
+        if not prompt_text or not prompt_text.strip():
+            print("提示词为空，不执行发送操作")
+            return
+            
+        print(f"直接发送提示词: {prompt_text[:30]}...")
+        
+        # 使用同步控制器直接发送提示词（复用现有的prompt_sync机制）
+        self.prompt_sync.sync_prompt(prompt_text)
+        
+        # 刷新历史记录区域
+        QTimer.singleShot(500, self.prompt_history.refresh_history) 

@@ -22,6 +22,7 @@ class PromptItemWidget(QWidget):
     deleted = pyqtSignal(str)  # 删除信号
     open_all_urls = pyqtSignal(list)  # 打开所有链接信号
     prompt_text_selected = pyqtSignal(str)  # 双击选择提示词信号
+    send_prompt = pyqtSignal(str)  # 发送提示词信号
     
     def __init__(self, prompt_data, parent=None):
         super().__init__(parent)
@@ -89,14 +90,15 @@ class PromptItemWidget(QWidget):
         # 添加弹簧
         header_layout.addStretch()
         
-        # 编辑按钮
-        self.edit_btn = QToolButton()
-        self.edit_btn.setIcon(qta.icon('fa5s.edit', color='#D8DEE9'))
-        self.edit_btn.setToolTip("编辑提示词")
-        self.edit_btn.setStyleSheet(self.get_button_style())
-        self.edit_btn.setFixedSize(QSize(20, 20))
-        self.edit_btn.setIconSize(QSize(16, 16))
-        header_layout.addWidget(self.edit_btn)
+        # 发送按钮（替代原来的编辑按钮）
+        self.send_btn = QToolButton()
+        self.send_btn.setIcon(qta.icon('fa5s.paper-plane', color='#8FBCBB'))
+        self.send_btn.setToolTip("发送提示词")
+        self.send_btn.setStyleSheet(self.get_button_style())
+        self.send_btn.setFixedSize(QSize(20, 20))
+        self.send_btn.setIconSize(QSize(16, 16))
+        self.send_btn.clicked.connect(self.send_prompt_text)
+        header_layout.addWidget(self.send_btn)
         
         # 收藏按钮 - 使用自定义图标
         self.favorite_btn = QToolButton()
@@ -497,6 +499,12 @@ class PromptItemWidget(QWidget):
             self.prompt_text_selected.emit(prompt_text)
         super().mouseDoubleClickEvent(event)
 
+    def send_prompt_text(self):
+        """发送提示词"""
+        prompt_text = self.prompt_data.get('prompt_text', '')
+        if prompt_text:
+            self.send_prompt.emit(prompt_text)
+
 
 class PromptHistory(QWidget):
     """提示词历史记录组件"""
@@ -506,6 +514,7 @@ class PromptHistory(QWidget):
     favorite_toggled = pyqtSignal(str, bool)  # 收藏状态切换信号，参数: prompt_id, is_favorite
     open_urls = pyqtSignal(list)  # 打开URLs信号，用于传递给AI视图
     request_set_prompt = pyqtSignal(str)  # 请求设置提示词内容，需要检查现有内容
+    request_send_prompt = pyqtSignal(str)  # 请求直接发送提示词的信号
     
     def __init__(self, db_manager, parent=None):
         super().__init__(parent)
@@ -726,6 +735,7 @@ class PromptHistory(QWidget):
         item_widget.copied.connect(self.copy_prompt_to_clipboard)
         item_widget.open_all_urls.connect(self.on_open_all_urls)
         item_widget.prompt_text_selected.connect(self.on_prompt_text_selected)
+        item_widget.send_prompt.connect(self.on_send_prompt)
         
         # 添加到布局中，在弹簧之前
         self.content_layout.insertWidget(self.content_layout.count() - 1, item_widget)
@@ -911,3 +921,14 @@ class PromptHistory(QWidget):
         if prompt_text:
             # 将请求转发给AuxiliaryWindow处理，确保检查现有内容
             self.request_set_prompt.emit(prompt_text)
+            
+    def on_send_prompt(self, prompt_text):
+        """处理发送提示词请求
+        
+        Args:
+            prompt_text (str): 要发送的提示词文本
+        """
+        if prompt_text:
+            # 直接转发提示词到辅助窗口处理
+            self.request_send_prompt.emit(prompt_text)
+            print(f"请求发送提示词: {prompt_text[:30]}...")
