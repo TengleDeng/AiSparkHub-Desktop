@@ -16,7 +16,7 @@ const PLATFORM_SELECTORS = {
     kimi: {
         input: '.chat-input-editor',
         button: '.send-button',
-        responseSelector: '.markdown___vuBDJ'
+        responseSelector: '.segment-content-box'
     },
     // 豆包
     doubao: {
@@ -27,7 +27,8 @@ const PLATFORM_SELECTORS = {
     // 元宝
     yuanbao: {
         input: '.ql-editor',
-        button: 'a[class*="send-btn"]'
+        button: 'a[class*="send-btn"]',
+        responseSelector: '.agent-chat__conv--ai__speech_show'
     },
     // Perplexity
     perplexity: {
@@ -38,52 +39,56 @@ const PLATFORM_SELECTORS = {
     // N
     n: {
         input: '#composition-input',
-        button: '#home_chat_btn'
+        button: '#home_chat_btn',
+        responseSelector: '.chat-message-body'
     },
     // MetaSo
     metaso: {
         input: '.search-consult-textarea',
-        button: '.send-arrow-button'
+        button: '.send-arrow-button',
+        responseSelector: '.message-body'
     },
     // ChatGLM
     chatglm: {
         input: 'textarea.scroll-display-none',
-        button: '.enter_icon'
+        button: '.enter_icon',
+        responseSelector: '.chat-content'
     },
     // Grok
     grok: {
         input: 'textarea[aria-label=\"向Grok提任何问题\"]',
-        button: 'button[type=\"submit\"][aria-label=\"提交\"]'
+        button: 'button[type=\"submit\"][aria-label=\"提交\"]',
+        responseSelector: '.message-bubble'
     },
     // Get笔记
     biji: {
         input: '.custom-rich-input',
-        button: '.n-button'
+        button: '.n-button',
+        responseSelector: '.message-content'
     },
     // 文心一言
     yiyan: {
         input: '.yc-editor',
-        button: '#sendBtn'
+        button: '#sendBtn',
+        responseSelector: '.chat-result-wrap'
     },
     // 通义
     tongyi: {
         input: '.ant-input',
-        button: '[class*="operateBtn"]'
+        button: '[class*="operateBtn"]',
+        responseSelector: '.msgContent'
     },
     // Gemini
     gemini: {
         input: '.text-input-field_textarea-wrapper',
-        button: '.send-button'
-    },
-    // Get笔记
-    biji: {
-        input: '.custom-rich-input',
-        button: '.n-button'
+        button: '.send-button',
+        responseSelector: '.response-container'
     },
     // DeepSeek
     deepseek: {
         input: '#chat-input',
-        button: '[role="button"][aria-disabled="false"]'
+        button: '[role="button"][aria-disabled="false"]',
+        responseSelector: '.conversation-content'
     }
 };
 
@@ -197,10 +202,68 @@ async function injectPrompt(message) {
     }
 }
 
+/**
+ * 获取当前页面的完整URL
+ * @returns {string} 当前页面URL
+ */
+function getCurrentPageUrl() {
+    return window.location.href;
+}
+
+/**
+ * 获取AI的最新回复内容
+ * @returns {string} AI回复内容
+ */
+function getLatestAIResponse() {
+    // 确定平台
+    const platform = getPlatformFromURL();
+    if (!platform) {
+        console.error('无法识别当前平台:', window.location.hostname);
+        return "无法识别当前平台";
+    }
+    
+    // 获取平台选择器
+    const selectors = PLATFORM_SELECTORS[platform];
+    if (!selectors || !selectors.responseSelector) {
+        console.error('未找到回复内容选择器:', platform);
+        return "未找到回复内容选择器";
+    }
+    
+    try {
+        // 查找所有回复元素
+        const responseElements = document.querySelectorAll(selectors.responseSelector);
+        if (!responseElements || responseElements.length === 0) {
+            console.error('未找到回复元素');
+            return "未找到回复元素";
+        }
+        
+        // 获取最后一个元素的内容（通常是最新回复）
+        const lastResponse = responseElements[responseElements.length - 1];
+        return lastResponse.innerText || lastResponse.textContent || "无法获取回复内容";
+    } catch (error) {
+        console.error('获取回复内容出错:', error);
+        return "获取回复内容出错: " + error.message;
+    }
+}
+
+/**
+ * 获取提示词响应信息（URL和回复内容）
+ * @returns {Object} 包含url和reply的对象
+ */
+function getPromptResponse() {
+    return {
+        url: getCurrentPageUrl(),
+        reply: getLatestAIResponse()
+    };
+}
+
 // 将函数暴露给外部调用
 window.AiSparkHub = window.AiSparkHub || {};
 window.AiSparkHub.injectPrompt = injectPrompt;
 window.AiSparkHub.getPlatformFromURL = getPlatformFromURL;
+window.AiSparkHub.getCurrentPageUrl = getCurrentPageUrl;
+window.AiSparkHub.getLatestAIResponse = getLatestAIResponse;
+window.AiSparkHub.getPromptResponse = getPromptResponse;
 
 // 简单高亮功能
 (function() {

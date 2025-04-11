@@ -243,6 +243,14 @@ class AuxiliaryWindow(QMainWindow):
         
         # 用于窗口拖动
         self._drag_pos = None
+        
+        # 创建同步控制器
+        self.prompt_sync = PromptSync()
+        # 设置数据库管理器
+        self.prompt_sync.set_db_manager(self.db_manager)
+        
+        # 连接响应收集信号
+        self.prompt_sync.response_collected.connect(self.on_response_collected)
     
     def init_components(self):
         """初始化窗口组件"""
@@ -471,13 +479,10 @@ class AuxiliaryWindow(QMainWindow):
         
         # 连接文件浏览器的fileOpenRequest信号到打开文件方法
         self.file_explorer.fileOpenRequest.connect(self.open_file)
-        
-        # 创建同步控制器
-        self.prompt_sync = PromptSync()
     
     def on_prompt_submitted(self, prompt_text):
         """处理提示词提交事件"""
-        # 将提示词存储到数据库
+        # 将提示词存储到数据库 (旧方法，保持兼容性)
         self.db_manager.add_prompt(prompt_text, ["ChatGPT", "DeepSeek"])
         
         # 同步提示词到主窗口的AI网页
@@ -640,4 +645,15 @@ class AuxiliaryWindow(QMainWindow):
             if close_button and close_button.icon().isNull():
                 close_button.setIcon(close_icon)
                 close_button.setText("")  # 移除文本，只显示图标
-                close_button.setIconSize(QSize(12, 12))  # 设置合适的图标大小 
+                close_button.setIconSize(QSize(12, 12))  # 设置合适的图标大小
+
+    def on_response_collected(self, prompt_id, responses):
+        """处理收集到的AI回复
+        
+        Args:
+            prompt_id (str): 提示词ID
+            responses (list): 响应信息列表
+        """
+        print(f"收集到AI回复，ID: {prompt_id}, 共{len(responses)}个回复")
+        # 这里可以添加其他处理逻辑，例如刷新UI等
+        # 目前数据已经保存到数据库中 

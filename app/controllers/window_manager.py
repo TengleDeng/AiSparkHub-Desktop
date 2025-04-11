@@ -31,6 +31,13 @@ class WindowManager(QObject):
             prompt_sync = self.auxiliary_window.prompt_sync
             # 注册AIView到PromptSync
             prompt_sync.register_ai_view(main_ai_view)
+            
+            # 确保PromptSync能访问数据库管理器
+            db_manager = self.auxiliary_window.db_manager
+            if db_manager and not prompt_sync.db_manager:
+                prompt_sync.set_db_manager(db_manager)
+                print("已设置提示词同步器的数据库管理器")
+                
             print("已将AI视图注册到提示词同步器")
         else:
             print("警告：未找到主窗口的AI视图")

@@ -92,10 +92,32 @@ class DatabaseManager:
         )
         ''')
         
+        # 创建新的提示词详细记录表，存储URL和回复内容
+        cursor.execute('''
+        CREATE TABLE IF NOT EXISTS prompt_details (
+            id TEXT PRIMARY KEY,
+            prompt TEXT NOT NULL,
+            timestamp INTEGER NOT NULL,
+            ai1_url TEXT DEFAULT '',
+            ai1_reply TEXT DEFAULT '',
+            ai2_url TEXT DEFAULT '',
+            ai2_reply TEXT DEFAULT '',
+            ai3_url TEXT DEFAULT '',
+            ai3_reply TEXT DEFAULT '',
+            ai4_url TEXT DEFAULT '',
+            ai4_reply TEXT DEFAULT '',
+            ai5_url TEXT DEFAULT '',
+            ai5_reply TEXT DEFAULT '',
+            ai6_url TEXT DEFAULT '',
+            ai6_reply TEXT DEFAULT '',
+            favorite BOOLEAN DEFAULT 0
+        )
+        ''')
+        
         self.conn.commit()
     
     def add_prompt(self, prompt_text, ai_targets):
-        """添加提示词记录到数据库
+        """添加提示词记录到数据库 (兼容旧版本)
         
         Args:
             prompt_text (str): 提示词文本
@@ -117,6 +139,226 @@ class DatabaseManager:
         
         self.conn.commit()
         return cursor.lastrowid
+    
+    def add_prompt_details(self, prompt_id, prompt_text, timestamp, webviews, favorite=False):
+        """添加详细的提示词记录，包含URL和回复内容
+        
+        Args:
+            prompt_id (str): 提示词ID (通常是时间戳字符串)
+            prompt_text (str): 提示词文本
+            timestamp (int): 时间戳
+            webviews (list): WebView信息列表，每项包含url和reply
+            favorite (bool): 是否收藏
+            
+        Returns:
+            bool: 是否成功
+        """
+        cursor = self.conn.cursor()
+        
+        try:
+            # 准备插入参数
+            params = {
+                "id": prompt_id,
+                "prompt": prompt_text,
+                "timestamp": timestamp,
+                "favorite": 1 if favorite else 0
+            }
+            
+            # 为每个webview添加对应的URL和回复内容
+            for i, webview in enumerate(webviews, 1):
+                if i > 6:  # 最多保存6个AI的数据
+                    break
+                
+                ai_url = webview.get("url", "")
+                ai_reply = webview.get("reply", "")
+                
+                params[f"ai{i}_url"] = ai_url
+                params[f"ai{i}_reply"] = ai_reply
+            
+            # 构建SQL语句
+            fields = ["id", "prompt", "timestamp"]
+            placeholders = ["?", "?", "?"]
+            values = [prompt_id, prompt_text, timestamp]
+            
+            # 添加AI字段
+            for i in range(1, 7):
+                if f"ai{i}_url" in params:
+                    fields.append(f"ai{i}_url")
+                    placeholders.append("?")
+                    values.append(params[f"ai{i}_url"])
+                    
+                    fields.append(f"ai{i}_reply")
+                    placeholders.append("?")
+                    values.append(params[f"ai{i}_reply"])
+            
+            # 添加favorite字段
+            fields.append("favorite")
+            placeholders.append("?")
+            values.append(params["favorite"])
+            
+            # 构建完整SQL
+            sql = f"REPLACE INTO prompt_details ({', '.join(fields)}) VALUES ({', '.join(placeholders)})"
+            
+            # 执行SQL
+            cursor.execute(sql, values)
+            
+            self.conn.commit()
+            return True
+        except Exception as e:
+            print(f"保存提示词详细信息失败: {e}")
+            return False
+    
+    def get_prompt_details(self, prompt_id):
+        """获取指定ID的提示词详细信息
+        
+        Args:
+            prompt_id (str): 提示词ID
+            
+        Returns:
+            dict: 提示词详细信息
+        """
+        cursor = self.conn.cursor()
+        
+        cursor.execute(
+            "SELECT * FROM prompt_details WHERE id = ?",
+            (prompt_id,)
+        )
+        
+        row = cursor.fetchone()
+        if row:
+            result = {
+                'id': row['id'],
+                'prompt': row['prompt'],
+                'timestamp': row['timestamp'],
+                'favorite': bool(row['favorite']),
+                'webviews': []
+            }
+            
+            # 构建webviews列表
+            for i in range(1, 7):
+                url_key = f"ai{i}_url"
+                reply_key = f"ai{i}_reply"
+                
+                if url_key in row and row[url_key]:
+                    result['webviews'].append({
+                        'url': row[url_key],
+                        'reply': row[reply_key] if reply_key in row else ''
+                    })
+            
+            return result
+        
+        return None
+    
+    def get_all_prompt_details(self, limit=50):
+        """获取所有提示词详细信息
+        
+        Args:
+            limit (int): 最大记录数
+            
+        Returns:
+            list: 提示词详细信息列表
+        """
+        cursor = self.conn.cursor()
+        
+        cursor.execute(
+            "SELECT * FROM prompt_details ORDER BY timestamp DESC LIMIT ?",
+            (limit,)
+        )
+        
+        results = []
+        for row in cursor.fetchall():
+            result = {
+                'id': row['id'],
+                'prompt': row['prompt'],
+                'timestamp': row['timestamp'],
+                'favorite': bool(row['favorite']),
+                'webviews': []
+            }
+            
+            # 构建webviews列表
+            for i in range(1, 7):
+                url_key = f"ai{i}_url"
+                reply_key = f"ai{i}_reply"
+                
+                if url_key in row and row[url_key]:
+                    result['webviews'].append({
+                        'url': row[url_key],
+                        'reply': row[reply_key] if reply_key in row else ''
+                    })
+            
+            results.append(result)
+        
+        return results
+        
+    def search_prompt_details(self, search_text, limit=50):
+        """搜索提示词详细信息
+        
+        Args:
+            search_text (str): 搜索文本
+            limit (int): 最大记录数
+            
+        Returns:
+            list: 匹配的提示词详细信息列表
+        """
+        cursor = self.conn.cursor()
+        
+        search_pattern = f"%{search_text}%"
+        cursor.execute(
+            "SELECT * FROM prompt_details WHERE prompt LIKE ? ORDER BY timestamp DESC LIMIT ?",
+            (search_pattern, limit)
+        )
+        
+        results = []
+        for row in cursor.fetchall():
+            result = {
+                'id': row['id'],
+                'prompt': row['prompt'],
+                'timestamp': row['timestamp'],
+                'favorite': bool(row['favorite']),
+                'webviews': []
+            }
+            
+            # 构建webviews列表
+            for i in range(1, 7):
+                url_key = f"ai{i}_url"
+                reply_key = f"ai{i}_reply"
+                
+                if url_key in row and row[url_key]:
+                    result['webviews'].append({
+                        'url': row[url_key],
+                        'reply': row[reply_key] if reply_key in row else ''
+                    })
+            
+            results.append(result)
+        
+        return results
+    
+    def toggle_prompt_favorite(self, prompt_id):
+        """切换提示词收藏状态
+        
+        Args:
+            prompt_id (str): 提示词ID
+            
+        Returns:
+            bool: 新的收藏状态
+        """
+        cursor = self.conn.cursor()
+        
+        # 获取当前状态
+        cursor.execute("SELECT favorite FROM prompt_details WHERE id = ?", (prompt_id,))
+        row = cursor.fetchone()
+        if not row:
+            return False
+            
+        # 切换状态
+        new_state = not bool(row['favorite'])
+        cursor.execute(
+            "UPDATE prompt_details SET favorite = ? WHERE id = ?",
+            (1 if new_state else 0, prompt_id)
+        )
+        
+        self.conn.commit()
+        return new_state
     
     def get_prompt_history(self, limit=50):
         """获取提示词历史记录

@@ -43,6 +43,7 @@ class AIWebView(QWebEngineView):
         self.ai_url = ai_config["url"]
         self.input_selector = ai_config["input_selector"]
         self.submit_selector = ai_config["submit_selector"]
+        self.response_selector = ai_config.get("response_selector", "")
         
         # 使用共享的profile，保存登录信息
         self.profile_manager = WebProfileManager()
@@ -164,6 +165,30 @@ class AIWebView(QWebEngineView):
     def _handle_injection_result(self, result):
         """处理注入结果"""
         print(f"[{self.ai_name}] 注入结果: {result}")
+    
+    def get_current_url(self, callback):
+        """获取当前页面URL
+        
+        Args:
+            callback: 回调函数，接收URL字符串
+        """
+        self.page().runJavaScript("window.AiSparkHub.getCurrentPageUrl()", callback)
+    
+    def get_ai_response(self, callback):
+        """获取AI回复内容
+        
+        Args:
+            callback: 回调函数，接收回复内容字符串
+        """
+        self.page().runJavaScript("window.AiSparkHub.getLatestAIResponse()", callback)
+    
+    def get_prompt_response(self, callback):
+        """获取提示词响应信息（URL和回复内容）
+        
+        Args:
+            callback: 回调函数，接收包含url和reply的对象
+        """
+        self.page().runJavaScript("window.AiSparkHub.getPromptResponse()", callback)
 
 class AIView(QWidget):
     """AI对话页面，管理多个AI网页视图"""
@@ -526,6 +551,49 @@ class AIView(QWidget):
         """
         for web_view in self.ai_web_views.values():
             web_view.fill_prompt(prompt_text)
+            
+    def collect_all_responses(self, callback):
+        """收集所有AI网页视图的响应信息
+        
+        收集每个WebView的URL和回复内容，并在完成后调用回调函数
+        
+        Args:
+            callback: 回调函数，接收由各WebView返回的信息组成的列表
+                     每项包含url和reply字段
+        """
+        responses = []
+        pending_count = len(self.ai_web_views)
+        
+        if pending_count == 0:
+            # 如果没有WebView，立即返回空列表
+            callback([])
+            return
+        
+        def response_collected(result, web_view_key):
+            """单个响应收集完成的回调"""
+            nonlocal responses, pending_count
+            
+            # 添加响应到列表
+            if result:
+                responses.append(result)
+            else:
+                # 如果获取失败，添加一个包含URL但没有回复的项
+                web_view = self.ai_web_views[web_view_key]
+                responses.append({
+                    "url": web_view.url().toString(),
+                    "reply": "无法获取回复内容"
+                })
+            
+            # 减少待处理计数
+            pending_count -= 1
+            
+            # 如果所有WebView都已处理完成，调用总回调
+            if pending_count == 0:
+                callback(responses)
+        
+        # 遍历所有WebView，获取响应
+        for key, web_view in self.ai_web_views.items():
+            web_view.get_prompt_response(lambda result, k=key: response_collected(result, k))
     
     def resizeEvent(self, event):
         """窗口大小变化时调整分割器各部分的宽度比例"""
