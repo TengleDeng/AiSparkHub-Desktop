@@ -848,15 +848,21 @@ class AuxiliaryWindow(QMainWindow):
             # 构建总结提示词
             summary_prompt = self.build_summary_prompt(prompt_data)
             
-            # 发送总结提示词
+            # 显示总结提示词到文本框中
             if summary_prompt:
                 print(f"总结提示词构建成功，长度: {len(summary_prompt)}")
-                print(f"正在发送总结提示词...")
-                # 使用sync_prompt方法发送总结提示词到AI平台
-                self.prompt_sync.sync_prompt(summary_prompt)
-                # 刷新历史记录区域
-                QTimer.singleShot(1000, self.prompt_history.refresh_history)
-                print(f"总结提示词已发送")
+                
+                # 将总结提示词显示在提示词输入框中
+                self.prompt_input.set_text(summary_prompt)
+                
+                # 切换到提示词标签页
+                self.tabs.setCurrentIndex(0)
+                
+                # 显示提示消息
+                QMessageBox.information(self, "总结完成", 
+                    "已将总结提示词显示在文本框中，您可以根据需要编辑后手动发送。")
+                
+                print(f"总结提示词已显示在文本框中")
             else:
                 print("无法构建总结提示词，返回值为None")
                 QMessageBox.warning(self, "总结失败", "无法构建总结提示词，请检查该提示词是否有AI平台回复")
