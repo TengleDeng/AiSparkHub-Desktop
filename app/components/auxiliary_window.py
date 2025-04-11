@@ -6,18 +6,22 @@
 # 用于管理和同步提示词到主窗口的 AI 对话页面。
 
 from PyQt6.QtWidgets import QMainWindow, QWidget, QHBoxLayout, QPushButton, QVBoxLayout, QLabel, QSplitter, QFrame, QToolBar, QStackedWidget, QTabWidget, QApplication, QMessageBox
-from PyQt6.QtCore import Qt, QPoint, pyqtSignal, QSize, QTimer
+from PyQt6.QtCore import Qt, QPoint, pyqtSignal, QSize, QTimer, QUrl
 from PyQt6.QtGui import QIcon
 import qtawesome as qta
 import os
 from datetime import datetime
 import sqlite3
+import http.server
+import socketserver
+import threading
 
 from app.components.file_explorer import FileExplorer
 from app.components.prompt_input import PromptInput
 from app.components.prompt_history import PromptHistory
 from app.components.file_viewer import FileViewer  # 导入文件查看器组件
 from app.controllers.prompt_sync import PromptSync
+from app.components.web_view import WebView  # 导入WebView组件
 
 class RibbonToolBar(QToolBar):
     """垂直工具栏，类似Obsidian的ribbon"""
@@ -232,6 +236,11 @@ class AuxiliaryWindow(QMainWindow):
         
         # 初始化组件
         self.db_manager = db_manager
+        
+        # 启动本地HTTP服务器（先启动服务器）
+        self.start_local_server()
+        
+        # 初始化UI组件
         self.init_components()
         
         # 将分割器添加到内容布局
@@ -253,7 +262,58 @@ class AuxiliaryWindow(QMainWindow):
         
         # 连接响应收集信号
         self.prompt_sync.response_collected.connect(self.on_response_collected)
+        
+        # 使用定时器延迟加载搜索页面（确保服务器已启动）
+        QTimer.singleShot(500, self.load_search_page)
     
+    def start_local_server(self):
+        """启动本地HTTP服务器，以便加载本地HTML文件"""
+        # 确定搜索页面所在目录
+        current_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        server_dir = os.path.join(current_dir, "search")
+        if not os.path.exists(server_dir):
+            os.makedirs(server_dir, exist_ok=True)
+            
+        # 确保index.html存在于搜索目录
+        index_path = os.path.join(server_dir, "index.html")
+        if not os.path.exists(index_path):
+            # 如果搜索目录中不存在index.html，尝试从项目根目录复制
+            app_dir = os.path.dirname(current_dir)
+            src_index_path = os.path.join(app_dir, "app", "search", "index.html")
+            if os.path.exists(src_index_path):
+                import shutil
+                try:
+                    shutil.copy2(src_index_path, index_path)
+                    print(f"已复制index.html到搜索目录: {index_path}")
+                except Exception as e:
+                    print(f"复制index.html时出错: {e}")
+                    
+        # 设置服务器目录
+        os.chdir(server_dir)
+        
+        # 创建简单的HTTP服务器
+        handler = http.server.SimpleHTTPRequestHandler
+        
+        # 尝试在8080端口启动服务器，如果被占用则尝试8081
+        self.port = 8080
+        self.server = None
+        
+        while self.port < 8090 and not self.server:
+            try:
+                self.server = socketserver.TCPServer(("", self.port), handler)
+                print(f"本地HTTP服务器已启动在端口 {self.port}")
+                break
+            except OSError:
+                print(f"端口 {self.port} 已被占用，尝试下一个端口")
+                self.port += 1
+                
+        if self.server:
+            # 在后台线程中启动服务器
+            self.server_thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+            self.server_thread.start()
+        else:
+            print("无法启动本地HTTP服务器，所有尝试的端口都被占用")
+            
     def init_components(self):
         """初始化窗口组件"""
         # 设置全局滚动条样式
@@ -449,6 +509,15 @@ class AuxiliaryWindow(QMainWindow):
         # 设置提示词标签页不可关闭
         self.tabs.tabBar().setTabButton(prompt_idx, self.tabs.tabBar().ButtonPosition.RightSide, None)
         
+        # 创建搜索视图
+        self.search_view = WebView()
+        
+        # 添加搜索标签页（不可关闭）
+        search_idx = self.tabs.addTab(self.search_view, qta.icon('fa5s.search', color='#88C0D0'), "搜索")
+        
+        # 设置搜索标签页不可关闭
+        self.tabs.tabBar().setTabButton(search_idx, self.tabs.tabBar().ButtonPosition.RightSide, None)
+        
         # 创建中间面板容器
         middle_container = QWidget()
         middle_container.setStyleSheet("background-color: #2E3440;")
@@ -497,6 +566,17 @@ class AuxiliaryWindow(QMainWindow):
         # 连接历史记录的总结AI回复请求信号
         self.prompt_history.request_summarize_responses.connect(self.on_request_summarize_responses)
     
+    def load_search_page(self):
+        """加载搜索页面"""
+        # 检查HTTP服务器是否已启动
+        if not hasattr(self, 'port') or not self.server:
+            print("HTTP服务器未启动，无法加载搜索页面")
+            return
+            
+        # 加载本地搜索页面
+        self.search_view.web_view.load(QUrl(f"http://localhost:{self.port}/index.html"))
+        print(f"正在加载本地搜索页面: http://localhost:{self.port}/index.html")
+
     def on_prompt_submitted(self, prompt_text):
         """处理提示词提交事件"""
         if not prompt_text or not prompt_text.strip():
@@ -522,6 +602,14 @@ class AuxiliaryWindow(QMainWindow):
     
     def closeEvent(self, event):
         """处理窗口关闭事件"""
+        # 关闭HTTP服务器
+        if hasattr(self, 'server') and self.server:
+            try:
+                self.server.shutdown()
+                print("已关闭本地HTTP服务器")
+            except Exception as e:
+                print(f"关闭HTTP服务器时出错: {e}")
+                
         super().closeEvent(event)
 
     # --- 窗口控制方法 ---
