@@ -11,6 +11,8 @@ import sqlite3
 import sys
 from pathlib import Path
 from datetime import datetime
+import time
+from urllib.parse import urlparse
 
 class DatabaseManager:
     """数据库管理类 - 管理SQLite数据库的连接和操作"""
@@ -82,17 +84,7 @@ class DatabaseManager:
         """初始化数据库表结构"""
         cursor = self.conn.cursor()
         
-        # 创建提示词历史表
-        cursor.execute('''
-        CREATE TABLE IF NOT EXISTS prompt_history (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            prompt_text TEXT NOT NULL,
-            timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
-            ai_targets TEXT
-        )
-        ''')
-        
-        # 创建新的提示词详细记录表，存储URL和回复内容
+        # 只保留提示词详细记录表
         cursor.execute('''
         CREATE TABLE IF NOT EXISTS prompt_details (
             id TEXT PRIMARY KEY,
@@ -117,28 +109,26 @@ class DatabaseManager:
         self.conn.commit()
     
     def add_prompt(self, prompt_text, ai_targets):
-        """添加提示词记录到数据库 (兼容旧版本)
+        """添加提示词记录到数据库 (兼容旧版本，直接转为添加到prompt_details表)
         
         Args:
             prompt_text (str): 提示词文本
             ai_targets (list): 目标AI列表
         
         Returns:
-            int: 新记录的ID
+            str: 新记录的ID
         """
-        cursor = self.conn.cursor()
+        # 生成唯一的提示词ID（基于时间戳）
+        prompt_id = str(int(time.time() * 1000))
+        timestamp = int(time.time())
         
-        # 将AI目标列表转换为JSON字符串
-        ai_targets_json = json.dumps(ai_targets)
+        # 创建一个空的webviews列表
+        webviews = []
         
-        # 插入记录
-        cursor.execute(
-            "INSERT INTO prompt_history (prompt_text, ai_targets) VALUES (?, ?)",
-            (prompt_text, ai_targets_json)
-        )
+        # 调用add_prompt_details方法添加记录
+        success = self.add_prompt_details(prompt_id, prompt_text, timestamp, webviews, False)
         
-        self.conn.commit()
-        return cursor.lastrowid
+        return prompt_id if success else None
     
     def add_prompt_details(self, prompt_id, prompt_text, timestamp, webviews, favorite=False):
         """添加详细的提示词记录，包含URL和回复内容
@@ -361,7 +351,7 @@ class DatabaseManager:
         return new_state
     
     def get_prompt_history(self, limit=50):
-        """获取提示词历史记录
+        """获取提示词历史记录（从prompt_details表获取）
         
         Args:
             limit (int): 最大记录数
@@ -372,23 +362,66 @@ class DatabaseManager:
         cursor = self.conn.cursor()
         
         cursor.execute(
-            "SELECT id, prompt_text, timestamp, ai_targets FROM prompt_history ORDER BY timestamp DESC LIMIT ?",
+            "SELECT id, prompt, timestamp, favorite FROM prompt_details ORDER BY timestamp DESC LIMIT ?",
             (limit,)
         )
         
         results = []
         for row in cursor.fetchall():
+            # 构建与旧格式兼容的记录
+            # 从prompt_details表构建ai_targets列表（从webviews域名提取）
+            ai_targets = []
+            
+            # 查询当前记录的所有webview信息
+            for i in range(1, 7):
+                url_key = f"ai{i}_url"
+                if url_key in row and row[url_key]:
+                    # 从URL提取域名作为AI标识
+                    url = row[url_key]
+                    try:
+                        # 简单分析URL获取域名
+                        domain = urlparse(url).netloc
+                        # 去除www.前缀
+                        if domain.startswith('www.'):
+                            domain = domain[4:]
+                        # 添加到ai_targets列表
+                        if domain and domain not in ai_targets:
+                            ai_targets.append(domain)
+                    except:
+                        # 如果解析失败，使用默认值
+                        ai_targets.append(f"AI{i}")
+            
+            # 如果没有解析到任何AI，添加一个默认值
+            if not ai_targets:
+                ai_targets = ["未知AI"]
+            
+            # 安全处理时间戳
+            try:
+                if isinstance(row['timestamp'], int) and 0 <= row['timestamp'] <= 32503680000:  # 合理的时间戳范围(1970-3000年)
+                    timestamp_str = datetime.fromtimestamp(row['timestamp']).isoformat()
+                elif isinstance(row['timestamp'], str):
+                    # 如果已经是字符串，直接使用
+                    timestamp_str = row['timestamp']
+                else:
+                    # 其他情况使用当前时间
+                    timestamp_str = datetime.now().isoformat()
+            except (ValueError, OSError, OverflowError) as e:
+                print(f"时间戳转换错误: {row['timestamp']}, {e}")
+                # 发生错误时使用当前时间
+                timestamp_str = datetime.now().isoformat()
+            
             results.append({
                 'id': row['id'],
-                'prompt_text': row['prompt_text'],
-                'timestamp': row['timestamp'],
-                'ai_targets': json.loads(row['ai_targets'])
+                'prompt_text': row['prompt'],
+                'timestamp': timestamp_str,
+                'ai_targets': ai_targets,
+                'favorite': bool(row['favorite'])
             })
         
         return results
     
     def search_prompts(self, search_text, limit=50):
-        """搜索提示词历史记录
+        """搜索提示词历史记录（从prompt_details表搜索）
         
         Args:
             search_text (str): 搜索文本
@@ -401,17 +434,60 @@ class DatabaseManager:
         
         search_pattern = f"%{search_text}%"
         cursor.execute(
-            "SELECT id, prompt_text, timestamp, ai_targets FROM prompt_history WHERE prompt_text LIKE ? ORDER BY timestamp DESC LIMIT ?",
+            "SELECT id, prompt, timestamp, favorite FROM prompt_details WHERE prompt LIKE ? ORDER BY timestamp DESC LIMIT ?",
             (search_pattern, limit)
         )
         
         results = []
         for row in cursor.fetchall():
+            # 构建与旧格式兼容的记录
+            # 从prompt_details表构建ai_targets列表（从webviews域名提取）
+            ai_targets = []
+            
+            # 查询当前记录的所有webview信息
+            for i in range(1, 7):
+                url_key = f"ai{i}_url"
+                if url_key in row and row[url_key]:
+                    # 从URL提取域名作为AI标识
+                    url = row[url_key]
+                    try:
+                        # 简单分析URL获取域名
+                        domain = urlparse(url).netloc
+                        # 去除www.前缀
+                        if domain.startswith('www.'):
+                            domain = domain[4:]
+                        # 添加到ai_targets列表
+                        if domain and domain not in ai_targets:
+                            ai_targets.append(domain)
+                    except:
+                        # 如果解析失败，使用默认值
+                        ai_targets.append(f"AI{i}")
+            
+            # 如果没有解析到任何AI，添加一个默认值
+            if not ai_targets:
+                ai_targets = ["未知AI"]
+            
+            # 安全处理时间戳
+            try:
+                if isinstance(row['timestamp'], int) and 0 <= row['timestamp'] <= 32503680000:  # 合理的时间戳范围(1970-3000年)
+                    timestamp_str = datetime.fromtimestamp(row['timestamp']).isoformat()
+                elif isinstance(row['timestamp'], str):
+                    # 如果已经是字符串，直接使用
+                    timestamp_str = row['timestamp']
+                else:
+                    # 其他情况使用当前时间
+                    timestamp_str = datetime.now().isoformat()
+            except (ValueError, OSError, OverflowError) as e:
+                print(f"时间戳转换错误: {row['timestamp']}, {e}")
+                # 发生错误时使用当前时间
+                timestamp_str = datetime.now().isoformat()
+            
             results.append({
                 'id': row['id'],
-                'prompt_text': row['prompt_text'],
-                'timestamp': row['timestamp'],
-                'ai_targets': json.loads(row['ai_targets'])
+                'prompt_text': row['prompt'],
+                'timestamp': timestamp_str,
+                'ai_targets': ai_targets,
+                'favorite': bool(row['favorite'])
             })
         
         return results

@@ -477,15 +477,19 @@ class AuxiliaryWindow(QMainWindow):
         # 连接历史记录的选择信号
         self.prompt_history.prompt_selected.connect(self.prompt_input.set_text)
         
+        # 连接历史记录的收藏切换信号
+        self.prompt_history.favorite_toggled.connect(self.on_favorite_toggled)
+        
         # 连接文件浏览器的fileOpenRequest信号到打开文件方法
         self.file_explorer.fileOpenRequest.connect(self.open_file)
     
     def on_prompt_submitted(self, prompt_text):
         """处理提示词提交事件"""
-        # 将提示词存储到数据库 (旧方法，保持兼容性)
-        self.db_manager.add_prompt(prompt_text, ["ChatGPT", "DeepSeek"])
+        # 不再使用旧的历史表保存方法
+        # self.db_manager.add_prompt(prompt_text, ["ChatGPT", "DeepSeek"])
         
-        # 同步提示词到主窗口的AI网页
+        # 直接同步提示词到主窗口的AI网页
+        # prompt_sync.sync_prompt会处理存储到prompt_details表
         self.prompt_sync.sync_prompt(prompt_text)
         
         # 刷新历史记录
@@ -608,44 +612,53 @@ class AuxiliaryWindow(QMainWindow):
 
     def eventFilter(self, obj, event):
         """事件过滤器，处理标签栏的拖拽和双击事件"""
-        # 如果是标签栏的事件
-        if hasattr(self, 'tabs') and obj == self.tabs.tabBar():
-            # 处理鼠标按下事件，用于拖动窗口
-            if event.type() == event.Type.MouseButtonPress and event.button() == Qt.MouseButton.LeftButton:
-                self._drag_pos = event.globalPosition().toPoint()
-                return False  # 继续处理事件
-                
-            # 处理鼠标移动事件，实现拖动
-            elif event.type() == event.Type.MouseMove and event.buttons() & Qt.MouseButton.LeftButton and self._drag_pos is not None:
-                diff = event.globalPosition().toPoint() - self._drag_pos
-                self.move(self.pos() + diff)
-                self._drag_pos = event.globalPosition().toPoint()
-                return True  # 事件已处理
-                
-            # 处理鼠标释放事件
-            elif event.type() == event.Type.MouseButtonRelease:
-                self._drag_pos = None
-                
-            # 处理双击事件，实现最大化/还原
-            elif event.type() == event.Type.MouseButtonDblClick and event.button() == Qt.MouseButton.LeftButton:
-                self.toggle_maximize()
-                return True  # 事件已处理
+        try:
+            # 如果是标签栏的事件
+            if hasattr(self, 'tabs') and self.tabs and obj == self.tabs.tabBar():
+                # 处理鼠标按下事件，用于拖动窗口
+                if event.type() == event.Type.MouseButtonPress and event.button() == Qt.MouseButton.LeftButton:
+                    self._drag_pos = event.globalPosition().toPoint()
+                    return False  # 继续处理事件
+                    
+                # 处理鼠标移动事件，实现拖动
+                elif event.type() == event.Type.MouseMove and event.buttons() & Qt.MouseButton.LeftButton and self._drag_pos is not None:
+                    diff = event.globalPosition().toPoint() - self._drag_pos
+                    self.move(self.pos() + diff)
+                    self._drag_pos = event.globalPosition().toPoint()
+                    return True  # 事件已处理
+                    
+                # 处理鼠标释放事件
+                elif event.type() == event.Type.MouseButtonRelease:
+                    self._drag_pos = None
+                    
+                # 处理双击事件，实现最大化/还原
+                elif event.type() == event.Type.MouseButtonDblClick and event.button() == Qt.MouseButton.LeftButton:
+                    self.toggle_maximize()
+                    return True  # 事件已处理
+        except RuntimeError as e:
+            # 捕获C++对象已删除异常
+            print(f"事件过滤器错误: {e}")
+            return False
         
         # 调用父类的事件过滤器
         return super().eventFilter(obj, event)
 
     def _check_tab_close_buttons(self, index):
         """检查并设置标签页关闭按钮图标"""
-        # 为标签页设置qtawesome图标
-        close_icon = qta.icon('fa5s.times', color='#D8DEE9')
-        
-        # 遍历所有标签页，检查是否有未设置图标的关闭按钮
-        for i in range(self.tabs.count()):
-            close_button = self.tabs.tabBar().tabButton(i, self.tabs.tabBar().ButtonPosition.RightSide)
-            if close_button and close_button.icon().isNull():
-                close_button.setIcon(close_icon)
-                close_button.setText("")  # 移除文本，只显示图标
-                close_button.setIconSize(QSize(12, 12))  # 设置合适的图标大小
+        try:
+            # 为标签页设置qtawesome图标
+            close_icon = qta.icon('fa5s.times', color='#D8DEE9')
+            
+            # 遍历所有标签页，检查是否有未设置图标的关闭按钮
+            for i in range(self.tabs.count()):
+                close_button = self.tabs.tabBar().tabButton(i, self.tabs.tabBar().ButtonPosition.RightSide)
+                if close_button and close_button.icon().isNull():
+                    close_button.setIcon(close_icon)
+                    close_button.setText("")  # 移除文本，只显示图标
+                    close_button.setIconSize(QSize(12, 12))  # 设置合适的图标大小
+        except (RuntimeError, AttributeError) as e:
+            # 捕获可能的运行时错误
+            print(f"设置标签页关闭按钮时出错: {e}")
 
     def on_response_collected(self, prompt_id, responses):
         """处理收集到的AI回复
@@ -657,3 +670,14 @@ class AuxiliaryWindow(QMainWindow):
         print(f"收集到AI回复，ID: {prompt_id}, 共{len(responses)}个回复")
         # 这里可以添加其他处理逻辑，例如刷新UI等
         # 目前数据已经保存到数据库中 
+
+    def on_favorite_toggled(self, prompt_id, is_favorite):
+        """处理提示词收藏状态切换
+        
+        Args:
+            prompt_id (str): 提示词ID
+            is_favorite (bool): 新的收藏状态
+        """
+        # 可以在这里添加额外的操作，如通知或UI更新
+        favorite_status = "收藏" if is_favorite else "取消收藏"
+        print(f"提示词 {prompt_id} 已{favorite_status}") 
