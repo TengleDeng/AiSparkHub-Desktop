@@ -106,6 +106,11 @@ class MainWindow(QMainWindow):
         
         # 用于窗口拖动
         self._drag_pos = None
+        
+        # 在__init__或初始化部分添加连接
+        app = QApplication.instance()
+        if hasattr(app, 'theme_manager'):
+            app.theme_manager.theme_changed.connect(self.update_tab_style)
     
     def create_default_ai_tab(self):
         """创建默认的AI对话标签页"""
@@ -204,6 +209,23 @@ class MainWindow(QMainWindow):
         except Exception as e:
             print(f"切换主题出错: {e}")
     
+    def _update_theme_icon(self):
+        """根据当前主题更新主题切换按钮图标"""
+        # 获取当前应用程序实例
+        app = QApplication.instance()
+        
+        if hasattr(app, 'theme_manager'):
+            is_dark = app.theme_manager.current_theme == "dark"
+            # 深色模式显示月亮图标，浅色模式显示太阳图标
+            self.theme_button.setIcon(qta.icon('fa5s.moon') if is_dark else qta.icon('fa5s.sun'))
+            self.theme_button.setToolTip("切换到浅色主题" if is_dark else "切换到深色主题") 
+    
+    def update_tab_style(self):
+        """更新标签样式以匹配当前主题"""
+        # 这里可以调用tab_manager的update_style方法
+        if hasattr(self, 'tab_manager'):
+            self.tab_manager.update_style()
+
     def _update_theme_icon(self):
         """根据当前主题更新主题切换按钮图标"""
         # 获取当前应用程序实例

@@ -3,10 +3,12 @@
 
 from PyQt6.QtWidgets import QApplication
 from PyQt6.QtGui import QPalette, QColor
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, pyqtSignal, QObject
 
-class ThemeManager:
+class ThemeManager(QObject):
     """主题管理器 - 控制应用程序的主题和样式"""
+    
+    theme_changed = pyqtSignal()  # 添加一个主题变化信号
     
     # Nord主题色板
     NORD_COLORS = {
@@ -38,6 +40,7 @@ class ThemeManager:
     
     def __init__(self):
         """初始化主题管理器"""
+        super().__init__()
         self.current_theme = "dark"  # 默认使用深色主题
     
     def apply_theme(self, app):
@@ -519,7 +522,8 @@ class ThemeManager:
             app: QApplication实例
         """
         self.current_theme = "light" if self.current_theme == "dark" else "dark"
-        self.apply_theme(app) 
+        self.apply_theme(app)
+        self.theme_changed.emit()  # 发射主题变化信号
     
     def get_current_theme_colors(self):
         """获取当前主题的颜色对象，供其他组件使用

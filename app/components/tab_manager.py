@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-from PyQt6.QtWidgets import QTabWidget, QPushButton, QTabBar, QWidget
+from PyQt6.QtWidgets import QTabWidget, QPushButton, QTabBar, QWidget, QApplication
 from PyQt6.QtCore import Qt, QEvent, pyqtSignal, QTimer
 from PyQt6.QtGui import QIcon
 import qtawesome as qta
@@ -18,44 +18,76 @@ class TabManager(QTabWidget):
     
     def setup_ui(self):
         """设置UI界面"""
-        # 设置标签可关闭 (仅网页标签可关闭，AI标签不可关闭)
+        # 设置标签可关闭
         self.setTabsClosable(True)
         
         # 设置标签可移动
         self.setMovable(True)
         
-        # 不要尝试断开信号，直接连接我们的处理函数
-        # self.tabCloseRequested.disconnect()  # 删除这行，它会导致错误
-        
-        # 连接到我们自己的关闭标签处理函数
+        # 连接到关闭标签处理函数
         self.tabCloseRequested.connect(self.handle_tab_close_request)
         
         # 连接标签切换信号
         self.currentChanged.connect(self.on_tab_changed)
         
+        # 更新样式（初始化时）
+        self.update_style()
+        
+        # 监听主题变化
+        app = QApplication.instance()
+        if hasattr(app, 'theme_manager'):
+            self._update_theme_connection = app.theme_manager.theme_changed.connect(self.update_style)
+    
+    def update_style(self):
+        """根据当前主题更新样式"""
+        app = QApplication.instance()
+        is_dark = True  # 默认深色
+        
+        if hasattr(app, 'theme_manager'):
+            is_dark = app.theme_manager.current_theme == "dark"
+        
+        # 根据主题选择颜色
+        if is_dark:
+            # 深色主题颜色
+            bg_color = "#2E3440"
+            tab_bg = "#3B4252"
+            tab_selected_bg = "#4C566A"
+            tab_hover_bg = "#434C5E"
+            text_color = "#D8DEE9"
+            selected_text_color = "#ECEFF4"
+        else:
+            # 浅色主题颜色
+            bg_color = "#ECEFF4"
+            tab_bg = "#E5E9F0"
+            tab_selected_bg = "#D8DEE9"
+            tab_hover_bg = "#D8DEE9"
+            text_color = "#2E3440"
+            selected_text_color = "#2E3440"
+        
         # 设置样式
-        self.setStyleSheet("""
-            QTabWidget::pane {
+        self.setStyleSheet(f"""
+            QTabWidget::pane {{
                 border: none;
-                background: #2E3440;
-            }
-            QTabWidget::tab-bar {
+                background: {bg_color};
+            }}
+            QTabWidget::tab-bar {{
                 alignment: left;
-            }
-            QTabBar::tab {
-                background: #3B4252;
-                color: #D8DEE9;
+            }}
+            QTabBar::tab {{
+                background: {tab_bg};
+                color: {text_color};
                 padding: 0px 12px;
                 border: none;
                 margin-right: 2px;
                 height: 30px;
-            }
-            QTabBar::tab:selected {
-                background: #4C566A;
-            }
-            QTabBar::tab:hover {
-                background: #434C5E;
-            }
+            }}
+            QTabBar::tab:selected {{
+                background: {tab_selected_bg};
+                color: {selected_text_color};
+            }}
+            QTabBar::tab:hover {{
+                background: {tab_hover_bg};
+            }}
         """)
     
     def add_tab(self, widget, title, icon_name=None, closable=True):
