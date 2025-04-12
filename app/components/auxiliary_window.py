@@ -604,8 +604,18 @@ class AuxiliaryWindow(QMainWindow):
         """
         add_folder_btn.setStyleSheet(button_style)
         
+        # 添加主题切换按钮
+        self.theme_button = QPushButton()
+        self.theme_button.setIcon(qta.icon('fa5s.moon'))  # 深色模式默认显示月亮图标
+        self.theme_button.setToolTip("切换明暗主题")
+        self.theme_button.clicked.connect(self.toggle_theme)
+        self.theme_button.setObjectName("themeButton")
+        self.theme_button.setStyleSheet(button_style)
+        
         # 添加按钮到标题栏（靠左）
         title_layout.addWidget(add_folder_btn)
+        # 添加主题切换按钮到标题栏
+        title_layout.addWidget(self.theme_button)
         # 添加伸缩空间在按钮之后，使其余空间填充到右侧
         title_layout.addStretch(1)
         
@@ -1577,4 +1587,37 @@ class AuxiliaryWindow(QMainWindow):
             
         # 加载本地搜索页面
         self.search_view.web_view.load(QUrl(f"http://localhost:{self.port}/index.html"))
-        print(f"正在加载本地搜索页面: http://localhost:{self.port}/index.html") 
+        print(f"正在加载本地搜索页面: http://localhost:{self.port}/index.html")
+
+    def toggle_theme(self):
+        """切换应用主题"""
+        try:
+            # 尝试使用window_manager切换主题
+            if hasattr(self, 'window_manager') and self.window_manager:
+                self.window_manager.toggle_theme()
+            # 备用方案：直接使用QApplication实例的theme_manager
+            elif hasattr(QApplication.instance(), 'theme_manager'):
+                app = QApplication.instance()
+                current_theme = app.theme_manager.current_theme
+                new_theme = "light" if current_theme == "dark" else "dark"
+                app.theme_manager.current_theme = new_theme
+                app.theme_manager.apply_theme(app)
+                print(f"已切换主题: {new_theme}")
+            else:
+                print("无法访问主题管理器")
+                
+            self._update_theme_icon()
+        except Exception as e:
+            print(f"切换主题出错: {e}")
+    
+    def _update_theme_icon(self):
+        """根据当前主题更新主题切换按钮图标"""
+        # 获取当前应用程序实例
+        from PyQt6.QtWidgets import QApplication
+        app = QApplication.instance()
+        
+        if hasattr(app, 'theme_manager'):
+            is_dark = app.theme_manager.current_theme == "dark"
+            # 深色模式显示月亮图标，浅色模式显示太阳图标
+            self.theme_button.setIcon(qta.icon('fa5s.moon') if is_dark else qta.icon('fa5s.sun'))
+            self.theme_button.setToolTip("切换到浅色主题" if is_dark else "切换到深色主题") 

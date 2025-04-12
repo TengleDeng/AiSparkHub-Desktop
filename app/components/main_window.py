@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
-from PyQt6.QtWidgets import QMainWindow, QVBoxLayout, QWidget, QHBoxLayout, QPushButton
+from PyQt6.QtWidgets import QMainWindow, QVBoxLayout, QWidget, QHBoxLayout, QPushButton, QApplication
 from PyQt6.QtCore import Qt, QSize
 from PyQt6.QtGui import QIcon
 import qtawesome as qta
@@ -40,14 +40,24 @@ class MainWindow(QMainWindow):
         self.minimize_button = QPushButton()
         self.minimize_button.setIcon(qta.icon('fa5s.window-minimize'))
         self.minimize_button.clicked.connect(self.showMinimized)
+        self.minimize_button.setObjectName("minimizeButton")
         
         self.maximize_button = QPushButton()
         self.maximize_button.setIcon(qta.icon('fa5s.window-maximize'))
         self.maximize_button.clicked.connect(self.toggle_maximize)
+        self.maximize_button.setObjectName("maximizeButton")
+        
+        # 添加主题切换按钮
+        self.theme_button = QPushButton()
+        self.theme_button.setIcon(qta.icon('fa5s.moon'))  # 深色模式默认显示月亮图标
+        self.theme_button.setToolTip("切换明暗主题")
+        self.theme_button.clicked.connect(self.toggle_theme)
+        self.theme_button.setObjectName("themeButton")
         
         self.close_button = QPushButton()
         self.close_button.setIcon(qta.icon('fa5s.times'))
         self.close_button.clicked.connect(self.close)
+        self.close_button.setObjectName("closeButton")
         
         # 设置按钮样式
         button_style = """
@@ -70,6 +80,7 @@ class MainWindow(QMainWindow):
         
         self.minimize_button.setStyleSheet(button_style)
         self.maximize_button.setStyleSheet(button_style)
+        self.theme_button.setStyleSheet(button_style)
         
         # 将窗口控制按钮添加到标签页右上角
         buttons_widget = QWidget()
@@ -78,6 +89,7 @@ class MainWindow(QMainWindow):
         buttons_layout.setSpacing(0)
         buttons_layout.addWidget(self.minimize_button)
         buttons_layout.addWidget(self.maximize_button)
+        buttons_layout.addWidget(self.theme_button)
         buttons_layout.addWidget(self.close_button)
         
         # 设置为标签页右上角的部件
@@ -170,4 +182,35 @@ class MainWindow(QMainWindow):
             else:
                 super().mouseDoubleClickEvent(event)
         else:
-            super().mouseDoubleClickEvent(event) 
+            super().mouseDoubleClickEvent(event)
+    
+    def toggle_theme(self):
+        """切换应用主题"""
+        try:
+            # 尝试使用window_manager切换主题
+            if hasattr(self, 'window_manager') and self.window_manager:
+                self.window_manager.toggle_theme()
+            # 备用方案：直接使用QApplication实例的theme_manager
+            elif hasattr(QApplication.instance(), 'theme_manager'):
+                app = QApplication.instance()
+                current_theme = app.theme_manager.current_theme
+                new_theme = "light" if current_theme == "dark" else "dark"
+                app.theme_manager.apply_theme(app, new_theme)
+                print(f"已切换主题: {new_theme}")
+            else:
+                print("无法访问主题管理器")
+                
+            self._update_theme_icon()
+        except Exception as e:
+            print(f"切换主题出错: {e}")
+    
+    def _update_theme_icon(self):
+        """根据当前主题更新主题切换按钮图标"""
+        # 获取当前应用程序实例
+        app = QApplication.instance()
+        
+        if hasattr(app, 'theme_manager'):
+            is_dark = app.theme_manager.current_theme == "dark"
+            # 深色模式显示月亮图标，浅色模式显示太阳图标
+            self.theme_button.setIcon(qta.icon('fa5s.moon') if is_dark else qta.icon('fa5s.sun'))
+            self.theme_button.setToolTip("切换到浅色主题" if is_dark else "切换到深色主题") 

@@ -59,6 +59,7 @@ def main():
     
     # 应用主题设置
     theme_manager = ThemeManager()
+    app.theme_manager = theme_manager
     theme_manager.apply_theme(app)
     
     # 初始化数据库
@@ -76,6 +77,10 @@ def main():
     
     # 初始化窗口管理器
     window_manager = WindowManager(main_window, auxiliary_window)
+    
+    # 设置主窗口和辅助窗口的window_manager属性
+    main_window.window_manager = window_manager
+    auxiliary_window.window_manager = window_manager
     
     # 检测屏幕数量，根据情况选择显示模式
     screens = app.screens()

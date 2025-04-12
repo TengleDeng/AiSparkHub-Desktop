@@ -129,6 +129,7 @@ class FileExplorer(QWidget):
                 border-top-left-radius: 4px;
                 border-top-right-radius: 4px;
                 margin-top: 1px; /* 稍微从顶部下移1px，避免与分隔线重叠 */
+                height: 38px;
             }
             QTabBar::tab:selected {
                 background-color: #4C566A;

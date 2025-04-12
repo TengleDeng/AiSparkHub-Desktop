@@ -287,4 +287,53 @@ class WindowManager(QObject):
         print("收到打开主窗口请求")
         if not self.main_window.isVisible():
             self.main_window.show()
-            print("主窗口已显示") 
+            print("主窗口已显示")
+    
+    def apply_theme_to_windows(self):
+        """应用当前主题样式到所有窗口"""
+        app = QApplication.instance()
+        
+        if not hasattr(app, 'theme_manager'):
+            print("警告：未找到主题管理器")
+            return
+            
+        # 获取当前主题样式
+        theme_colors = app.theme_manager.get_current_theme_colors()
+        is_dark = theme_colors['is_dark']
+        
+        # 更新最大化/还原按钮图标
+        if self.main_window and hasattr(self.main_window, 'maximize_button'):
+            import qtawesome as qta
+            icon_name = 'fa5s.window-restore' if self.main_window.isMaximized() else 'fa5s.window-maximize'
+            self.main_window.maximize_button.setIcon(qta.icon(icon_name))
+            
+        if self.auxiliary_window and hasattr(self.auxiliary_window, 'maximize_button'):
+            import qtawesome as qta
+            icon_name = 'fa5s.window-restore' if self.auxiliary_window.isMaximized() else 'fa5s.window-maximize'
+            self.auxiliary_window.maximize_button.setIcon(qta.icon(icon_name))
+            
+        # 更新主题切换按钮图标
+        if self.main_window and hasattr(self.main_window, 'theme_button'):
+            self.main_window._update_theme_icon()
+            
+        if self.auxiliary_window and hasattr(self.auxiliary_window, 'theme_button'):
+            self.auxiliary_window._update_theme_icon()
+        
+        # 打印主题切换状态
+        print(f"已成功应用{'深色' if is_dark else '浅色'}主题到应用程序")
+
+    def toggle_theme(self):
+        """切换应用程序主题"""
+        # 获取当前应用程序实例
+        app = QApplication.instance()
+        
+        # 获取主题管理器
+        if hasattr(app, 'theme_manager'):
+            # 切换主题
+            app.theme_manager.toggle_theme(app)
+            print(f"已切换主题为: {app.theme_manager.current_theme}")
+            
+            # 更新窗口样式和图标
+            self.apply_theme_to_windows()
+        else:
+            print("警告：未找到主题管理器") 

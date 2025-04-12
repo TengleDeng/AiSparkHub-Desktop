@@ -33,10 +33,10 @@ class WebView(QWidget):
         
         # 创建工具栏
         toolbar = QWidget()
-        toolbar.setMaximumHeight(38) # 设置最大高度
+        toolbar.setMaximumHeight(30) # 设置最大高度
         toolbar.setObjectName("addressToolbar")
         toolbar_layout = QHBoxLayout(toolbar)
-        toolbar_layout.setContentsMargins(8, 4, 8, 4)
+        toolbar_layout.setContentsMargins(8, 0, 8, 0)
         toolbar_layout.setSpacing(4)
         
         # 后退按钮
@@ -95,7 +95,7 @@ class WebView(QWidget):
             QPushButton {
                 background: transparent;
                 border: none;
-                padding: 4px;
+                padding: 2px;
                 border-radius: 4px;
             }
             QPushButton:hover {
@@ -109,7 +109,7 @@ class WebView(QWidget):
                 color: #D8DEE9;
                 border: 1px solid #434C5E;
                 border-radius: 4px;
-                padding: 4px 8px;
+                padding: 2px 8px;
             }
         """)
     

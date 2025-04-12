@@ -45,9 +45,10 @@ class TabManager(QTabWidget):
             QTabBar::tab {
                 background: #3B4252;
                 color: #D8DEE9;
-                padding: 8px 12px;
+                padding: 0px 12px;
                 border: none;
                 margin-right: 2px;
+                height: 30px;
             }
             QTabBar::tab:selected {
                 background: #4C566A;
