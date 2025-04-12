@@ -815,11 +815,45 @@ class AuxiliaryWindow(QMainWindow):
         # 关闭HTTP服务器
         if hasattr(self, 'server') and self.server:
             try:
-                self.server.shutdown()
-                print("已关闭本地HTTP服务器")
-            except Exception as e:
-                print(f"关闭HTTP服务器时出错: {e}")
+                print("正在关闭本地HTTP服务器...")
                 
+                # 使用一个线程安全地关闭服务器，避免阻塞主线程
+                def shutdown_server_thread():
+                    try:
+                        if self.server:
+                            # 关闭服务器
+                            self.server.shutdown()
+                            print("HTTP服务器已关闭")
+                            
+                            # 确保套接字也被关闭
+                            if hasattr(self.server, 'socket'):
+                                self.server.socket.close()
+                                print("服务器套接字已关闭")
+                                
+                            # 清空服务器引用
+                            self.server = None
+                    except Exception as e:
+                        print(f"关闭HTTP服务器时出错: {e}")
+                
+                # 创建并启动关闭线程
+                shutdown_thread = threading.Thread(target=shutdown_server_thread, name="ServerShutdownThread")
+                shutdown_thread.daemon = True
+                shutdown_thread.start()
+                
+                # 等待线程最多0.5秒，这个时间通常足够关闭服务器
+                # 但又不至于让用户感觉到明显延迟
+                shutdown_thread.join(timeout=0.5)
+                
+                # 无论线程是否完成，继续关闭窗口
+                if shutdown_thread.is_alive():
+                    print("服务器可能仍在关闭中，但继续执行窗口关闭流程")
+                else:
+                    print("服务器已成功关闭")
+                
+            except Exception as e:
+                print(f"处理服务器关闭时出错: {e}")
+        
+        # 正常关闭窗口
         super().closeEvent(event)
 
     # --- 窗口控制方法 ---
