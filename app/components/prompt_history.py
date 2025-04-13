@@ -56,6 +56,7 @@ class PromptItemWidget(QWidget):
         if hasattr(app, 'theme_manager') and isinstance(app.theme_manager, ThemeManager):
              self.theme_manager = app.theme_manager
              self.theme_manager.theme_changed.connect(self.update_icons)
+             self.theme_manager.theme_changed.connect(self.update_border)  # 连接边框更新
              # 初始图标颜色设置 (可能需要延迟)
              QTimer.singleShot(0, self.update_icons)
         else:
@@ -72,7 +73,15 @@ class PromptItemWidget(QWidget):
         # 创建内容框架 - 这个框架将包含所有内容并有边框
         self.container_frame = QFrame()
         self.container_frame.setFrameShape(QFrame.Shape.StyledPanel)
-        self.container_frame.setStyleSheet("QFrame { border: 1px solid #4C566A; border-radius: 8px; background-color: transparent; }")
+        
+        # 根据当前主题设置边框颜色
+        app = QApplication.instance()
+        border_color = "#4C566A"  # 深色主题默认颜色
+        if hasattr(app, 'theme_manager'):
+            if app.theme_manager.current_theme == "light":
+                border_color = "#81A1C1"  # 浅色主题颜色
+        
+        self.container_frame.setStyleSheet(f"QFrame {{ border: 1px solid {border_color}; border-radius: 8px; background-color: transparent; }}")
         
         # 为内容框架创建内部布局
         inner_layout = QVBoxLayout(self.container_frame)
@@ -533,6 +542,16 @@ class PromptItemWidget(QWidget):
                  widget.setIcon(qta.icon('fa5s.external-link-alt', color=icon_color))
                  
         print("PromptItemWidget: 图标颜色更新完成")
+
+    def update_border(self):
+        """根据当前主题更新边框颜色"""
+        border_color = "#4C566A"  # 深色主题默认颜色
+        if self.theme_manager and self.theme_manager.current_theme == "light":
+            border_color = "#81A1C1"  # 浅色主题颜色
+            
+        if hasattr(self, 'container_frame'):
+            self.container_frame.setStyleSheet(f"QFrame {{ border: 1px solid {border_color}; border-radius: 8px; background-color: transparent; }}")
+            print(f"PromptItemWidget: 边框颜色已更新为 {border_color}")
 
 
 class PromptHistory(QWidget):
