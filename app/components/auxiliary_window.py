@@ -63,7 +63,7 @@ class PanelWidget(QWidget):
         else:
             # 创建标题区域
             self.title_bar = QWidget()
-            self.title_bar.setFixedHeight(38)
+            self.title_bar.setFixedHeight(30)
             self.title_bar.setObjectName("panelTitleBar")
             title_layout = QHBoxLayout(self.title_bar)
             title_layout.setContentsMargins(8, 0, 8, 0)
@@ -505,36 +505,8 @@ class AuxiliaryWindow(QMainWindow):
         # 移除全局滚动条样式表
         # self.setStyleSheet(\"\"\" ... \"\"\")
         
-        # 文件浏览器
+        # 文件浏览器 - 使用文件浏览器作为完整的自包含组件
         self.file_explorer = FileExplorer()
-        
-        # 移除 FileExplorer 的 TabWidget 样式表
-        # self.file_explorer.tab_widget.setStyleSheet(\"\"\" ... \"\"\")
-        
-        # 创建自定义标题栏
-        title_bar = QWidget()
-        title_bar.setFixedHeight(38)
-        title_bar.setObjectName("panelTitleBar")
-        title_layout = QHBoxLayout(title_bar)
-        title_layout.setContentsMargins(8, 0, 8, 0)
-        
-        # 添加文件夹按钮 - 靠左显示
-        add_folder_btn = QPushButton()
-        add_folder_btn.setIcon(qta.icon('fa5s.folder-plus'))
-        add_folder_btn.setToolTip("添加文件夹")
-        add_folder_btn.clicked.connect(self.file_explorer.add_folder)
-        add_folder_btn.setObjectName("addFolderButton")
-        self.add_folder_btn = add_folder_btn
-        
-        # 设置按钮样式
-        # button_style = """ ... """
-        
-        # 添加按钮到标题栏（靠左）
-        title_layout.addWidget(add_folder_btn)
-        # 添加伸缩空间在按钮之后，使其余空间填充到右侧
-        title_layout.addStretch(1)
-        
-        file_panel = PanelWidget("", self.file_explorer, self, custom_titlebar=title_bar)
         
         # 创建标签页控件
         self.tabs = QTabWidget()
@@ -546,12 +518,6 @@ class AuxiliaryWindow(QMainWindow):
         
         # 标签页控件增加事件过滤器，用于实现拖拽窗口的功能
         self.tabs.tabBar().installEventFilter(self)
-        
-        # 自定义标签页样式，使其更像标题栏
-        # self.tabs.setStyleSheet(""" ... (Removed hardcoded styles) ... """)
-        
-        # 自定义标签页关闭按钮为qtawesome图标
-        # close_icon = qta.icon('fa5s.times', color='#D8DEE9') # 颜色需要动态获取
         
         # 监听标签页添加事件，为新标签页设置关闭图标
         self.tabs.tabBarClicked.connect(self._check_tab_close_buttons)
@@ -578,22 +544,21 @@ class AuxiliaryWindow(QMainWindow):
         
         # 创建中间面板容器
         middle_container = QWidget()
-        # middle_container.setStyleSheet("background-color: #2E3440;") # 移除硬编码背景
         
         # 只设置一个垂直布局，不使用PanelWidget
         middle_layout = QVBoxLayout(middle_container)
         middle_layout.setContentsMargins(0, 0, 0, 0)
         middle_layout.setSpacing(0)
         
-        # 将标签页直接添加到布局，它会成为"标题栏"
+        # A将标签页直接添加到布局，它会成为"标题栏"
         middle_layout.addWidget(self.tabs)
         
         # 提示词历史记录（设置为控制面板，移回窗口控制按钮）
         self.prompt_history = PromptHistory(self.db_manager)
         history_panel = PanelWidget("历史记录", self.prompt_history, self, is_control_panel=True)
         
-        # 添加面板到分割器
-        self.splitter.addWidget(file_panel)
+        # 添加面板到分割器 - 直接添加文件浏览器，不使用PanelWidget包装
+        self.splitter.addWidget(self.file_explorer)
         self.splitter.addWidget(middle_container)  # 直接添加容器，不使用PanelWidget包装
         self.splitter.addWidget(history_panel)
         
@@ -1464,17 +1429,13 @@ class AuxiliaryWindow(QMainWindow):
              self.open_main_window_action.setIcon(qta.icon('fa5s.window-maximize', color=icon_color))
         # ... (如果Ribbon有其他Action，也在这里更新) ...
 
-        # 2. 更新自定义标题栏按钮 (添加文件夹, 主题切换)
-        if hasattr(self, 'add_folder_btn'): # 需要在 init_components 中保存引用 self.add_folder_btn
-             self.add_folder_btn.setIcon(qta.icon('fa5s.folder-plus', color=icon_color))
+        # 2. 更新主题切换按钮
         if hasattr(self, 'theme_button'):
              is_dark = self.theme_manager.current_theme == "dark" if self.theme_manager else True
              self.theme_button.setIcon(qta.icon('fa5s.moon' if is_dark else 'fa5s.sun', color=icon_color))
              self.theme_button.setToolTip("切换到浅色主题" if is_dark else "切换到深色主题")
              
         # 3. 更新 PanelWidget 中的窗口控制按钮 (最小化, 最大化, 关闭)
-        # 这些按钮是在 PanelWidget 中创建的，需要可靠地访问它们
-        # 假设它们被存储为 window (即 AuxiliaryWindow) 的属性
         if hasattr(self, 'minimize_button'):
             self.minimize_button.setIcon(qta.icon('fa5s.window-minimize', color=icon_color))
         if hasattr(self, 'maximize_button'):
@@ -1488,11 +1449,7 @@ class AuxiliaryWindow(QMainWindow):
         # 触发一次检查，让它使用新的颜色
         self._check_tab_close_buttons(-1) # 传入无效索引以检查所有标签
         
-        # 5. 更新文件浏览器中文件图标 (如果必要，但通常在打开时设置)
-        # file_explorer 可能需要一个方法来刷新所有可见项的图标颜色
-        # 或者在 _get_file_icon 中依赖传递的颜色参数
-        
-        # 6. 更新固定标签页图标
+        # 5. 更新固定标签页图标
         if hasattr(self, 'tabs'):
             try:
                  prompt_icon = qta.icon('fa5s.keyboard', color=icon_color)
@@ -1506,7 +1463,7 @@ class AuxiliaryWindow(QMainWindow):
             except Exception as e:
                  print(f"AuxiliaryWindow: 更新固定标签页图标时出错: {e}")
 
-        # 7. 强制刷新 QTabWidget 样式
+        # 6. 强制刷新 QTabWidget 样式
         if hasattr(self, 'tabs'):
             try:
                 print("AuxiliaryWindow: 尝试强制刷新 QTabWidget 样式...")
@@ -1516,7 +1473,7 @@ class AuxiliaryWindow(QMainWindow):
             except Exception as e:
                 print(f"AuxiliaryWindow: 刷新 QTabWidget 样式时出错: {e}")
         
-        # 8. 强制刷新 PromptInput 样式 (保持之前的修改)
+        # 7. 强制刷新 PromptInput 样式 (保持之前的修改)
         if hasattr(self, 'prompt_input'):
             try:
                 print("AuxiliaryWindow: 尝试强制刷新 PromptInput 样式...")
@@ -1529,7 +1486,7 @@ class AuxiliaryWindow(QMainWindow):
             except Exception as e:
                 print(f"AuxiliaryWindow: 刷新 PromptInput 样式时出错: {e}")
         
-        # 9. 强制刷新 FileExplorer 样式
+        # 8. 强制刷新 FileExplorer 样式
         if hasattr(self, 'file_explorer'):
             try:
                 print("AuxiliaryWindow: 尝试强制刷新 FileExplorer 样式...")
@@ -1541,7 +1498,7 @@ class AuxiliaryWindow(QMainWindow):
             except Exception as e:
                  print(f"AuxiliaryWindow: 刷新 FileExplorer 样式时出错: {e}")
                  
-        # 10. 强制刷新 PromptHistory 样式
+        # 9. 强制刷新 PromptHistory 样式
         if hasattr(self, 'prompt_history'):
             try:
                 print("AuxiliaryWindow: 尝试强制刷新 PromptHistory 样式...")

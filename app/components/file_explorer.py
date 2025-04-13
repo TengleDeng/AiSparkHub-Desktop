@@ -4,7 +4,7 @@
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QTreeView, QHeaderView, 
                            QToolBar, QFileDialog, QPushButton, QHBoxLayout, 
                            QListWidget, QStackedWidget, QSplitter, QLabel,
-                           QMenu, QTabWidget, QAbstractItemView, QScrollBar)
+                           QMenu, QTabWidget, QAbstractItemView, QScrollBar, QFrame)
 from PyQt6.QtCore import Qt, QDir, QModelIndex, pyqtSignal, QSettings, QSize, QTimer, QUrl, QMimeData
 from PyQt6.QtGui import QFileSystemModel, QIcon, QAction, QDrag
 import qtawesome as qta
@@ -103,10 +103,13 @@ class FileExplorer(QWidget):
         else:
             print("警告：无法在 FileExplorer 中获取 ThemeManager 实例")
             QTimer.singleShot(200, lambda: self._check_tab_close_buttons(-1)) # 即使没有Manager也尝试用默认色设置
+        
+        # 在theme_manager设置后更新文件夹按钮图标
+        QTimer.singleShot(200, self._update_add_folder_icon)
             
     def setup_ui(self):
         """设置UI界面"""
-        # 创建布局
+        # 创建主布局
         main_layout = QVBoxLayout(self)
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(0)
@@ -117,7 +120,11 @@ class FileExplorer(QWidget):
         self.tab_widget.tabCloseRequested.connect(self.remove_tab)
         self.tab_widget.setDocumentMode(True)
         self.tab_widget.setMovable(True)
-        main_layout.addWidget(self.tab_widget)
+        
+        # 设置标签页高度
+        self.tab_widget.setStyleSheet("QTabBar::tab { height: 30px; }")
+        
+        main_layout.addWidget(self.tab_widget, 1)  # 让标签页占据更多空间
         
         # 如果没有保存的目录，默认添加当前工作目录
         if not self.root_paths:
@@ -129,6 +136,12 @@ class FileExplorer(QWidget):
         # 监听标签页添加事件，为新标签页设置关闭图标
         self.tab_widget.tabBarClicked.connect(self._check_tab_close_buttons)
         self.tab_widget.currentChanged.connect(self._check_tab_close_buttons)
+        
+        # 监听标签页切换事件
+        self.tab_widget.currentChanged.connect(self.on_tab_changed)
+        
+        # 记录当前是否有"+"标签页
+        self.plus_tab_index = -1
     
     def _check_tab_close_buttons(self, index):
         """检查并设置标签页关闭按钮图标"""
@@ -153,6 +166,9 @@ class FileExplorer(QWidget):
         for i, path in enumerate(self.root_paths):
             # 每个选项卡之间间隔200毫秒加载，避免同时加载多个文件夹
             QTimer.singleShot(i * 200, lambda p=path: self.add_folder_tab(p))
+            
+        # 添加"+"标签页
+        QTimer.singleShot((len(self.root_paths) + 1) * 200, self.add_plus_tab)
     
     def add_folder_tab(self, path):
         """为指定路径添加一个选项卡"""
@@ -214,9 +230,18 @@ class FileExplorer(QWidget):
             
             # 检查是否已存在该文件夹
             if folder_path not in self.root_paths:
+                # 如果有"+"标签页，先移除它
+                if self.plus_tab_index >= 0:
+                    self.tab_widget.removeTab(self.plus_tab_index)
+                    self.plus_tab_index = -1
+                
+                # 添加新文件夹标签页
                 if self.add_folder_tab(folder_path):
                     self.root_paths.append(folder_path)
                     self.save_settings()
+                    
+                # 重新添加"+"标签页
+                self.add_plus_tab()
     
     def on_item_double_clicked(self, index):
         """处理项目双击事件"""
@@ -323,8 +348,16 @@ class FileExplorer(QWidget):
     
     def remove_tab(self, index):
         """移除指定的选项卡"""
+        # 如果要移除的是"+"标签页，不执行任何操作
+        if index == self.plus_tab_index:
+            return
+            
         # 获取该选项卡对应的路径
         path = self.tab_widget.tabToolTip(index)
+        
+        # 调整plus_tab_index，如果被删除的标签在"+"标签页之前
+        if self.plus_tab_index > index:
+            self.plus_tab_index -= 1
         
         # 从选项卡栏移除
         self.tab_widget.removeTab(index)
@@ -336,11 +369,19 @@ class FileExplorer(QWidget):
         # 保存设置
         self.save_settings()
         
-        # 如果没有任何选项卡，恢复默认行为
-        if self.tab_widget.count() == 0 and os.path.exists(os.getcwd()):
+        # 如果没有任何常规标签页，恢复默认行为
+        if self.tab_widget.count() == 1 and self.plus_tab_index == 0:  # 只剩下"+"标签页
             self.root_paths.append(os.getcwd())
+            
+            # 移除"+"标签页后再添加文件夹标签页
+            self.tab_widget.removeTab(0)
+            self.plus_tab_index = -1
+            
             self.add_folder_tab(os.getcwd())
             self.save_settings()
+            
+            # 重新添加"+"标签页
+            self.add_plus_tab()
     
     def load_settings(self):
         """加载保存的根目录列表"""
@@ -355,6 +396,41 @@ class FileExplorer(QWidget):
     
     # 新增方法：更新图标颜色以响应主题变化
     def _update_icons(self):
+        """更新所有图标颜色以响应主题变化"""
         print("FileExplorer: 接收到主题变化信号，正在更新图标...")
+        # 更新添加文件夹按钮的图标
+        self._update_add_folder_icon()
         # 重新检查所有标签页关闭按钮的图标颜色
-        self._check_tab_close_buttons(-1) 
+        self._check_tab_close_buttons(-1)
+        
+    def _update_add_folder_icon(self):
+        """更新添加文件夹按钮的图标，包含防御性检查"""
+        # 由于我们已移除添加文件夹按钮，此方法仅作为兼容保留
+        print("FileExplorer: 添加文件夹按钮已被移除，不需要更新图标")
+        return 
+
+    def add_plus_tab(self):
+        """添加"+"标签页用于添加新文件夹"""
+        # 创建空白Widget用于"+"标签页
+        empty_widget = QWidget()
+        
+        # 添加"+"标签页
+        self.plus_tab_index = self.tab_widget.addTab(empty_widget, "+")
+        
+        # 设置标签页不可关闭
+        self.tab_widget.tabBar().setTabButton(self.plus_tab_index, self.tab_widget.tabBar().ButtonPosition.RightSide, None)
+        
+        # 设置工具提示
+        self.tab_widget.setTabToolTip(self.plus_tab_index, "添加新文件夹")
+        
+    def on_tab_changed(self, index):
+        """处理标签页切换事件"""
+        # 如果点击的是"+"标签页
+        if index == self.plus_tab_index:
+            # 打开文件夹选择对话框
+            self.add_folder()
+            
+            # 如果之前选中了其他标签页，切换回去
+            if self.tab_widget.count() > 1:
+                # 选中上一个标签页（不是"+"标签页）
+                self.tab_widget.setCurrentIndex(self.plus_tab_index - 1) 

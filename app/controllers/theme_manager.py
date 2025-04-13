@@ -177,7 +177,7 @@ class ThemeManager(QObject):
                 border: none;
                 margin-right: 2px;
                 min-width: 10ex;
-                height: 38px;
+                height: 30px;
                 border-top-left-radius: 4px;
                 border-top-right-radius: 4px;
             }
@@ -713,7 +713,7 @@ class ThemeManager(QObject):
                 border: none;
                 margin-right: 2px;
                 min-width: 10ex;
-                height: 38px;
+                height: 30px;
                 border-top-left-radius: 4px;
                 border-top-right-radius: 4px;
             }
