@@ -1083,7 +1083,18 @@
                     // 记录内容长度和前20个字符
                     console.log(`- 内容长度: ${doc.content.length}字符`);
                     console.log(`- 内容开头: ${doc.content.substring(0, 20)}...`);
-                    prompt += `内容: ${doc.content}\n`;
+                    
+                    // 处理空行
+                    // 1. 先去除首尾空白
+                    let processedContent = doc.content.trim();
+                    // 2. 将含空白字符的空行替换为单个换行符
+                    processedContent = processedContent.replace(/\n[ \t]*\n/g, '\n');
+                    // 3. 将任何连续的换行符替换为最多两个（保留一个空行）
+                    processedContent = processedContent.replace(/\n{2,}/g, '\n\n');
+                    
+                    console.log(`- 处理后内容长度: ${processedContent.length}字符`);
+                    
+                    prompt += `内容: ${processedContent}\n`;
                 } else {
                     console.log("- 警告: 文档缺少内容字段");
                 }

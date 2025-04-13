@@ -14,6 +14,7 @@ from urllib.parse import urlparse
 import os
 import sys
 from app.controllers.theme_manager import ThemeManager
+import re
 
 class PromptItemWidget(QWidget):
     """自定义提示词历史记录小部件"""
@@ -185,21 +186,26 @@ class PromptItemWidget(QWidget):
         self.setMaximumHeight(140)
         
     def create_ai_link_button(self, url, icon_color='#D8DEE9'):
-        """创建AI链接按钮"""
-        btn = QToolButton()
+        """创建AI链接按钮
         
-        # 提取域名以显示图标
-        domain = urlparse(url).netloc
-        if domain.startswith('www.'):
-            domain = domain[4:]
+        Args:
+            url: AI链接URL
+            icon_color: 图标颜色
             
-        # 设置默认图标
+        Returns:
+            QToolButton: 创建的按钮
+        """
+        btn = QToolButton()
         icon = None
         
-        # 尝试根据域名获取合适的AI平台标识
-        ai_key = None
+        # 使用正则表达式从URL中提取域名
+        domain_match = re.search(r'https?://([^:/]+)', url)
+        if domain_match:
+            domain = domain_match.group(1)
+        else:
+            domain = ""
         
-        # URL到平台标识的映射(保持与prompt_injector.js的一致性)
+        # URL到平台标识的映射（按照一定的优先级排序）
         url_to_platform = {
             'chat.openai.com': 'chatgpt',
             'chatgpt.com': 'chatgpt',
@@ -238,27 +244,22 @@ class PromptItemWidget(QWidget):
                     ai_key = key
                     break
         
-        print(f"为URL: {url} 尝试加载图标: {ai_key}")
-        
         # 先尝试加载本地图标文件
         if ai_key:
             # 使用小写的key与文件名保持一致
             lowercase_key = ai_key.lower()
             icon_path = os.path.join(self.icon_dir, f"{lowercase_key}.png")  # 先尝试png
-            print(f"尝试加载PNG图标: {icon_path}")
+            
             if not os.path.exists(icon_path):
                 icon_path = os.path.join(self.icon_dir, f"{lowercase_key}.ico")  # 再尝试ico
-                print(f"PNG图标不存在，尝试加载ICO图标: {icon_path}")
             
             if os.path.exists(icon_path):
                 # 加载图标
                 try:
-                    print(f"图标文件存在，开始加载: {icon_path}")
                     if icon_path.endswith('.ico'):
                         icon = QIcon(icon_path)
                     else:
                         icon = QIcon(QPixmap(icon_path))
-                    print(f"成功加载本地图标: {icon_path}")
                 except Exception as e:
                     print(f"加载图标失败: {e}")
                     icon = None  # 加载失败，继续使用qtawesome
@@ -291,10 +292,8 @@ class PromptItemWidget(QWidget):
             # 获取该平台对应的图标名，如果没有指定则使用全局图标
             icon_name = icon_map.get(ai_key.lower() if ai_key else "", "fa5s.globe")
             try:
-                print(f"尝试使用qtawesome图标: {icon_name}")
                 default_color = icon_color # 使用传入的颜色
                 icon = qta.icon(icon_name, color=default_color) # 使用 default_color
-                print(f"成功加载qtawesome图标: {icon_name}")
             except Exception as e:
                 # 如果依然失败，使用最安全的图标
                 print(f"qtawesome图标加载失败: {e}")
@@ -320,7 +319,6 @@ class PromptItemWidget(QWidget):
         """打开URL链接"""
         # 将单个URL打包成列表发送给AI视图
         urls = [url]
-        print(f"准备在AI视图中打开单个链接: {url}")
         self.open_all_urls.emit(urls)
     
     def update_data(self, prompt_data):
@@ -330,8 +328,6 @@ class PromptItemWidget(QWidget):
         # 调试信息：输出记录ID和提示词内容的一部分
         record_id = prompt_data.get('id', '无ID')
         prompt_text = prompt_data.get('prompt_text', '无提示词内容')
-        print(f"\n调试 - 记录ID: {record_id}")
-        print(f"调试 - 提示词: {prompt_text[:30]}...")
         
         # 更新时间标签
         try:
@@ -366,19 +362,12 @@ class PromptItemWidget(QWidget):
         # 清除所有现有图标
         self.clear_ai_icons()
         
-        # 调试信息：输出URL键及其值
-        all_keys = set(prompt_data.keys())
-        url_keys = [k for k in all_keys if k.startswith('ai') and k.endswith('_url')]
-        print(f"调试 - 数据中的所有键: {all_keys}")
-        print(f"调试 - 找到URL键: {url_keys}")
-        
         # 添加AI链接按钮
         url_count = 0
         for i in range(1, 7):
             url_key = f"ai{i}_url"
             if url_key in prompt_data and prompt_data[url_key] and prompt_data[url_key].strip():
                 url = prompt_data[url_key]
-                print(f"调试 - {url_key}: {url}")
                 # 传递当前图标颜色
                 btn = self.create_ai_link_button(url, icon_color='#D8DEE9')
                 self.icons_layout.addWidget(btn)
@@ -387,8 +376,6 @@ class PromptItemWidget(QWidget):
         # 如果有链接，添加"打开所有"按钮
         if url_count > 0:
             self.add_open_all_button()
-            
-        print(f"调试 - 总共添加了 {url_count} 个链接按钮")
         
         # 更新收藏按钮状态
         is_favorite = prompt_data.get('favorite', False)
@@ -416,7 +403,6 @@ class PromptItemWidget(QWidget):
                 urls.append(self.prompt_data[url_key])
         
         if urls:
-            print(f"准备打开 {len(urls)} 个链接: {urls}")
             self.open_all_urls.emit(urls)
     
     def clear_ai_icons(self):

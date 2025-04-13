@@ -281,7 +281,6 @@ class AIView(QWidget):
                         icon = QIcon(icon_path)
                     else:
                         icon = QIcon(QPixmap(icon_path))
-                    print(f"  Loaded icon from {icon_path}")
                 except Exception as e:
                     print(f"  Error loading icon from {icon_path}: {e}")
                     icon = None  # 加载失败，设为None以便尝试qtawesome
@@ -312,7 +311,6 @@ class AIView(QWidget):
                     # 获取该平台对应的图标名，如果没有指定则使用评论图标
                     icon_name = icon_map.get(lowercase_key, "fa5s.comment")
                     icon = qta.icon(icon_name)
-                    print(f"  Using qtawesome icon: {icon_name}")
                 except Exception as e:
                     print(f"  Error using qtawesome icon for {lowercase_key}: {e}")
                     # 如果qtawesome也失败，使用默认图标
@@ -321,25 +319,20 @@ class AIView(QWidget):
             
             # 添加到下拉菜单，将平台 key (小写) 作为 userData 存储
             ai_selector.addItem(icon, platform_config["name"], userData=lowercase_key)
-            print(f"  Added item: Index={i}, Name='{platform_config['name']}', UserData='{lowercase_key}' (Type: {type(lowercase_key)})")
-        
+            
         # 手动查找目标索引
         target_key_to_find = ai_config["key"]
         found_index = -1
-        print(f"--- Manually searching for index with UserData='{target_key_to_find}' ---")
         for idx in range(ai_selector.count()):
             item_data = ai_selector.itemData(idx)
-            print(f"  Checking Index {idx}: Data='{item_data}' (Type: {type(item_data)})")
             # 确保比较的是同类型且值相等
             if isinstance(item_data, str) and item_data == target_key_to_find:
                 found_index = idx
-                print(f"  Match found at Index {found_index}!")
                 break # 找到即停止
         
         # 设置当前选中的AI
         if found_index != -1:
             ai_selector.setCurrentIndex(found_index)
-            print(f"==> Set default index to {found_index} for AI: {ai_config['name']}")
         else:
             print(f"!!! WARNING: Could not find index for UserData='{target_key_to_find}'. Defaulting to index 0.")
             ai_selector.setCurrentIndex(0) # 如果找不到，默认显示第一项
