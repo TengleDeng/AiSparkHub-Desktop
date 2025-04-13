@@ -539,6 +539,7 @@ class ThemeManager(QObject):
             PromptItemWidget QLabel#timeLabel {
                 color: #D8DEE9; /* Use standard foreground color for dark theme */
                 font-size: 12px;
+                border: none;
             }
             PromptItemWidget QLabel#contentLabel {
                  color: #E5E9F0;
@@ -546,6 +547,7 @@ class ThemeManager(QObject):
                  border-radius: 6px;
                  padding: 8px;
                  font-size: 13px;
+                 border: none;
             }
             PromptItemWidget QToolButton {
                  background-color: #3B4252;
@@ -582,6 +584,14 @@ class ThemeManager(QObject):
             }
             PromptInput QPushButton:pressed {
                 background-color: #4C566A;
+            }
+
+            /* 确保PromptItemWidget内部的子控件没有边框 */
+            QWidget#promptItemWidget QLabel,
+            QWidget#promptItemWidget QToolButton,
+            QWidget#promptItemWidget QFrame {
+                border: none;
+                background-color: transparent;
             }
         """)
     
@@ -1065,6 +1075,7 @@ class ThemeManager(QObject):
             PromptItemWidget QLabel#timeLabel {
                 color: #2E3440; /* Use standard foreground color */
                 font-size: 12px;
+                border: none;
             }
             PromptItemWidget QLabel#contentLabel {
                  color: #2E3440;
@@ -1072,6 +1083,7 @@ class ThemeManager(QObject):
                  border-radius: 6px;
                  padding: 8px;
                  font-size: 13px;
+                 border: none;
             }
             PromptItemWidget QToolButton {
                  background-color: #D8DEE9; /* Light button bg */

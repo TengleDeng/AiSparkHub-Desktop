@@ -64,10 +64,20 @@ class PromptItemWidget(QWidget):
         
     def setup_ui(self):
         """设置UI界面"""
-        # 主布局
-        main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(10, 10, 10, 10)
-        main_layout.setSpacing(8)
+        # 创建外层框架布局
+        outer_layout = QVBoxLayout(self)
+        outer_layout.setContentsMargins(0, 0, 0, 0)
+        outer_layout.setSpacing(0)
+        
+        # 创建内容框架 - 这个框架将包含所有内容并有边框
+        self.container_frame = QFrame()
+        self.container_frame.setFrameShape(QFrame.Shape.StyledPanel)
+        self.container_frame.setStyleSheet("QFrame { border: 1px solid #4C566A; border-radius: 8px; background-color: transparent; }")
+        
+        # 为内容框架创建内部布局
+        inner_layout = QVBoxLayout(self.container_frame)
+        inner_layout.setContentsMargins(10, 10, 10, 10)
+        inner_layout.setSpacing(8)
         
         # 头部布局（时间和操作按钮）
         header_layout = QHBoxLayout()
@@ -78,11 +88,13 @@ class PromptItemWidget(QWidget):
         self.time_label.setObjectName("timeLabel") # 添加 objectName
         self.time_label.setFixedWidth(70)  # 减小宽度，因为现在是两行显示
         self.time_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)  # 文本左对齐
+        self.time_label.setStyleSheet("border: none;")
         header_layout.addWidget(self.time_label)
         
         # 添加一个水平框架作为图标容器
         self.icons_frame = QFrame()
         self.icons_frame.setFixedHeight(20)  # 设置为20px高度
+        self.icons_frame.setStyleSheet("border: none;")
         self.icons_layout = QHBoxLayout(self.icons_frame)
         self.icons_layout.setContentsMargins(0, 0, 0, 0)
         self.icons_layout.setSpacing(4)  # 减小间距
@@ -97,6 +109,7 @@ class PromptItemWidget(QWidget):
         self.send_btn.setToolTip("发送原始提示词")
         self.send_btn.setFixedSize(QSize(20, 20))
         self.send_btn.setIconSize(QSize(16, 16))
+        self.send_btn.setStyleSheet("border: none;")
         self.send_btn.clicked.connect(self.send_prompt_text)  # 直接连接发送方法
         header_layout.addWidget(self.send_btn)
         
@@ -105,6 +118,7 @@ class PromptItemWidget(QWidget):
         self.summarize_btn.setToolTip("总结AI回复")
         self.summarize_btn.setFixedSize(QSize(20, 20))
         self.summarize_btn.setIconSize(QSize(16, 16))
+        self.summarize_btn.setStyleSheet("border: none;")
         self.summarize_btn.clicked.connect(self.summarize_responses)  # 直接连接总结方法
         header_layout.addWidget(self.summarize_btn)
         
@@ -113,6 +127,7 @@ class PromptItemWidget(QWidget):
         self.favorite_btn.setToolTip("收藏提示词")
         self.favorite_btn.setFixedSize(QSize(20, 20))
         self.favorite_btn.setIconSize(QSize(16, 16))
+        self.favorite_btn.setStyleSheet("border: none;")
         self.favorite_btn.clicked.connect(self.toggle_favorite)
         
         # 创建图标并存储以便重复使用
@@ -137,10 +152,11 @@ class PromptItemWidget(QWidget):
         self.delete_btn.setToolTip("删除提示词")
         self.delete_btn.setFixedSize(QSize(20, 20))
         self.delete_btn.setIconSize(QSize(16, 16))
+        self.delete_btn.setStyleSheet("border: none;")
         self.delete_btn.clicked.connect(self.delete_prompt)
         header_layout.addWidget(self.delete_btn)
         
-        main_layout.addLayout(header_layout)
+        inner_layout.addLayout(header_layout)
         
         # 提示词内容
         self.content_label = QLabel()
@@ -149,7 +165,11 @@ class PromptItemWidget(QWidget):
         self.content_label.setTextFormat(Qt.TextFormat.PlainText)
         self.content_label.setMaximumHeight(66)  # 约3行文本高度
         self.content_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
-        main_layout.addWidget(self.content_label)
+        self.content_label.setStyleSheet("border: none;")
+        inner_layout.addWidget(self.content_label)
+        
+        # 将内容框架添加到外层布局
+        outer_layout.addWidget(self.container_frame)
         
         # 设置容器样式
         self.setMinimumHeight(110)

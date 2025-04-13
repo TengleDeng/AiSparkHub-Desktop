@@ -191,7 +191,7 @@ class FileViewer(QWidget):
         self.viewer = viewer_type()
         if isinstance(self.viewer, QTextEdit):
             self.viewer.setReadOnly(True)
-            font = QFont("Consolas", 'Courier New', monospace)
+            font = QFont("Consolas", 'Courier New')
             font.setStyleHint(QFont.StyleHint.Monospace)
             self.viewer.setFont(font)
         self.layout.addWidget(self.viewer)
