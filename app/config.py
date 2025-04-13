@@ -56,7 +56,7 @@ SUPPORTED_AI_PLATFORMS = {
     "CHATGPT": {
         "key": "chatgpt",
         "name": "ChatGPT",
-        "url": "https://chat.openai.com/",
+        "url": "https://chatgpt.com/",
         "input_selector": "textarea[placeholder='Message ChatGPT…']",
         "submit_selector": "button[data-testid='send-button']",
         "response_selector": ".markdown.prose"
