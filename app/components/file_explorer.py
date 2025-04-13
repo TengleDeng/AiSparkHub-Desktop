@@ -94,7 +94,8 @@ class FileExplorer(QWidget):
         
         # 初始化UI组件变量
         self.bottom_toolbar = None
-        self.settings_action = None
+        self.index_action = None
+        self.kbflow_action = None
         self.plus_tab_index = -1
         
         self.load_settings()
@@ -143,11 +144,17 @@ class FileExplorer(QWidget):
         self.bottom_toolbar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
         self.bottom_toolbar.setMovable(False)
         
-        # 添加设置按钮
-        self.settings_action = QAction(qta.icon('fa5s.cog'), "设置", self)
-        self.settings_action.setToolTip("文件浏览器设置")
-        self.settings_action.triggered.connect(self.show_settings)
-        self.bottom_toolbar.addAction(self.settings_action)
+        # 添加知识库按钮
+        self.kbflow_action = QAction(qta.icon('fa5s.book'), "知识库", self)
+        self.kbflow_action.setToolTip("知识库工具")
+        self.kbflow_action.triggered.connect(self.show_kbflow)
+        self.bottom_toolbar.addAction(self.kbflow_action)
+        
+        # 添加索引按钮
+        self.index_action = QAction(qta.icon('fa5s.database'), "索引", self)
+        self.index_action.setToolTip("文件索引")
+        self.index_action.triggered.connect(self.show_index)
+        self.bottom_toolbar.addAction(self.index_action)
         
         # 添加空白间隔填充工具栏右侧
         spacer = QWidget()
@@ -466,9 +473,12 @@ class FileExplorer(QWidget):
             toolbar_bg = theme_colors.get('secondary_bg', toolbar_bg)
             toolbar_hover_bg = theme_colors.get('tertiary_bg', toolbar_hover_bg)
         
-        # 更新设置按钮图标
-        if hasattr(self, 'settings_action') and self.settings_action:
-            self.settings_action.setIcon(qta.icon('fa5s.cog', color=icon_color))
+        # 更新按钮图标
+        if hasattr(self, 'index_action') and self.index_action:
+            self.index_action.setIcon(qta.icon('fa5s.search', color=icon_color))
+            
+        if hasattr(self, 'kbflow_action') and self.kbflow_action:
+            self.kbflow_action.setIcon(qta.icon('fa5s.book', color=icon_color))
         
         # 更新工具栏样式
         self.bottom_toolbar.setStyleSheet(f"""
@@ -516,8 +526,120 @@ class FileExplorer(QWidget):
                 # 选中上一个标签页（不是"+"标签页）
                 self.tab_widget.setCurrentIndex(self.plus_tab_index - 1)
                 
-    def show_settings(self):
-        """显示文件浏览器设置对话框"""
-        # 目前仅显示一个消息，后续可实现具体的设置功能
-        print("显示文件浏览器设置对话框")
-        # TODO: 实现设置对话框 
+    def show_index(self):
+        """显示本地索引工具"""
+        try:
+            # 使用嵌入式集成方案
+            from app.local_index_tool.gui.main_window import MainWindow
+            
+            # 获取当前活动标签页的路径
+            current_path = None
+            if self.tab_widget.count() > 0 and self.tab_widget.currentIndex() != self.plus_tab_index:
+                current_path = self.tab_widget.tabToolTip(self.tab_widget.currentIndex())
+            
+            # 创建并显示MainWindow，传递所需参数
+            self.index_tool_window = MainWindow(parent=self)
+            self.index_tool_window.setWindowModality(Qt.WindowModality.ApplicationModal)
+            
+            # 如果MainWindow支持这些参数，可以取消注释以下代码
+            # if hasattr(self.index_tool_window, 'set_initial_path') and current_path:
+            #     self.index_tool_window.set_initial_path(current_path)
+            
+            self.index_tool_window.show()
+            print("成功启动本地索引工具")
+        except ImportError as e:
+            print(f"导入本地索引工具失败: {e}")
+            # 如果导入失败，退回到子进程方式
+            self._start_with_subprocess()
+        except Exception as e:
+            print(f"启动本地索引工具失败: {e}")
+            # 如果启动失败，退回到子进程方式
+            self._start_with_subprocess()
+
+    def _start_with_subprocess(self):
+        """使用子进程方式启动本地索引工具"""
+        try:
+            import subprocess
+            import os
+            import sys
+            
+            # 尝试从不同位置找到local_index_tool
+            # 首先检查app/local_index_tool路径
+            base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            tool_path = os.path.join(base_dir, "local_index_tool", "main.py")
+            
+            if not os.path.exists(tool_path):
+                # 检查项目根目录下的local_index_tool
+                base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+                tool_path = os.path.join(base_dir, "local_index_tool", "main.py")
+                
+                if not os.path.exists(tool_path):
+                    # 特定路径测试
+                    tool_path = r"D:\OneDrive\01.事业工作\编程\Tengle's Projects\AiSparkHub\local_index_tool\main.py"
+                    if not os.path.exists(tool_path):
+                        raise FileNotFoundError(f"找不到本地索引工具: {tool_path}")
+            
+            # 启动子进程
+            subprocess.Popen([sys.executable, tool_path])
+            print(f"启动本地索引工具: {tool_path}")
+        except Exception as e:
+            print(f"启动本地索引工具失败: {e}")
+
+    def show_kbflow(self):
+        """显示知识库工具"""
+        try:
+            # 使用嵌入式集成方案
+            # IDE可能无法识别此导入，但运行时可能正常
+            # type: ignore
+            from app.kbflow.main import MainWindow
+            
+            # 获取当前活动标签页的路径
+            current_path = None
+            if self.tab_widget.count() > 0 and self.tab_widget.currentIndex() != self.plus_tab_index:
+                current_path = self.tab_widget.tabToolTip(self.tab_widget.currentIndex())
+            
+            # 创建并显示MainWindow，传递所需参数
+            self.kbflow_window = MainWindow(parent=self)
+            self.kbflow_window.setWindowModality(Qt.WindowModality.ApplicationModal)
+            
+            # 如果MainWindow支持设置初始路径
+            if hasattr(self.kbflow_window, 'set_initial_path') and current_path:
+                self.kbflow_window.set_initial_path(current_path)
+            
+            self.kbflow_window.show()
+            print("成功启动知识库工具")
+        except ImportError as e:
+            print(f"导入知识库工具失败: {e}")
+            # 如果导入失败，退回到子进程方式
+            self._start_kbflow_subprocess()
+        except Exception as e:
+            print(f"启动知识库工具失败: {e}")
+            # 如果启动失败，退回到子进程方式
+            self._start_kbflow_subprocess()
+            
+    def _start_kbflow_subprocess(self):
+        """使用子进程方式启动知识库工具"""
+        try:
+            import subprocess
+            import os
+            import sys
+            
+            # 尝试从不同位置找到kbflow
+            # 首先检查app/kbflow路径
+            base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            tool_path = os.path.join(base_dir, "kbflow", "main.py")
+            
+            if not os.path.exists(tool_path):
+                # 检查项目根目录下的kbflow
+                base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+                tool_path = os.path.join(base_dir, "kbflow", "main.py")
+                
+                if not os.path.exists(tool_path):
+                    raise FileNotFoundError(f"找不到知识库工具: {tool_path}")
+            
+            # 启动子进程
+            subprocess.Popen([sys.executable, tool_path])
+            print(f"启动知识库工具: {tool_path}")
+        except Exception as e:
+            print(f"启动知识库工具失败: {e}")
+        
