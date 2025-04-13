@@ -5,7 +5,7 @@
 # 该窗口作为辅助窗口，包含文件浏览器、提示词输入框和提示词历史记录。
 # 用于管理和同步提示词到主窗口的 AI 对话页面。
 
-from PyQt6.QtWidgets import QMainWindow, QWidget, QHBoxLayout, QPushButton, QVBoxLayout, QLabel, QSplitter, QFrame, QToolBar, QStackedWidget, QTabWidget, QApplication, QMessageBox
+from PyQt6.QtWidgets import QMainWindow, QWidget, QHBoxLayout, QPushButton, QVBoxLayout, QLabel, QSplitter, QFrame, QToolBar, QStackedWidget, QTabWidget, QApplication, QMessageBox, QSizePolicy
 from PyQt6.QtCore import Qt, QPoint, pyqtSignal, QSize, QTimer, QUrl
 from PyQt6.QtGui import QIcon
 import qtawesome as qta
@@ -529,18 +529,8 @@ class AuxiliaryWindow(QMainWindow):
         # 设置按钮样式
         # button_style = """ ... """
         
-        # 添加主题切换按钮
-        self.theme_button = QPushButton()
-        self.theme_button.setIcon(qta.icon('fa5s.moon'))  # 深色模式默认显示月亮图标
-        self.theme_button.setToolTip("切换明暗主题")
-        self.theme_button.clicked.connect(self.toggle_theme)
-        self.theme_button.setObjectName("themeButton")
-        # self.theme_button.setStyleSheet(button_style) # 移除
-        
         # 添加按钮到标题栏（靠左）
         title_layout.addWidget(add_folder_btn)
-        # 添加主题切换按钮到标题栏
-        title_layout.addWidget(self.theme_button)
         # 添加伸缩空间在按钮之后，使其余空间填充到右侧
         title_layout.addStretch(1)
         
@@ -609,6 +599,22 @@ class AuxiliaryWindow(QMainWindow):
         
         # 设置初始比例 (3:4:3)
         self.splitter.setSizes([300, 400, 300])
+        
+        # 添加主题切换按钮到ribbon条最底部
+        # QToolBar不支持addStretch，添加一个QWidget作为空间填充
+        spacer = QWidget()
+        spacer.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding)
+        self.ribbon.addWidget(spacer)  # 添加占位组件，将后续控件推到底部
+        
+        # 创建主题切换按钮
+        self.theme_button = QPushButton()
+        self.theme_button.setIcon(qta.icon('fa5s.moon'))  # 深色模式默认显示月亮图标
+        self.theme_button.setToolTip("切换明暗主题")
+        self.theme_button.clicked.connect(self.toggle_theme)
+        self.theme_button.setObjectName("themeButton")
+        
+        # 添加主题切换按钮到ribbon
+        self.ribbon.addWidget(self.theme_button)
         
         # 连接信号
         self.prompt_input.prompt_submitted.connect(self.on_prompt_submitted)
