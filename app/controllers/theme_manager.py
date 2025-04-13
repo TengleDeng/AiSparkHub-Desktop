@@ -121,16 +121,16 @@ class ThemeManager(QObject):
             
             /* 滚动条样式 */
             QScrollBar:vertical {
-                background-color: #ECEFF4;
+                background-color: #2E3440;  /* 深色背景，与主题背景匹配 */
                 width: 12px;
             }
             QScrollBar::handle:vertical {
-                background-color: #D8DEE9;
+                background-color: #4C566A;  /* 深色滑块 */
                 border-radius: 6px;
                 min-height: 20px;
             }
             QScrollBar::handle:vertical:hover {
-                background-color: #81A1C1;
+                background-color: #5E81AC;  /* 悬停时的颜色 */
             }
             QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
                 height: 0px;
@@ -139,16 +139,16 @@ class ThemeManager(QObject):
                 background: none;
             }
             QScrollBar:horizontal {
-                background-color: #ECEFF4;
+                background-color: #2E3440;  /* 深色背景，与主题背景匹配 */
                 height: 12px;
             }
             QScrollBar::handle:horizontal {
-                background-color: #D8DEE9;
+                background-color: #4C566A;  /* 深色滑块 */
                 border-radius: 6px;
                 min-width: 20px;
             }
             QScrollBar::handle:horizontal:hover {
-                background-color: #81A1C1;
+                background-color: #5E81AC;  /* 悬停时的颜色 */
             }
             QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
                 width: 0px;
@@ -440,16 +440,16 @@ class ThemeManager(QObject):
 
             /* Global Scrollbar Style */
             QScrollBar:vertical {
-                background-color: #ECEFF4;
+                background-color: #2E3440;  /* 深色背景，与主题背景匹配 */
                 width: 12px;
             }
             QScrollBar::handle:vertical {
-                background-color: #D8DEE9;
+                background-color: #4C566A;  /* 深色滑块 */
                 border-radius: 6px;
                 min-height: 20px;
             }
             QScrollBar::handle:vertical:hover {
-                background-color: #81A1C1;
+                background-color: #5E81AC;  /* 悬停时的颜色 */
             }
             QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
                 height: 0px;
@@ -458,16 +458,16 @@ class ThemeManager(QObject):
                 background: none;
             }
             QScrollBar:horizontal {
-                background-color: #ECEFF4;
+                background-color: #2E3440;  /* 深色背景，与主题背景匹配 */
                 height: 12px;
             }
             QScrollBar::handle:horizontal {
-                background-color: #D8DEE9;
+                background-color: #4C566A;  /* 深色滑块 */
                 border-radius: 6px;
                 min-width: 20px;
             }
             QScrollBar::handle:horizontal:hover {
-                background-color: #81A1C1;
+                background-color: #5E81AC;  /* 悬停时的颜色 */
             }
             QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
                 width: 0px;
@@ -976,16 +976,16 @@ class ThemeManager(QObject):
 
              /* Global Scrollbar Style */
             QScrollBar:vertical {
-                background-color: #ECEFF4;
+                background-color: #2E3440;  /* 深色背景，与主题背景匹配 */
                 width: 12px;
             }
             QScrollBar::handle:vertical {
-                background-color: #D8DEE9;
+                background-color: #4C566A;  /* 深色滑块 */
                 border-radius: 6px;
                 min-height: 20px;
             }
             QScrollBar::handle:vertical:hover {
-                background-color: #81A1C1;
+                background-color: #5E81AC;  /* 悬停时的颜色 */
             }
             QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
                 height: 0px;
@@ -994,16 +994,16 @@ class ThemeManager(QObject):
                 background: none;
             }
             QScrollBar:horizontal {
-                background-color: #ECEFF4;
+                background-color: #2E3440;  /* 深色背景，与主题背景匹配 */
                 height: 12px;
             }
             QScrollBar::handle:horizontal {
-                background-color: #D8DEE9;
+                background-color: #4C566A;  /* 深色滑块 */
                 border-radius: 6px;
                 min-width: 20px;
             }
             QScrollBar::handle:horizontal:hover {
-                background-color: #81A1C1;
+                background-color: #5E81AC;  /* 悬停时的颜色 */
             }
             QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
                 width: 0px;
