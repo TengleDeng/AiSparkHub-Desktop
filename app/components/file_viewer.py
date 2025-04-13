@@ -11,7 +11,7 @@ import markdown
 import io
 import tempfile
 import qtawesome as qta
-from PyQt6.QtCore import Qt, QUrl, QSize, pyqtSignal, pyqtSlot
+from PyQt6.QtCore import Qt, QUrl, QSize, pyqtSignal, pyqtSlot, QTimer
 from PyQt6.QtWidgets import (
     QWidget, QTextEdit, QVBoxLayout, QToolBar, QApplication,
     QPushButton, QLabel
@@ -73,6 +73,18 @@ class FileViewer(QWidget):
         self.file_type = None
         self.viewer = None
         self.copy_to_prompt_action = None # Store the action
+        self.edit_mode = False # 是否处于编辑模式
+        self.editor = None # 编辑器组件
+        self.is_modified = False # 文件是否被修改
+        self.save_action = None # 保存按钮
+        self.edit_action = None # 编辑按钮
+        self.preview_action = None # 预览按钮
+        self.auto_save_timer = None # 自动保存定时器
+        
+        # 创建自动保存定时器
+        self.auto_save_timer = QTimer(self)
+        self.auto_save_timer.setInterval(5000)  # 5秒保存一次
+        self.auto_save_timer.timeout.connect(self._auto_save)
         
         # 连接主题变化信号
         if self.theme_manager:
@@ -113,6 +125,10 @@ class FileViewer(QWidget):
         
         self.file_type = file_type # Store determined file type
         
+        # 重置编辑模式状态
+        self.edit_mode = False
+        self.is_modified = False
+        
         # 清空工具栏 (先保留按钮实例)
         self.toolbar.clear()
         
@@ -122,14 +138,128 @@ class FileViewer(QWidget):
             self.copy_to_prompt_action.triggered.connect(self._copy_to_prompt)
         self.toolbar.addAction(self.copy_to_prompt_action)
         
+        # 对于Markdown文件，添加编辑按钮
+        if file_type == 'markdown':
+            if self.edit_action is None:
+                self.edit_action = QAction(qta.icon('fa5s.edit'), "编辑", self)
+                self.edit_action.triggered.connect(self._toggle_edit_mode)
+            self.toolbar.addAction(self.edit_action)
+            
+            if self.preview_action is None:
+                self.preview_action = QAction(qta.icon('fa5s.eye'), "预览", self)
+                self.preview_action.triggered.connect(self._toggle_preview_mode)
+                self.preview_action.setVisible(False)  # 初始不可见
+            self.toolbar.addAction(self.preview_action)
+            
+            if self.save_action is None:
+                self.save_action = QAction(qta.icon('fa5s.save'), "保存", self)
+                self.save_action.triggered.connect(self._save_file)
+                self.save_action.setVisible(False)  # 初始不可见
+            self.toolbar.addAction(self.save_action)
+        
         # 如果已有查看器，移除它
         if self.viewer is not None:
             self.layout.removeWidget(self.viewer)
             self.viewer.deleteLater()
             self.viewer = None
         
+        # 如果已有编辑器，移除它
+        if self.editor is not None:
+            self.layout.removeWidget(self.editor)
+            self.editor.deleteLater()
+            self.editor = None
+        
         # 调用 _update_theme 来创建/更新查看器并应用主题
         self._update_theme()
+    
+    def _toggle_edit_mode(self):
+        """切换编辑模式"""
+        if not self.file_path or self.file_type != 'markdown':
+            return
+        
+        self.edit_mode = True
+        
+        # 更新按钮可见性
+        self.edit_action.setVisible(False)
+        self.preview_action.setVisible(True)
+        self.save_action.setVisible(True)
+        
+        # 创建文本编辑器
+        if self.editor is None:
+            self.editor = QTextEdit()
+            font = QFont("Consolas")
+            font.setStyleHint(QFont.StyleHint.Monospace)
+            self.editor.setFont(font)
+            
+            # 连接文本变更信号
+            self.editor.textChanged.connect(self._content_changed)
+            
+            # 加载文件内容
+            try:
+                content = self._get_text_content(self.file_path)
+                self.editor.setPlainText(content)
+            except Exception as e:
+                self.editor.setPlainText(f"无法加载文件: {e}")
+        
+        # 如果有查看器，隐藏它
+        if self.viewer:
+            self.viewer.setVisible(False)
+        
+        # 显示编辑器
+        self.editor.setVisible(True)
+        self.layout.addWidget(self.editor)
+        
+        # 启动自动保存定时器
+        self.auto_save_timer.start()
+    
+    def _toggle_preview_mode(self):
+        """切换预览模式"""
+        if not self.file_path or self.file_type != 'markdown':
+            return
+        
+        # 如果文件已修改，先保存
+        if self.is_modified:
+            self._save_file()
+        
+        self.edit_mode = False
+        
+        # 更新按钮可见性
+        self.edit_action.setVisible(True)
+        self.preview_action.setVisible(False)
+        self.save_action.setVisible(False)
+        
+        # 隐藏编辑器
+        if self.editor:
+            self.editor.setVisible(False)
+        
+        # 重新加载文件预览
+        self._update_theme()
+        
+        # 停止自动保存定时器
+        self.auto_save_timer.stop()
+    
+    def _content_changed(self):
+        """内容变更处理"""
+        self.is_modified = True
+    
+    def _save_file(self):
+        """保存文件"""
+        if not self.file_path or not self.editor:
+            return
+        
+        try:
+            content = self.editor.toPlainText()
+            with open(self.file_path, 'w', encoding='utf-8') as f:
+                f.write(content)
+            self.is_modified = False
+            print(f"文件已保存: {self.file_path}")
+        except Exception as e:
+            print(f"保存文件失败: {e}")
+    
+    def _auto_save(self):
+        """自动保存"""
+        if self.edit_mode and self.is_modified:
+            self._save_file()
     
     def _update_theme(self):
         """更新组件的主题样式和内容"""
@@ -162,9 +292,33 @@ class FileViewer(QWidget):
             }}
         """)
         
-        # --- 更新复制按钮图标颜色 ---
+        # --- 更新按钮图标颜色 ---
         if self.copy_to_prompt_action:
             self.copy_to_prompt_action.setIcon(qta.icon('fa5s.copy', color=icon_color))
+        if self.edit_action:
+            self.edit_action.setIcon(qta.icon('fa5s.edit', color=icon_color))
+        if self.preview_action:
+            self.preview_action.setIcon(qta.icon('fa5s.eye', color=icon_color))
+        if self.save_action:
+            self.save_action.setIcon(qta.icon('fa5s.save', color=icon_color))
+        
+        # --- 如果处于编辑模式，更新编辑器样式并返回 ---
+        if self.edit_mode and self.editor:
+            # 定义编辑器样式
+            bg_color = theme_colors.get('background', '#2E3440')
+            fg_color = theme_colors.get('foreground', '#D8DEE9')
+            selection_bg = theme_colors.get('selection_bg', '#434C5E')
+            cursor_color = theme_colors.get('cursor', '#D8DEE9')
+            
+            self.editor.setStyleSheet(f"""
+                QTextEdit {{
+                    background-color: {bg_color};
+                    color: {fg_color};
+                    border: none;
+                    selection-background-color: {selection_bg};
+                }}
+            """)
+            return
         
         # --- 更新查看器样式和内容 (仅当文件已加载时) ---
         if not self.file_path:
@@ -188,13 +342,16 @@ class FileViewer(QWidget):
                 old_viewer.deleteLater()
                 self.viewer = None # Ensure it's None before creating new
         
-        self.viewer = viewer_type()
-        if isinstance(self.viewer, QTextEdit):
-            self.viewer.setReadOnly(True)
-            font = QFont("Consolas", 'Courier New')
-            font.setStyleHint(QFont.StyleHint.Monospace)
-            self.viewer.setFont(font)
-        self.layout.addWidget(self.viewer)
+            self.viewer = viewer_type()
+            if isinstance(self.viewer, QTextEdit):
+                self.viewer.setReadOnly(True)
+                font = QFont("Consolas")
+                font.setStyleHint(QFont.StyleHint.Monospace)
+                self.viewer.setFont(font)
+            self.layout.addWidget(self.viewer)
+        
+        # 显示查看器
+        self.viewer.setVisible(True)
         
         # --- 加载内容并应用样式 ---
         try:

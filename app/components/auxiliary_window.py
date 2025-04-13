@@ -708,16 +708,29 @@ class AuxiliaryWindow(QMainWindow):
         
         Args:
             file_path (str): 文件路径
-            file_type (str): 文件类型
+            file_type (str): 文件类型（可带":edit"后缀来指定编辑模式）
         """
         # 获取文件名
         file_name = os.path.basename(file_path)
+        
+        # 检查是否请求编辑模式
+        edit_mode = False
+        if ":" in file_type:
+            file_type, mode = file_type.split(":", 1)
+            edit_mode = (mode == "edit")
         
         # 检查文件是否已经打开
         for i in range(self.tabs.count()):
             if self.tabs.tabText(i) == file_name:
                 # 如果已打开，切换到对应标签
                 self.tabs.setCurrentIndex(i)
+                
+                # 如果请求编辑模式，尝试在已打开的标签中切换到编辑模式
+                if edit_mode and file_type == 'markdown':
+                    file_viewer = self.tabs.widget(i)
+                    if hasattr(file_viewer, '_toggle_edit_mode'):
+                        file_viewer._toggle_edit_mode()
+                
                 return
         
         # 创建文件查看器
@@ -725,6 +738,10 @@ class AuxiliaryWindow(QMainWindow):
         
         # 打开文件
         file_viewer.open_file(file_path, file_type)
+        
+        # 如果是可编辑文件类型且请求编辑模式，直接切换到编辑模式
+        if edit_mode and file_type == 'markdown' and hasattr(file_viewer, '_toggle_edit_mode'):
+            file_viewer._toggle_edit_mode()
         
         # 连接文件内容复制到提示词的信号
         file_viewer.file_content_to_prompt.connect(self.on_file_content_to_prompt)

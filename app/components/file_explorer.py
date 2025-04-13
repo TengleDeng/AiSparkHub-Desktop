@@ -89,6 +89,9 @@ class FileExplorer(QWidget):
             '.pdf': 'pdf'
         }
         
+        # 定义支持编辑的文件类型
+        self.editable_file_types = ['.md', '.markdown', '.txt']
+        
         self.load_settings()
         self.setup_ui()
         
@@ -311,6 +314,14 @@ class FileExplorer(QWidget):
                 view_action.triggered.connect(
                     lambda checked=False, path=file_path, type=file_type: 
                     self.fileOpenRequest.emit(path, type))
+                
+                # 对于可编辑的文件类型，添加"编辑文件"选项
+                if ext in self.editable_file_types:
+                    edit_action = menu.addAction("编辑文件")
+                    edit_action.triggered.connect(
+                        lambda checked=False, path=file_path, type=file_type: 
+                        self.fileOpenRequest.emit(path, type + ":edit"))
+                
                 menu.addSeparator()
         
         # 添加"在资源管理器中显示"选项
