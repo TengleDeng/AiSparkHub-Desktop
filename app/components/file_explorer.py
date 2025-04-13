@@ -4,7 +4,7 @@
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QTreeView, QHeaderView, 
                            QToolBar, QFileDialog, QPushButton, QHBoxLayout, 
                            QListWidget, QStackedWidget, QSplitter, QLabel,
-                           QMenu, QTabWidget, QAbstractItemView, QScrollBar, QFrame)
+                           QMenu, QTabWidget, QAbstractItemView, QScrollBar, QFrame, QSizePolicy)
 from PyQt6.QtCore import Qt, QDir, QModelIndex, pyqtSignal, QSettings, QSize, QTimer, QUrl, QMimeData
 from PyQt6.QtGui import QFileSystemModel, QIcon, QAction, QDrag
 import qtawesome as qta
@@ -92,6 +92,11 @@ class FileExplorer(QWidget):
         # 定义支持编辑的文件类型
         self.editable_file_types = ['.md', '.markdown', '.txt']
         
+        # 初始化UI组件变量
+        self.bottom_toolbar = None
+        self.settings_action = None
+        self.plus_tab_index = -1
+        
         self.load_settings()
         self.setup_ui()
         
@@ -103,9 +108,12 @@ class FileExplorer(QWidget):
             self.theme_manager.theme_changed.connect(self._update_icons)
             # 初始化时调用一次图标检查以设置颜色
             QTimer.singleShot(200, lambda: self._check_tab_close_buttons(-1))
+            # 初始化工具栏图标
+            QTimer.singleShot(200, self._update_toolbar_icons)
         else:
             print("警告：无法在 FileExplorer 中获取 ThemeManager 实例")
             QTimer.singleShot(200, lambda: self._check_tab_close_buttons(-1)) # 即使没有Manager也尝试用默认色设置
+            QTimer.singleShot(200, self._update_toolbar_icons) # 同样初始化工具栏图标
         
         # 在theme_manager设置后更新文件夹按钮图标
         QTimer.singleShot(200, self._update_add_folder_icon)
@@ -128,6 +136,26 @@ class FileExplorer(QWidget):
         self.tab_widget.setStyleSheet("QTabBar::tab { height: 30px; }")
         
         main_layout.addWidget(self.tab_widget, 1)  # 让标签页占据更多空间
+        
+        # 创建底部工具栏
+        self.bottom_toolbar = QToolBar()
+        self.bottom_toolbar.setIconSize(QSize(16, 16))
+        self.bottom_toolbar.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        self.bottom_toolbar.setMovable(False)
+        
+        # 添加设置按钮
+        self.settings_action = QAction(qta.icon('fa5s.cog'), "设置", self)
+        self.settings_action.setToolTip("文件浏览器设置")
+        self.settings_action.triggered.connect(self.show_settings)
+        self.bottom_toolbar.addAction(self.settings_action)
+        
+        # 添加空白间隔填充工具栏右侧
+        spacer = QWidget()
+        spacer.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        self.bottom_toolbar.addWidget(spacer)
+        
+        # 添加底部工具栏到主布局
+        main_layout.addWidget(self.bottom_toolbar)
         
         # 如果没有保存的目录，默认添加当前工作目录
         if not self.root_paths:
@@ -413,12 +441,54 @@ class FileExplorer(QWidget):
         self._update_add_folder_icon()
         # 重新检查所有标签页关闭按钮的图标颜色
         self._check_tab_close_buttons(-1)
+        # 更新底部工具栏图标
+        self._update_toolbar_icons()
         
     def _update_add_folder_icon(self):
         """更新添加文件夹按钮的图标，包含防御性检查"""
         # 由于我们已移除添加文件夹按钮，此方法仅作为兼容保留
         print("FileExplorer: 添加文件夹按钮已被移除，不需要更新图标")
         return 
+
+    def _update_toolbar_icons(self):
+        """更新底部工具栏的图标和样式"""
+        if not hasattr(self, 'bottom_toolbar') or not self.bottom_toolbar:
+            return
+            
+        # 获取当前主题的颜色
+        icon_color = '#D8DEE9'  # 默认颜色
+        toolbar_bg = '#3B4252'  # 默认背景色
+        toolbar_hover_bg = '#4C566A'  # 默认悬停背景色
+        
+        if self.theme_manager:
+            theme_colors = self.theme_manager.get_current_theme_colors()
+            icon_color = theme_colors.get('foreground', icon_color)
+            toolbar_bg = theme_colors.get('secondary_bg', toolbar_bg)
+            toolbar_hover_bg = theme_colors.get('tertiary_bg', toolbar_hover_bg)
+        
+        # 更新设置按钮图标
+        if hasattr(self, 'settings_action') and self.settings_action:
+            self.settings_action.setIcon(qta.icon('fa5s.cog', color=icon_color))
+        
+        # 更新工具栏样式
+        self.bottom_toolbar.setStyleSheet(f"""
+            QToolBar {{
+                background-color: {toolbar_bg};
+                border: none;
+                spacing: 5px;
+                padding: 2px;
+            }}
+            QToolButton {{
+                background-color: transparent;
+                border: none;
+                border-radius: 4px;
+                padding: 5px;
+                color: {icon_color};
+            }}
+            QToolButton:hover {{
+                background-color: {toolbar_hover_bg};
+            }}
+        """)
 
     def add_plus_tab(self):
         """添加"+"标签页用于添加新文件夹"""
@@ -444,4 +514,10 @@ class FileExplorer(QWidget):
             # 如果之前选中了其他标签页，切换回去
             if self.tab_widget.count() > 1:
                 # 选中上一个标签页（不是"+"标签页）
-                self.tab_widget.setCurrentIndex(self.plus_tab_index - 1) 
+                self.tab_widget.setCurrentIndex(self.plus_tab_index - 1)
+                
+    def show_settings(self):
+        """显示文件浏览器设置对话框"""
+        # 目前仅显示一个消息，后续可实现具体的设置功能
+        print("显示文件浏览器设置对话框")
+        # TODO: 实现设置对话框 

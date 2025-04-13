@@ -1,0 +1,14 @@
+{
+	"folders": [
+		{
+			"path": "."
+		},
+		{
+			"path": "../local_index_tool"
+		},
+		{
+			"path": "../KBFlow"
+		}
+	],
+	"settings": {}
+}
