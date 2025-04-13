@@ -121,16 +121,16 @@ class ThemeManager(QObject):
             
             /* 滚动条样式 */
             QScrollBar:vertical {
-                background-color: #2E3440;
+                background-color: #ECEFF4;
                 width: 12px;
             }
             QScrollBar::handle:vertical {
-                background-color: #4C566A;
+                background-color: #D8DEE9;
                 border-radius: 6px;
                 min-height: 20px;
             }
             QScrollBar::handle:vertical:hover {
-                background-color: #5E81AC;
+                background-color: #81A1C1;
             }
             QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
                 height: 0px;
@@ -139,16 +139,16 @@ class ThemeManager(QObject):
                 background: none;
             }
             QScrollBar:horizontal {
-                background-color: #2E3440;
+                background-color: #ECEFF4;
                 height: 12px;
             }
             QScrollBar::handle:horizontal {
-                background-color: #4C566A;
+                background-color: #D8DEE9;
                 border-radius: 6px;
                 min-width: 20px;
             }
             QScrollBar::handle:horizontal:hover {
-                background-color: #5E81AC;
+                background-color: #81A1C1;
             }
             QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
                 width: 0px;
@@ -256,14 +256,67 @@ class ThemeManager(QObject):
                 border: none;
                 border-radius: 3px;
                 padding: 5px;
+                color: #D8DEE9; /* Icon color */
             }
             #ribbonToolBar QToolButton:hover {
                 background-color: #3B4252;
+            }
+            #ribbonToolBar QToolButton:pressed {
+                 background-color: #434C5E;
             }
             
             /* 特殊控件 - 标题栏 */
             #panelTitleBar {
                 background-color: #2E3440;
+            }
+            
+            /* AI View 特有样式 */
+            QWebEngineView {
+                background: #2E3440;
+            }
+            QSplitter::handle {
+                background-color: #4C566A;
+                width: 1px;
+            }
+            QComboBox#aiSelector {
+                background-color: #3B4252;
+                color: #D8DEE9;
+                border: none;
+                border-radius: 4px;
+                padding: 1px 18px 1px 3px;
+            }
+            QComboBox#aiSelector::drop-down {
+                subcontrol-origin: padding;
+                subcontrol-position: top right;
+                width: 20px;
+                border-left: none;
+            }
+            QComboBox#aiSelector::down-arrow {
+                /* 需要一个图标，或者使用 qtawesome */
+                /* image: url(:/icons/down-arrow-dark.png); */ 
+            }
+            QComboBox#aiSelector QAbstractItemView {
+                background-color: #2E3440;
+                color: #D8DEE9;
+                selection-background-color: #4C566A;
+                border: none;
+                outline: none;
+            }
+            QComboBox#aiSelector:hover {
+                background-color: #434C5E;
+            }
+            QWidget#aiTitleBar {
+                background: #3B4252;
+                border-bottom: none;
+            }
+            QWidget#aiTitleBar QPushButton:hover {
+                background-color: #4C566A;
+            }
+            QWidget#aiTitleBar QPushButton:pressed {
+                background-color: #5E81AC;
+            }
+            QWidget#aiTitleBar QPushButton {
+                color: #D8DEE9; /* 设置深色主题下图标颜色 */
             }
             
             /* 窗口控制按钮 */
@@ -272,18 +325,263 @@ class ThemeManager(QObject):
                 border: none;
                 padding: 6px 8px;
                 margin: 0;
+                color: #4C566A; /* Slightly darker icon color for better visibility */
             }
             QWidget#minimizeButton:hover, QWidget#maximizeButton:hover, QWidget#themeButton:hover {
-                background: #3B4252;
+                background: #434C5E; /* Use a slightly lighter dark bg for hover */
+                color: #2E3440; /* Darker icon on hover */
+            }
+            QWidget#minimizeButton:pressed, QWidget#maximizeButton:pressed, QWidget#themeButton:pressed {
+                background-color: #C7CED9; /* Slightly darker pressed state */
+                color: #2E3440; /* Darker icon on pressed */
             }
             QWidget#closeButton {
                 background: transparent;
                 border: none;
                 padding: 6px 8px;
                 margin: 0;
+                color: #4C566A; /* Match other window control icons */
             }
             QWidget#closeButton:hover {
-                background: #BF616A;
+                background: #BF616A; /* Match other hover background */
+                color: #2E3440; /* Darker icon on hover */
+            }
+            QWidget#closeButton:pressed {
+                background-color: #C7CED9; /* Match other pressed state */
+                color: #2E3440; /* Darker icon on pressed */
+            }
+            
+            /* WebView 地址栏样式 */
+            QWidget#addressToolbar {
+                background: #2E3440;
+            }
+            QWidget#addressToolbar QPushButton {
+                background: transparent;
+                border: none;
+                padding: 2px;
+                border-radius: 4px;
+                color: #D8DEE9; /* 设置图标颜色 */
+            }
+            QWidget#addressToolbar QPushButton:hover {
+                background: #3B4252;
+            }
+            QWidget#addressToolbar QPushButton:pressed {
+                background: #434C5E;
+            }
+            QWidget#addressToolbar QLineEdit {
+                background: #3B4252;
+                color: #D8DEE9;
+                border: 1px solid #434C5E;
+                border-radius: 4px;
+                padding: 2px 8px;
+            }
+            
+            /* RibbonToolBar (AuxiliaryWindow) */
+            #ribbonToolBar {
+                background-color: #2E3440;
+                border-right: 1px solid #4C566A;
+                padding: 5px 2px;
+                spacing: 8px;
+            }
+            #ribbonToolBar QToolButton {
+                background-color: transparent;
+                border: none;
+                border-radius: 3px;
+                padding: 5px;
+                color: #D8DEE9; /* Icon color */
+            }
+            #ribbonToolBar QToolButton:hover {
+                background-color: #3B4252;
+            }
+            #ribbonToolBar QToolButton:pressed {
+                 background-color: #434C5E;
+            }
+
+            /* PanelWidget (AuxiliaryWindow) */
+            QWidget#panelTitleBar QLabel { /* More specific selector */
+                 color: #D8DEE9; 
+                 font-weight: bold;
+            }
+            QWidget#panelTitleBar { /* Default Panel title */
+                 background-color: #2E3440;
+            }
+            QWidget#auxiliaryTitleBar { /* Specific AuxiliaryWindow title */
+                 background-color: #2E3440;
+                 border-bottom: 1px solid #3B4252; /* Add border to custom title */
+            }
+            PanelWidget QFrame[frameShape="5"] { /* Horizontal Separator */
+                background-color: #3B4252; 
+                border: none; /* Ensure no extra border */
+                max-height: 1px; /* Ensure it's thin */
+            }
+            
+            /* AuxiliaryWindow Title Bar Buttons */
+             QWidget#auxiliaryTitleBar QPushButton {
+                 color: #4C566A; /* Use the same darker icon color */
+                 background: transparent; /* Ensure transparent background */
+                 border: none; /* Ensure no border */
+                 padding: 4px 6px; /* Adjust padding if needed */
+             }
+             QWidget#auxiliaryTitleBar QPushButton:hover {
+                 background: #D8DEE9;
+             }
+             QWidget#auxiliaryTitleBar QPushButton:pressed {
+                 background-color: #C7CED9; /* Match generic pressed state */
+             }
+             
+             /* QMessageBox (AuxiliaryWindow) */
+             QMessageBox {
+                 background-color: #2E3440;
+             }
+             QMessageBox QLabel {
+                 color: #D8DEE9;
+             }
+            /* Use default QPushButton style defined above for MessageBox buttons */
+
+            /* Global Scrollbar Style */
+            QScrollBar:vertical {
+                background-color: #ECEFF4;
+                width: 12px;
+            }
+            QScrollBar::handle:vertical {
+                background-color: #D8DEE9;
+                border-radius: 6px;
+                min-height: 20px;
+            }
+            QScrollBar::handle:vertical:hover {
+                background-color: #81A1C1;
+            }
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+                height: 0px;
+            }
+            QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
+                background: none;
+            }
+            QScrollBar:horizontal {
+                background-color: #ECEFF4;
+                height: 12px;
+            }
+            QScrollBar::handle:horizontal {
+                background-color: #D8DEE9;
+                border-radius: 6px;
+                min-width: 20px;
+            }
+            QScrollBar::handle:horizontal:hover {
+                background-color: #81A1C1;
+            }
+            QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
+                width: 0px;
+            }
+            QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {
+                background: none;
+            }
+            
+            /* TreeView Style */
+            QTreeView {
+                background-color: #2E3440;
+                border: none;
+                outline: none;
+            }
+            QTreeView::item {
+                padding: 4px;
+            }
+            QTreeView::item:hover {
+                background-color: #3B4252;
+            }
+            QTreeView::item:selected {
+                background-color: #4C566A;
+                color: #2E3440; /* Add dark text color for selected items */
+            }
+            QTreeView::branch {
+                background-color: #2E3440;
+            }
+            QTreeView::branch:selected {
+                background-color: #4C566A;
+            }
+
+            /* PromptHistory Styles */
+            PromptHistory QLineEdit#searchInput {
+                background-color: #2E3440;
+                color: #D8DEE9;
+                border: 1px solid #3B4252;
+                border-radius: 4px;
+                padding: 8px;
+            }
+            PromptHistory QPushButton#favoriteFilterBtn,
+            PromptHistory QPushButton#refreshBtn {
+                background-color: #2E3440;
+                border: 1px solid #3B4252;
+                border-radius: 4px;
+                padding: 4px;
+                color: #D8DEE9; /* Icon color */
+            }
+            PromptHistory QPushButton#favoriteFilterBtn:checked {
+                background-color: #5E81AC;
+                border-color: #5E81AC;
+            }
+            PromptHistory QPushButton#favoriteFilterBtn:hover,
+            PromptHistory QPushButton#refreshBtn:hover {
+                background-color: #3B4252;
+            }
+            PromptHistory QScrollArea {
+                background-color: #2E3440;
+                border: none;
+            }
+            PromptHistory QWidget#contentWidget {
+                background-color: #2E3440;
+            }
+            
+            /* PromptItemWidget Styles */
+            PromptItemWidget {
+                background-color: #2E3440;
+                border-radius: 8px;
+            }
+            PromptItemWidget QLabel#timeLabel {
+                color: #D8DEE9; /* Use standard foreground color for dark theme */
+                font-size: 12px;
+            }
+            PromptItemWidget QLabel#contentLabel {
+                 color: #E5E9F0;
+                 background-color: #3B4252;
+                 border-radius: 6px;
+                 padding: 8px;
+                 font-size: 13px;
+            }
+            PromptItemWidget QToolButton {
+                 background-color: #3B4252;
+                 border-radius: 10px;
+                 padding: 2px;
+                 border: none;
+                 color: #D8DEE9; /* Icon color */
+            }
+            PromptItemWidget QToolButton:hover {
+                 background-color: #4C566A;
+            }
+            PromptItemWidget QToolButton:pressed {
+                 background-color: #5E81AC;
+            }
+
+            /* PromptInput Styles */
+            PromptInput QTextEdit {
+                background-color: #2E3440;
+                color: #D8DEE9;
+                border: 1px solid #3B4252;
+                border-radius: 4px;
+                padding: 8px;
+            }
+            PromptInput QPushButton {
+                background-color: #5E81AC; /* Default button style */
+                color: white;
+                border: none;
+                border-radius: 4px;
+                padding: 8px 16px;
+                font-weight: bold;
+            }
+            PromptInput QPushButton:hover {
+                background-color: #81A1C1;
+            }
+            PromptInput QPushButton:pressed {
+                background-color: #4C566A;
             }
         """)
     
@@ -328,7 +626,7 @@ class ThemeManager(QObject):
         app.setPalette(palette)
         
         # 设置全局样式表
-        app.setStyleSheet("""
+        light_qss = """
             QWidget {
                 background-color: #ECEFF4;
                 color: #2E3440;
@@ -430,17 +728,17 @@ class ThemeManager(QObject):
             
             /* 按钮样式 */
             QPushButton {
-                background-color: #5E81AC;
-                color: #ECEFF4;
+                background-color: #D8DEE9; /* General light button */
+                color: #2E3440;
                 border: none;
                 border-radius: 4px;
                 padding: 6px 12px;
             }
             QPushButton:hover {
-                background-color: #81A1C1;
+                background-color: #B4C9E0; /* Lighter hover */
             }
             QPushButton:pressed {
-                background-color: #88C0D0;
+                background-color: #a8bdd5; /* Slightly darker pressed */
             }
             
             /* 文本框样式 */
@@ -484,14 +782,67 @@ class ThemeManager(QObject):
                 border: none;
                 border-radius: 3px;
                 padding: 5px;
+                color: #3B4252; /* Icon color */
             }
             #ribbonToolBar QToolButton:hover {
                 background-color: #D8DEE9;
+            }
+            #ribbonToolBar QToolButton:pressed {
+                 background-color: #B4C9E0;
             }
             
             /* 特殊控件 - 标题栏 */
             #panelTitleBar {
                 background-color: #E5E9F0;
+            }
+            
+            /* AI View 特有样式 */
+            QWebEngineView {
+                background: #ECEFF4;
+            }
+            QSplitter::handle {
+                background-color: #D8DEE9;
+                width: 1px;
+            }
+            QComboBox#aiSelector {
+                background-color: #E5E9F0;
+                color: #2E3440;
+                border: 1px solid #D8DEE9; /* 浅色模式加个边框 */
+                border-radius: 4px;
+                padding: 1px 18px 1px 3px;
+            }
+            QComboBox#aiSelector::drop-down {
+                subcontrol-origin: padding;
+                subcontrol-position: top right;
+                width: 20px;
+                border-left: none;
+            }
+            QComboBox#aiSelector::down-arrow {
+                 /* 需要一个图标，或者使用 qtawesome */
+                 /* image: url(:/icons/down-arrow-light.png); */
+            }
+            QComboBox#aiSelector QAbstractItemView {
+                background-color: #ECEFF4;
+                color: #2E3440;
+                selection-background-color: #D8DEE9;
+                border: none;
+                outline: none;
+            }
+            QComboBox#aiSelector:hover {
+                background-color: #D8DEE9;
+            }
+             QWidget#aiTitleBar {
+                background: #E5E9F0;
+                border-bottom: none;
+            }
+            QWidget#aiTitleBar QPushButton:hover {
+                background-color: #D8DEE9;
+            }
+            QWidget#aiTitleBar QPushButton:pressed {
+                background-color: #B4C9E0; /* 浅色模式的按下颜色 */
+            }
+            QWidget#aiTitleBar QPushButton {
+                color: #3B4252; /* 设置浅色主题下图标颜色 */
             }
             
             /* 窗口控制按钮 */
@@ -500,20 +851,269 @@ class ThemeManager(QObject):
                 border: none;
                 padding: 6px 8px;
                 margin: 0;
+                color: #4C566A; /* Slightly darker icon color for better visibility */
             }
             QWidget#minimizeButton:hover, QWidget#maximizeButton:hover, QWidget#themeButton:hover {
-                background: #D8DEE9;
+                background: #D8DEE9; /* Use a slightly lighter dark bg for hover */
+                color: #2E3440; /* Darker icon on hover */
+            }
+            QWidget#minimizeButton:pressed, QWidget#maximizeButton:pressed, QWidget#themeButton:pressed {
+                background-color: #C7CED9; /* Slightly darker pressed state */
+                color: #2E3440; /* Darker icon on pressed */
             }
             QWidget#closeButton {
                 background: transparent;
                 border: none;
                 padding: 6px 8px;
                 margin: 0;
+                color: #4C566A; /* Match other window control icons */
             }
             QWidget#closeButton:hover {
-                background: #BF616A;
+                background: #BF616A; /* Match other hover background */
+                color: #2E3440; /* Darker icon on hover */
             }
-        """)
+            QWidget#closeButton:pressed {
+                background-color: #C7CED9; /* Match other pressed state */
+                color: #2E3440; /* Darker icon on pressed */
+            }
+            
+            /* WebView 地址栏样式 */
+            QWidget#addressToolbar {
+                background: #E5E9F0; /* 浅色模式地址栏背景 */
+            }
+             QWidget#addressToolbar QPushButton {
+                background: transparent;
+                border: none;
+                padding: 2px;
+                border-radius: 4px;
+                color: #3B4252; /* 设置图标颜色 */
+            }
+            QWidget#addressToolbar QPushButton:hover {
+                background: #D8DEE9;
+            }
+            QWidget#addressToolbar QPushButton:pressed {
+                background: #B4C9E0; /* 与 aiTitleBar 按钮按下颜色一致 */
+            }
+            QWidget#addressToolbar QLineEdit {
+                background: #E5E9F0;
+                color: #2E3440;
+                border: 1px solid #D8DEE9;
+                border-radius: 4px;
+                padding: 2px 8px;
+            }
+            
+            /* RibbonToolBar (AuxiliaryWindow) */
+            #ribbonToolBar {
+                background-color: #E5E9F0;
+                border-right: 1px solid #D8DEE9;
+                padding: 5px 2px;
+                spacing: 8px;
+            }
+            #ribbonToolBar QToolButton {
+                background-color: transparent;
+                border: none;
+                border-radius: 3px;
+                padding: 5px;
+                color: #3B4252; /* Icon color */
+            }
+            #ribbonToolBar QToolButton:hover {
+                background-color: #D8DEE9;
+            }
+            #ribbonToolBar QToolButton:pressed {
+                 background-color: #B4C9E0;
+            }
+
+            /* PanelWidget (AuxiliaryWindow) */
+            QWidget#panelTitleBar QLabel { 
+                 color: #2E3440; 
+                 font-weight: bold;
+            }
+            QWidget#panelTitleBar {
+                 background-color: #E5E9F0;
+            }
+            QWidget#auxiliaryTitleBar {
+                 background-color: #E5E9F0;
+                 border-bottom: 1px solid #D8DEE9; 
+            }
+            PanelWidget QFrame[frameShape="5"] { 
+                background-color: #D8DEE9; 
+                border: none;
+                max-height: 1px;
+            }
+            
+            /* AuxiliaryWindow Title Bar Buttons */
+             QWidget#auxiliaryTitleBar QPushButton {
+                 color: #4C566A; /* Use the same darker icon color */
+                 background: transparent; /* Ensure transparent background */
+                 border: none; /* Ensure no border */
+                 padding: 4px 6px; /* Adjust padding if needed */
+             }
+             QWidget#auxiliaryTitleBar QPushButton:hover {
+                 background: #D8DEE9;
+             }
+             QWidget#auxiliaryTitleBar QPushButton:pressed {
+                 background-color: #C7CED9; /* Match generic pressed state */
+             }
+             
+             /* QMessageBox (AuxiliaryWindow) */
+             QMessageBox {
+                 background-color: #ECEFF4;
+             }
+             QMessageBox QLabel {
+                 color: #2E3440;
+             }
+             /* Use default QPushButton style defined above for MessageBox buttons */
+
+             /* Global Scrollbar Style */
+            QScrollBar:vertical {
+                background-color: #ECEFF4;
+                width: 12px;
+            }
+            QScrollBar::handle:vertical {
+                background-color: #D8DEE9;
+                border-radius: 6px;
+                min-height: 20px;
+            }
+            QScrollBar::handle:vertical:hover {
+                background-color: #81A1C1;
+            }
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+                height: 0px;
+            }
+            QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
+                background: none;
+            }
+            QScrollBar:horizontal {
+                background-color: #ECEFF4;
+                height: 12px;
+            }
+            QScrollBar::handle:horizontal {
+                background-color: #D8DEE9;
+                border-radius: 6px;
+                min-width: 20px;
+            }
+            QScrollBar::handle:horizontal:hover {
+                background-color: #81A1C1;
+            }
+            QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
+                width: 0px;
+            }
+            QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {
+                background: none;
+            }
+            
+            /* TreeView Style */
+            QTreeView {
+                background-color: #ECEFF4; /* Light background */
+                border: none;
+                outline: none;
+            }
+            QTreeView::item {
+                padding: 4px;
+            }
+            QTreeView::item:hover {
+                background-color: #E5E9F0; /* Lighter hover */
+            }
+            QTreeView::item:selected {
+                background-color: #D8DEE9; /* Light selection */
+                color: #2E3440; /* Add dark text color for selected items */
+            }
+            QTreeView::branch {
+                background-color: #ECEFF4;
+            }
+            QTreeView::branch:selected {
+                background-color: #D8DEE9;
+            }
+
+            /* PromptHistory Styles */
+            PromptHistory QLineEdit#searchInput {
+                background-color: #ECEFF4; /* Light */
+                color: #2E3440;
+                border: 1px solid #D8DEE9;
+                border-radius: 4px;
+                padding: 8px;
+            }
+            PromptHistory QPushButton#favoriteFilterBtn,
+            PromptHistory QPushButton#refreshBtn {
+                background-color: #ECEFF4;
+                border: 1px solid #D8DEE9;
+                border-radius: 4px;
+                padding: 4px;
+                color: #3B4252; /* Icon color */
+            }
+            PromptHistory QPushButton#favoriteFilterBtn:checked {
+                background-color: #88C0D0; /* Lighter blue */
+                border-color: #88C0D0;
+            }
+            PromptHistory QPushButton#favoriteFilterBtn:hover,
+            PromptHistory QPushButton#refreshBtn:hover {
+                background-color: #E5E9F0;
+            }
+            PromptHistory QScrollArea {
+                background-color: #ECEFF4;
+                border: none;
+            }
+            PromptHistory QWidget#contentWidget {
+                background-color: #ECEFF4;
+            }
+            
+            /* PromptItemWidget Styles */
+            PromptItemWidget {
+                background-color: #E5E9F0; /* Lighter background */
+                border-radius: 8px;
+            }
+            PromptItemWidget QLabel#timeLabel {
+                color: #2E3440; /* Use standard foreground color */
+                font-size: 12px;
+            }
+            PromptItemWidget QLabel#contentLabel {
+                 color: #2E3440;
+                 background-color: #ECEFF4; /* Lighter content bg */
+                 border-radius: 6px;
+                 padding: 8px;
+                 font-size: 13px;
+            }
+            PromptItemWidget QToolButton {
+                 background-color: #D8DEE9; /* Light button bg */
+                 border-radius: 10px;
+                 padding: 2px;
+                 border: none;
+                 color: #3B4252; /* Icon color */
+            }
+            PromptItemWidget QToolButton:hover {
+                 background-color: #B4C9E0;
+            }
+            PromptItemWidget QToolButton:pressed {
+                 background-color: #a8bdd5; /* Match generic light button pressed */
+            }
+
+            /* PromptInput Styles */
+            PromptInput QTextEdit {
+                background-color: #ECEFF4; /* Light */
+                color: #2E3440;
+                border: 1px solid #D8DEE9;
+                border-radius: 4px;
+                padding: 8px;
+            }
+            PromptInput QPushButton {
+                background-color: #D8DEE9; /* Match generic light button */
+                color: #2E3440; /* Dark text */
+                border: none;
+                border-radius: 4px;
+                padding: 8px 16px;
+                font-weight: bold;
+            }
+            PromptInput QPushButton:hover {
+                background-color: #B4C9E0; /* Match generic light button hover */
+            }
+            PromptInput QPushButton:pressed {
+                background-color: #a8bdd5; /* Match generic light button pressed */
+            }
+        """        
+        print("--- Applying Light Theme QSS ---")
+        print(light_qss) # 打印将要应用的QSS
+        app.setStyleSheet(light_qss) # 重新应用样式表
+        print("--- End of Light Theme QSS ---")
     
     def toggle_theme(self, app):
         """切换主题
@@ -521,8 +1121,10 @@ class ThemeManager(QObject):
         Args:
             app: QApplication实例
         """
+        print("ThemeManager: Toggling theme...") # 添加打印
         self.current_theme = "light" if self.current_theme == "dark" else "dark"
-        self.apply_theme(app)
+        self.apply_theme(app) 
+        print(f"ThemeManager: Theme changed to {self.current_theme}") # 添加打印
         self.theme_changed.emit()  # 发射主题变化信号
     
     def get_current_theme_colors(self):

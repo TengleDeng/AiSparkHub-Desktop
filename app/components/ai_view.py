@@ -18,6 +18,7 @@ import sys
 from app.config import SUPPORTED_AI_PLATFORMS
 from app.controllers.web_profile_manager import WebProfileManager
 from app.controllers.settings_manager import SettingsManager
+from app.controllers.theme_manager import ThemeManager
 
 # 图标文件夹路径 - 考虑打包环境和开发环境
 ICON_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "icons")
@@ -86,13 +87,6 @@ class AIWebView(QWebEngineView):
             print(f"{self.ai_name}: 已启用LocalContentCanAccessFileUrls")
         except (AttributeError, TypeError):
             print(f"{self.ai_name}: 警告: LocalContentCanAccessFileUrls属性不可用")
-        
-        # 设置页面样式
-        self.setStyleSheet("""
-            QWebEngineView {
-                background: #2E3440;
-            }
-        """)
         
         # 设置最小高度
         self.setMinimumHeight(30)
@@ -196,6 +190,15 @@ class AIView(QWidget):
     def __init__(self):
         super().__init__()
         
+        # 将 ThemeManager 初始化移到开头
+        self.theme_manager = None
+        app = QApplication.instance()
+        if hasattr(app, 'theme_manager') and isinstance(app.theme_manager, ThemeManager):
+            self.theme_manager = app.theme_manager
+            self.theme_manager.theme_changed.connect(self._update_all_button_icons)
+        else:
+            print("警告：无法在 AIView 中获取 ThemeManager 实例")
+            
         # 获取设置管理器
         self.settings_manager = SettingsManager()
         
@@ -206,13 +209,6 @@ class AIView(QWidget):
         
         # 创建分割器，用于调整各AI视图的宽度比例
         self.splitter = QSplitter(Qt.Orientation.Horizontal)
-        # 设置分割器样式，减小分割线宽度
-        self.splitter.setStyleSheet("""
-            QSplitter::handle {
-                background-color: #4C566A;
-                width: 1px;
-            }
-        """)
         self.layout.addWidget(self.splitter)
         
         # 存储AI网页视图
@@ -263,34 +259,6 @@ class AIView(QWidget):
         ai_selector = QComboBox()
         ai_selector.setObjectName("aiSelector")
         ai_selector.setFixedHeight(24)
-        ai_selector.setStyleSheet("""
-            QComboBox {
-                background-color: #3B4252;
-                color: #D8DEE9;
-                border: none;
-                border-radius: 4px;
-                padding: 1px 18px 1px 3px;
-            }
-            QComboBox::drop-down {
-                subcontrol-origin: padding;
-                subcontrol-position: top right;
-                width: 20px;
-                border-left: none;
-            }
-            QComboBox::down-arrow {
-                image: url(:/icons/down-arrow.png);
-            }
-            QComboBox QAbstractItemView {
-                background-color: #2E3440;
-                color: #D8DEE9;
-                selection-background-color: #4C566A;
-                border: none;
-                outline: none;
-            }
-            QComboBox:hover {
-                background-color: #434C5E;
-            }
-        """)
         
         # 获取所有支持的AI平台
         platforms = list(SUPPORTED_AI_PLATFORMS.items())
@@ -379,7 +347,7 @@ class AIView(QWidget):
         # 连接选择变更信号
         ai_selector.currentIndexChanged.connect(lambda index, c=container, s=ai_selector: self.on_ai_changed(c, index, s))
         
-        # 创建控制按钮的通用样式
+        # 创建控制按钮的通用样式 - 移除 hover 和 pressed 样式
         button_style = """
             QPushButton {
                 background-color: transparent;
@@ -388,12 +356,6 @@ class AIView(QWidget):
                 border-radius: 3px;
                 max-width: 22px;
                 max-height: 22px;
-            }
-            QPushButton:hover {
-                background-color: #4C566A;
-            }
-            QPushButton:pressed {
-                background-color: #5E81AC;
             }
         """
         
@@ -455,6 +417,9 @@ class AIView(QWidget):
         container.close_btn = close_btn
         container.is_maximized = False  # 记录是否处于最大化状态
         
+        # 设置按钮初始图标（带颜色）
+        self._set_initial_button_icons(container)
+        
         # 将下拉菜单添加到标题栏
         title_layout.addWidget(ai_selector)
         title_layout.addStretch(1)
@@ -478,14 +443,6 @@ class AIView(QWidget):
         container.web_view = web_view  # 将web_view作为容器的属性存储
         container.ai_key = ai_config["key"]  # 存储当前加载的AI平台标识
         
-        # 设置容器样式
-        container.setStyleSheet("""
-            #aiTitleBar {
-                background: #3B4252;
-                border-bottom: none;
-            }
-        """)
-        
         # 添加到分割器
         self.splitter.addWidget(container)
         
@@ -497,6 +454,9 @@ class AIView(QWidget):
         
         # 更新导航按钮状态
         self.update_navigation_buttons()
+        
+        # 添加新方法：设置按钮初始图标
+        self._set_initial_button_icons(container)
         
         return web_view
     
@@ -757,13 +717,16 @@ class AIView(QWidget):
         for i in range(self.splitter.count()):
             containers.append(self.splitter.widget(i))
         
+        theme_colors = self.theme_manager.get_current_theme_colors() if self.theme_manager else {}
+        icon_color = theme_colors.get('foreground', '#D8DEE9') # 获取当前主题的前景色
+            
         if not container.is_maximized:
             # 最大化：隐藏其他视图，调整当前视图为全宽
             for c in containers:
                 if c != container:
                     c.hide()
             # 更新按钮图标为"恢复"
-            button.setIcon(qta.icon("fa5s.compress"))
+            button.setIcon(qta.icon("fa5s.compress", color=icon_color))
             button.setToolTip("恢复视图大小")
             container.is_maximized = True
         else:
@@ -771,7 +734,7 @@ class AIView(QWidget):
             for c in containers:
                 c.show()
             # 更新按钮图标为"最大化"
-            button.setIcon(qta.icon("fa5s.expand"))
+            button.setIcon(qta.icon("fa5s.expand", color=icon_color))
             button.setToolTip("最大化此视图")
             container.is_maximized = False
             # 重新调整所有视图大小
@@ -961,3 +924,64 @@ class AIView(QWidget):
         
         # 调整视图大小
         self.adjust_splitter_sizes() 
+
+    # 新增方法：设置容器按钮的初始图标和颜色
+    def _set_initial_button_icons(self, container):
+        if not self.theme_manager:
+            print("警告: ThemeManager 未初始化，无法设置按钮图标颜色")
+            # 可以设置一个默认颜色或无颜色
+            icon_color = '#D8DEE9' # 默认深色前景色
+        else:
+            theme_colors = self.theme_manager.get_current_theme_colors()
+            # 使用前景色作为图标颜色
+            icon_color = theme_colors.get('foreground', '#D8DEE9') 
+            
+        # 检查按钮是否存在并设置图标
+        if hasattr(container, 'move_left_btn'):
+            container.move_left_btn.setIcon(qta.icon("fa5s.arrow-left", color=icon_color))
+        if hasattr(container, 'move_right_btn'):
+            container.move_right_btn.setIcon(qta.icon("fa5s.arrow-right", color=icon_color))
+        if hasattr(container, 'refresh_btn'):
+            container.refresh_btn.setIcon(qta.icon("fa5s.sync", color=icon_color))
+        if hasattr(container, 'maximize_btn'):
+            # 根据当前状态设置正确的图标
+            icon_name = "fa5s.compress" if container.is_maximized else "fa5s.expand"
+            container.maximize_btn.setIcon(qta.icon(icon_name, color=icon_color))
+        if hasattr(container, 'add_btn'):
+            container.add_btn.setIcon(qta.icon("fa5s.plus", color=icon_color))
+        if hasattr(container, 'close_btn'):
+            container.close_btn.setIcon(qta.icon("fa5s.times", color=icon_color))
+
+    # 新增方法：更新所有容器按钮的图标颜色以响应主题变化
+    def _update_all_button_icons(self):
+        if not self.theme_manager:
+            print("警告: ThemeManager 未初始化，无法更新按钮图标颜色")
+            return
+        
+        print("AIView: 接收到主题变化信号，正在更新按钮图标...")
+        theme_colors = self.theme_manager.get_current_theme_colors()
+        icon_color = theme_colors.get('foreground', '#D8DEE9') # 获取当前主题的前景色
+        print(f"AIView: 当前主题图标颜色: {icon_color}")
+
+        # 遍历分割器中的所有容器
+        for i in range(self.splitter.count()):
+            container = self.splitter.widget(i)
+            if container is None: # 添加检查以防万一
+                continue
+                
+            print(f"AIView: 正在更新容器 {i} 的按钮图标...")
+            # 检查按钮是否存在并更新图标颜色
+            if hasattr(container, 'move_left_btn'):
+                container.move_left_btn.setIcon(qta.icon("fa5s.arrow-left", color=icon_color))
+            if hasattr(container, 'move_right_btn'):
+                container.move_right_btn.setIcon(qta.icon("fa5s.arrow-right", color=icon_color))
+            if hasattr(container, 'refresh_btn'):
+                container.refresh_btn.setIcon(qta.icon("fa5s.sync", color=icon_color))
+            if hasattr(container, 'maximize_btn'):
+                icon_name = "fa5s.compress" if container.is_maximized else "fa5s.expand"
+                container.maximize_btn.setIcon(qta.icon(icon_name, color=icon_color))
+            if hasattr(container, 'add_btn'):
+                container.add_btn.setIcon(qta.icon("fa5s.plus", color=icon_color))
+            if hasattr(container, 'close_btn'):
+                container.close_btn.setIcon(qta.icon("fa5s.times", color=icon_color))
+            print(f"AIView: 容器 {i} 图标更新完成。") 

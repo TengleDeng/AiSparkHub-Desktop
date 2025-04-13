@@ -4,12 +4,13 @@
 # web_view.py: 定义 WebView 组件
 # 该组件用于"新标签页"功能，提供通用的网页浏览视图，包含地址栏、导航按钮等。
 
-from PyQt6.QtWidgets import QWidget, QVBoxLayout, QLineEdit, QPushButton, QHBoxLayout, QTabWidget
+from PyQt6.QtWidgets import QWidget, QVBoxLayout, QLineEdit, QPushButton, QHBoxLayout, QTabWidget, QApplication
 from PyQt6.QtCore import QUrl, Qt
 from PyQt6.QtWebEngineWidgets import QWebEngineView
 from PyQt6.QtWebEngineCore import QWebEnginePage
 import qtawesome as qta
 
+from app.controllers.theme_manager import ThemeManager
 from app.controllers.web_profile_manager import WebProfileManager
 
 class WebView(QWidget):
@@ -21,8 +22,19 @@ class WebView(QWidget):
         # 获取Web配置管理器
         self.profile_manager = WebProfileManager()
         
-        # 设置UI界面
+        # 先设置UI界面，创建按钮等元素
         self.setup_ui()
+        
+        # 然后再获取 ThemeManager 并连接信号/设置初始图标
+        self.theme_manager = None
+        app = QApplication.instance()
+        if hasattr(app, 'theme_manager') and isinstance(app.theme_manager, ThemeManager):
+            self.theme_manager = app.theme_manager
+            self.theme_manager.theme_changed.connect(self._update_toolbar_icons)
+            self._update_toolbar_icons() # 设置初始图标颜色
+        else:
+            print("警告：无法在 WebView 中获取 ThemeManager 实例，无法更新图标颜色")
+            self._set_default_icons() # 设置默认图标
     
     def setup_ui(self):
         """设置UI界面"""
@@ -86,32 +98,6 @@ class WebView(QWidget):
         
         # 加载空白页
         self.web_view.setUrl(QUrl("about:blank"))
-        
-        # 设置样式
-        self.setStyleSheet("""
-            #addressToolbar {
-                background: #2E3440;
-            }
-            QPushButton {
-                background: transparent;
-                border: none;
-                padding: 2px;
-                border-radius: 4px;
-            }
-            QPushButton:hover {
-                background: #3B4252;
-            }
-            QPushButton:pressed {
-                background: #434C5E;
-            }
-            QLineEdit {
-                background: #3B4252;
-                color: #D8DEE9;
-                border: 1px solid #434C5E;
-                border-radius: 4px;
-                padding: 2px 8px;
-            }
-        """)
     
     def load_url(self):
         """加载URL"""
@@ -206,4 +192,27 @@ class WebView(QWidget):
                     self.load_url() # 调用加载方法
                     return True # 事件已处理
             
-        return super().eventFilter(obj, event) 
+        return super().eventFilter(obj, event)
+        
+    # 新增方法：更新工具栏图标颜色
+    def _update_toolbar_icons(self):
+        if not self.theme_manager:
+            print("WebView: ThemeManager 未初始化，跳过图标颜色更新")
+            return
+
+        theme_colors = self.theme_manager.get_current_theme_colors()
+        icon_color = theme_colors.get('foreground', '#D8DEE9')
+        print(f"WebView: 更新工具栏图标颜色为: {icon_color}")
+        
+        self.back_button.setIcon(qta.icon("fa5s.arrow-left", color=icon_color))
+        self.forward_button.setIcon(qta.icon("fa5s.arrow-right", color=icon_color))
+        # 刷新按钮的图标可能会根据加载状态改变，所以只在标准状态下更新颜色
+        # 或者在 load_finished 中也考虑更新颜色
+        self.refresh_button.setIcon(qta.icon("fa5s.sync", color=icon_color))
+        
+    # 新增方法：设置默认图标（当 ThemeManager 不可用时）
+    def _set_default_icons(self):
+        default_icon_color = '#D8DEE9' # 假设默认为深色主题的前景色
+        self.back_button.setIcon(qta.icon("fa5s.arrow-left", color=default_icon_color))
+        self.forward_button.setIcon(qta.icon("fa5s.arrow-right", color=default_icon_color))
+        self.refresh_button.setIcon(qta.icon("fa5s.sync", color=default_icon_color)) 

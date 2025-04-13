@@ -16,6 +16,7 @@ import http.server
 import socketserver
 import threading
 import re
+from app.controllers.theme_manager import ThemeManager # 导入ThemeManager
 
 # 添加全局变量用于存储auxiliary_window引用
 GLOBAL_AUXILIARY_WINDOW = None
@@ -40,27 +41,8 @@ class RibbonToolBar(QToolBar):
         self.setIconSize(QSize(22, 22))
         self.setObjectName("ribbonToolBar")
         
-        # 设置样式
-        self.setStyleSheet("""
-            #ribbonToolBar {
-                background-color: #2E3440;
-                border-right: 1px solid #4C566A;
-                padding: 5px 2px;
-                spacing: 8px;
-            }
-            QToolButton {
-                background-color: transparent;
-                border: none;
-                border-radius: 3px;
-                padding: 5px;
-            }
-            QToolButton:hover {
-                background-color: #3B4252;
-            }
-            QToolButton:pressed {
-                background-color: #434C5E;
-            }
-        """)
+        # 移除样式表
+        # self.setStyleSheet(\"\"\" ... \"\"\")
 
 class PanelWidget(QWidget):
     """面板组件，包含标题和内容区域"""
@@ -88,7 +70,8 @@ class PanelWidget(QWidget):
             
             # 创建标题标签
             title_label = QLabel(title)
-            title_label.setStyleSheet("color: #D8DEE9; font-weight: bold;")
+            # 移除样式表
+            # title_label.setStyleSheet("color: #D8DEE9; font-weight: bold;") 
             
             # 添加标题到布局
             title_layout.addWidget(title_label)
@@ -111,37 +94,19 @@ class PanelWidget(QWidget):
             minimize_button = QPushButton()
             minimize_button.setIcon(qta.icon('fa5s.window-minimize'))
             minimize_button.clicked.connect(window.showMinimized)
+            minimize_button.setObjectName("minimizeButton")
             
             # 最大化/还原按钮
             maximize_button = QPushButton()
             maximize_button.setIcon(qta.icon('fa5s.window-maximize'))
             maximize_button.clicked.connect(window.toggle_maximize)
+            maximize_button.setObjectName("maximizeButton")
             
             # 关闭按钮
             close_button = QPushButton()
             close_button.setIcon(qta.icon('fa5s.times'))
             close_button.clicked.connect(window.close)
-            
-            # 设置按钮样式
-            button_style = """
-                QPushButton {
-                    background: transparent;
-                    border: none;
-                    padding: 6px 8px;
-                    margin: 0;
-                }
-                QPushButton:hover {
-                    background: #3B4252;
-                }
-            """
-            close_button_style = button_style + """
-                QPushButton:hover {
-                    background: #BF616A;
-                }
-            """
-            minimize_button.setStyleSheet(button_style)
-            maximize_button.setStyleSheet(button_style)
-            close_button.setStyleSheet(close_button_style)
+            close_button.setObjectName("closeButton")
             
             # 添加按钮到标题栏
             title_layout.addWidget(minimize_button)
@@ -151,6 +116,9 @@ class PanelWidget(QWidget):
             # 保存按钮引用便于后续访问
             window.minimize_button = minimize_button
             window.maximize_button = maximize_button
+            window.close_button = close_button
+
+
         
         # 创建分隔线（设置为非常细的线条）
         separator = QFrame()
@@ -159,7 +127,8 @@ class PanelWidget(QWidget):
         separator.setLineWidth(0)
         separator.setMidLineWidth(0)  # 将中线宽度设为0以获得更细的线条
         separator.setFixedHeight(1)  # 将高度固定为1px
-        separator.setStyleSheet("background-color: #3B4252;")  # 使用与中间标签栏一致的颜色
+        # 移除样式表
+        # separator.setStyleSheet("background-color: #3B4252;")
         
         # 添加标题栏和分隔线到主布局
         layout.addWidget(self.title_bar)
@@ -168,12 +137,8 @@ class PanelWidget(QWidget):
         # 添加内容区域
         layout.addWidget(content_widget, 1)  # 使内容区域拉伸填充
         
-        # 设置样式
-        self.title_bar.setStyleSheet("""
-            #panelTitleBar {
-                background-color: #2E3440;
-            }
-        """)
+        # 移除样式表
+        # self.title_bar.setStyleSheet(\"\"\" ... \"\"\")
         
         # 标记标题栏用于拖动窗口
         self.title_bar.installEventFilter(self)
@@ -241,13 +206,8 @@ class AuxiliaryWindow(QMainWindow):
         
         # 创建分割器
         self.splitter = QSplitter(Qt.Orientation.Horizontal)
-        # 设置分割器样式
-        self.splitter.setStyleSheet("""
-            QSplitter::handle {
-                background-color: #4C566A;
-                width: 1px;
-            }
-        """)
+        # 移除样式表
+        # self.splitter.setStyleSheet(\"\"\" ... \"\"\")
         
         # 初始化组件
         self.db_manager = db_manager
@@ -284,8 +244,21 @@ class AuxiliaryWindow(QMainWindow):
         # 连接HTTP提示词接收信号到处理槽函数
         self.received_prompt_from_http.connect(self.on_received_prompt_from_http)
         
+        # 获取 ThemeManager 并连接信号
+        self.theme_manager = None
+        app = QApplication.instance()
+        if hasattr(app, 'theme_manager') and isinstance(app.theme_manager, ThemeManager):
+            self.theme_manager = app.theme_manager
+            self.theme_manager.theme_changed.connect(self._update_aux_window_icons)
+            # 设置初始图标颜色 (需要在UI元素创建后调用)
+            # QTimer.singleShot(0, self._update_aux_window_icons)
+        else:
+            print("警告：无法在 AuxiliaryWindow 中获取 ThemeManager 实例")
+            
         # 使用定时器延迟加载搜索页面（确保服务器已启动）
         QTimer.singleShot(500, self.load_search_page)
+        # 在 __init__ 末尾调用一次图标更新，确保初始状态正确
+        QTimer.singleShot(0, self._update_aux_window_icons)
     
     def start_local_server(self):
         """启动本地HTTP服务器，以便加载本地HTML文件"""
@@ -529,52 +502,14 @@ class AuxiliaryWindow(QMainWindow):
             
     def init_components(self):
         """初始化窗口组件"""
-        # 设置全局滚动条样式
-        self.setStyleSheet("""
-            QScrollBar:vertical {
-                background: #2E3440;
-                width: 14px;
-                margin: 0px;
-            }
-            QScrollBar::handle:vertical {
-                background: #4C566A;
-                min-height: 20px;
-                border-radius: 7px;
-            }
-            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
-                height: 0px;
-            }
-            QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
-                background: none;
-            }
-            QScrollBar:horizontal {
-                background: #2E3440;
-                height: 14px;
-                margin: 0px;
-            }
-            QScrollBar::handle:horizontal {
-                background: #4C566A;
-                min-width: 20px;
-                border-radius: 7px;
-            }
-            QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
-                width: 0px;
-            }
-            QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {
-                background: none;
-            }
-        """)
+        # 移除全局滚动条样式表
+        # self.setStyleSheet(\"\"\" ... \"\"\")
         
         # 文件浏览器
         self.file_explorer = FileExplorer()
         
-        # 添加特殊样式使标签页顶部没有边框
-        self.file_explorer.tab_widget.setStyleSheet("""
-            QTabWidget::pane {
-                border-top: none;
-                background-color: #2E3440;
-            }
-        """)
+        # 移除 FileExplorer 的 TabWidget 样式表
+        # self.file_explorer.tab_widget.setStyleSheet(\"\"\" ... \"\"\")
         
         # 创建自定义标题栏
         title_bar = QWidget()
@@ -588,21 +523,11 @@ class AuxiliaryWindow(QMainWindow):
         add_folder_btn.setIcon(qta.icon('fa5s.folder-plus'))
         add_folder_btn.setToolTip("添加文件夹")
         add_folder_btn.clicked.connect(self.file_explorer.add_folder)
+        add_folder_btn.setObjectName("addFolderButton")
+        self.add_folder_btn = add_folder_btn
         
         # 设置按钮样式
-        button_style = """
-            QPushButton {
-                background: transparent;
-                border: none;
-                padding: 6px 8px;
-                margin: 0;
-                color: #D8DEE9;
-            }
-            QPushButton:hover {
-                background: #3B4252;
-            }
-        """
-        add_folder_btn.setStyleSheet(button_style)
+        # button_style = """ ... """
         
         # 添加主题切换按钮
         self.theme_button = QPushButton()
@@ -610,7 +535,7 @@ class AuxiliaryWindow(QMainWindow):
         self.theme_button.setToolTip("切换明暗主题")
         self.theme_button.clicked.connect(self.toggle_theme)
         self.theme_button.setObjectName("themeButton")
-        self.theme_button.setStyleSheet(button_style)
+        # self.theme_button.setStyleSheet(button_style) # 移除
         
         # 添加按钮到标题栏（靠左）
         title_layout.addWidget(add_folder_btn)
@@ -633,90 +558,10 @@ class AuxiliaryWindow(QMainWindow):
         self.tabs.tabBar().installEventFilter(self)
         
         # 自定义标签页样式，使其更像标题栏
-        self.tabs.setStyleSheet("""
-            QTabWidget::pane {
-                border-top: 1px solid #3B4252;
-                background-color: #2E3440;
-            }
-            QTabWidget::tab-bar {
-                alignment: left;
-                background-color: #2E3440;
-            }
-            QTabBar {
-                background-color: #2E3440;
-                qproperty-drawBase: 0;
-            }
-            QTabBar::tab {
-                background: #3B4252;
-                color: #D8DEE9;
-                padding: 0px 12px;
-                border: none;
-                margin-right: 2px;
-                min-width: 10ex;
-                height: 38px;
-                border-top-left-radius: 4px;
-                border-top-right-radius: 4px;
-            }
-            QTabBar::tab:selected {
-                background: #4C566A;
-                color: #ECEFF4;
-            }
-            QTabBar::tab:hover:!selected {
-                background: #434C5E;
-            }
-            QTabBar::close-button {
-                image: none;
-                background: transparent;
-                border: none;
-                margin: 0px;
-                padding: 0px;
-            }
-            QTabBar::close-button:hover {
-                background: #BF616A;
-                border-radius: 2px;
-            }
-            /* 添加滚动条样式 */
-            QScrollBar:vertical {
-                background: #2E3440;
-                width: 14px;
-                margin: 0px;
-            }
-            QScrollBar::handle:vertical {
-                background: #4C566A;
-                min-height: 20px;
-                border-radius: 7px;
-            }
-            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
-                height: 0px;
-            }
-            QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
-                background: none;
-            }
-            QScrollBar:horizontal {
-                background: #2E3440;
-                height: 14px;
-                margin: 0px;
-            }
-            QScrollBar::handle:horizontal {
-                background: #4C566A;
-                min-width: 20px;
-                border-radius: 7px;
-            }
-            QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
-                width: 0px;
-            }
-            QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {
-                background: none;
-            }
-        """)
+        # self.tabs.setStyleSheet(""" ... (Removed hardcoded styles) ... """)
         
         # 自定义标签页关闭按钮为qtawesome图标
-        close_icon = qta.icon('fa5s.times', color='#D8DEE9')
-        for i in range(self.tabs.count()):
-            # 为已有标签页设置关闭图标
-            if self.tabs.tabBar().tabButton(i, QTabWidget.ButtonPosition.RightSide):
-                close_button = self.tabs.tabBar().tabButton(i, QTabWidget.ButtonPosition.RightSide)
-                close_button.setIcon(close_icon)
+        # close_icon = qta.icon('fa5s.times', color='#D8DEE9') # 颜色需要动态获取
         
         # 监听标签页添加事件，为新标签页设置关闭图标
         self.tabs.tabBarClicked.connect(self._check_tab_close_buttons)
@@ -743,7 +588,7 @@ class AuxiliaryWindow(QMainWindow):
         
         # 创建中间面板容器
         middle_container = QWidget()
-        middle_container.setStyleSheet("background-color: #2E3440;")
+        # middle_container.setStyleSheet("background-color: #2E3440;") # 移除硬编码背景
         
         # 只设置一个垂直布局，不使用PanelWidget
         middle_layout = QVBoxLayout(middle_container)
@@ -936,7 +781,7 @@ class AuxiliaryWindow(QMainWindow):
         # 关闭标签页
         self.tabs.removeTab(index)
     
-    def _get_file_icon(self, file_type):
+    def _get_file_icon(self, file_type, icon_color='#D8DEE9'):
         """根据文件类型获取图标
         
         Args:
@@ -946,16 +791,19 @@ class AuxiliaryWindow(QMainWindow):
             QIcon: 文件图标
         """
         icons = {
-            'html': qta.icon('fa5s.file-code', color='#EBCB8B'),
-            'markdown': qta.icon('fa5s.file-alt', color='#A3BE8C'),
-            'text': qta.icon('fa5s.file-alt', color='#81A1C1'),
-            'docx': qta.icon('fa5s.file-word', color='#5E81AC'),
-            'powerpoint': qta.icon('fa5s.file-powerpoint', color='#D08770'),
-            'excel': qta.icon('fa5s.file-excel', color='#A3BE8C'),
-            'pdf': qta.icon('fa5s.file-pdf', color='#BF616A')
+            'html': qta.icon('fa5s.file-code', color=icon_color),
+            'markdown': qta.icon('fa5s.file-alt', color=icon_color),
+            'text': qta.icon('fa5s.file-alt', color=icon_color),
+            'docx': qta.icon('fa5s.file-word', color=icon_color),
+            'powerpoint': qta.icon('fa5s.file-powerpoint', color=icon_color),
+            'excel': qta.icon('fa5s.file-excel', color=icon_color),
+            'pdf': qta.icon('fa5s.file-pdf', color=icon_color)
         }
         
-        return icons.get(file_type, qta.icon('fa5s.file', color='#D8DEE9'))
+        default_color = icon_color # 默认颜色使用传入的颜色
+        color = icons.get(file_type, default_color)
+        
+        return icons.get(file_type, qta.icon('fa5s.file', color=default_color))
 
     def on_file_content_to_prompt(self, content):
         """处理文件内容复制到提示词
@@ -1012,6 +860,13 @@ class AuxiliaryWindow(QMainWindow):
             for i in range(self.tabs.count()):
                 close_button = self.tabs.tabBar().tabButton(i, self.tabs.tabBar().ButtonPosition.RightSide)
                 if close_button and close_button.icon().isNull():
+                    # 使用当前主题颜色
+                    icon_color = '#D8DEE9' # Default
+                    if self.theme_manager:
+                        theme_colors = self.theme_manager.get_current_theme_colors()
+                        icon_color = theme_colors.get('foreground', icon_color)
+                    close_icon = qta.icon('fa5s.times', color=icon_color)
+                    
                     close_button.setIcon(close_icon)
                     close_button.setText("")  # 移除文本，只显示图标
                     close_button.setIconSize(QSize(12, 12))  # 设置合适的图标大小
@@ -1103,31 +958,6 @@ class AuxiliaryWindow(QMainWindow):
             msg_box.setIcon(QMessageBox.Icon.Question)
             msg_box.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
             msg_box.setDefaultButton(QMessageBox.StandardButton.No)
-            
-            # 设置对话框样式
-            msg_box.setStyleSheet("""
-                QMessageBox {
-                    background-color: #2E3440;
-                    color: #D8DEE9;
-                }
-                QLabel {
-                    color: #E5E9F0;
-                }
-                QPushButton {
-                    background-color: #4C566A;
-                    color: #E5E9F0;
-                    border: none;
-                    border-radius: 4px;
-                    padding: 6px 12px;
-                    min-width: 80px;
-                }
-                QPushButton:hover {
-                    background-color: #5E81AC;
-                }
-                QPushButton:pressed {
-                    background-color: #81A1C1;
-                }
-            """)
             
             # 显示对话框并获取用户选择
             response = msg_box.exec()
@@ -1598,26 +1428,123 @@ class AuxiliaryWindow(QMainWindow):
             # 备用方案：直接使用QApplication实例的theme_manager
             elif hasattr(QApplication.instance(), 'theme_manager'):
                 app = QApplication.instance()
-                current_theme = app.theme_manager.current_theme
-                new_theme = "light" if current_theme == "dark" else "dark"
-                app.theme_manager.current_theme = new_theme
-                app.theme_manager.apply_theme(app)
-                print(f"已切换主题: {new_theme}")
+                # current_theme = app.theme_manager.current_theme
+                # new_theme = "light" if current_theme == "dark" else "dark"
+                # app.theme_manager.current_theme = new_theme
+                # app.theme_manager.apply_theme(app)
+                app.theme_manager.toggle_theme(app) # 直接调用 toggle_theme
+                # print(f"已切换主题: {app.theme_manager.current_theme}") # ThemeManager 内部会打印
             else:
                 print("无法访问主题管理器")
                 
-            self._update_theme_icon()
+            # 不再需要手动调用，由信号触发
+            # self._update_theme_icon()
         except Exception as e:
             print(f"切换主题出错: {e}")
     
-    def _update_theme_icon(self):
-        """根据当前主题更新主题切换按钮图标"""
-        # 获取当前应用程序实例
-        from PyQt6.QtWidgets import QApplication
-        app = QApplication.instance()
+    # 新增方法：更新所有辅助窗口相关的图标颜色
+    def _update_aux_window_icons(self):
+        print("AuxiliaryWindow: 接收到主题变化信号或初始调用，正在更新图标...")
+        if not self.theme_manager:
+            print("警告: ThemeManager 未初始化，无法更新辅助窗口图标")
+            icon_color = '#D8DEE9' # 使用默认深色前景色
+        else:
+            theme_colors = self.theme_manager.get_current_theme_colors()
+            icon_color = theme_colors.get('foreground', '#D8DEE9')
+            print(f"AuxiliaryWindow: 当前主题图标颜色: {icon_color}")
+
+        # 1. 更新 Ribbon 工具栏图标
+        if hasattr(self, 'open_main_window_action'):
+             self.open_main_window_action.setIcon(qta.icon('fa5s.window-maximize', color=icon_color))
+        # ... (如果Ribbon有其他Action，也在这里更新) ...
+
+        # 2. 更新自定义标题栏按钮 (添加文件夹, 主题切换)
+        if hasattr(self, 'add_folder_btn'): # 需要在 init_components 中保存引用 self.add_folder_btn
+             self.add_folder_btn.setIcon(qta.icon('fa5s.folder-plus', color=icon_color))
+        if hasattr(self, 'theme_button'):
+             is_dark = self.theme_manager.current_theme == "dark" if self.theme_manager else True
+             self.theme_button.setIcon(qta.icon('fa5s.moon' if is_dark else 'fa5s.sun', color=icon_color))
+             self.theme_button.setToolTip("切换到浅色主题" if is_dark else "切换到深色主题")
+             
+        # 3. 更新 PanelWidget 中的窗口控制按钮 (最小化, 最大化, 关闭)
+        # 这些按钮是在 PanelWidget 中创建的，需要可靠地访问它们
+        # 假设它们被存储为 window (即 AuxiliaryWindow) 的属性
+        if hasattr(self, 'minimize_button'):
+            self.minimize_button.setIcon(qta.icon('fa5s.window-minimize', color=icon_color))
+        if hasattr(self, 'maximize_button'):
+             # 考虑窗口状态
+             icon_name = 'fa5s.window-restore' if self.isMaximized() else 'fa5s.window-maximize'
+             self.maximize_button.setIcon(qta.icon(icon_name, color=icon_color))
+        if hasattr(self, 'close_button'):
+             self.close_button.setIcon(qta.icon('fa5s.times', color=icon_color))
+             
+        # 4. 更新标签页关闭按钮图标
+        # 触发一次检查，让它使用新的颜色
+        self._check_tab_close_buttons(-1) # 传入无效索引以检查所有标签
         
-        if hasattr(app, 'theme_manager'):
-            is_dark = app.theme_manager.current_theme == "dark"
-            # 深色模式显示月亮图标，浅色模式显示太阳图标
-            self.theme_button.setIcon(qta.icon('fa5s.moon') if is_dark else qta.icon('fa5s.sun'))
-            self.theme_button.setToolTip("切换到浅色主题" if is_dark else "切换到深色主题") 
+        # 5. 更新文件浏览器中文件图标 (如果必要，但通常在打开时设置)
+        # file_explorer 可能需要一个方法来刷新所有可见项的图标颜色
+        # 或者在 _get_file_icon 中依赖传递的颜色参数
+        
+        # 6. 更新固定标签页图标
+        if hasattr(self, 'tabs'):
+            try:
+                 prompt_icon = qta.icon('fa5s.keyboard', color=icon_color)
+                 search_icon = qta.icon('fa5s.search', color=icon_color)
+                 # 假设提示词和搜索标签页总是在索引 0 和 1
+                 if self.tabs.count() > 0:
+                     self.tabs.setTabIcon(0, prompt_icon)
+                 if self.tabs.count() > 1:
+                     self.tabs.setTabIcon(1, search_icon)
+                 print("AuxiliaryWindow: 固定标签页图标颜色更新完成")
+            except Exception as e:
+                 print(f"AuxiliaryWindow: 更新固定标签页图标时出错: {e}")
+
+        # 7. 强制刷新 QTabWidget 样式
+        if hasattr(self, 'tabs'):
+            try:
+                print("AuxiliaryWindow: 尝试强制刷新 QTabWidget 样式...")
+                self.tabs.style().unpolish(self.tabs)
+                self.tabs.style().polish(self.tabs)
+                print("AuxiliaryWindow: QTabWidget 样式刷新完成")
+            except Exception as e:
+                print(f"AuxiliaryWindow: 刷新 QTabWidget 样式时出错: {e}")
+        
+        # 8. 强制刷新 PromptInput 样式 (保持之前的修改)
+        if hasattr(self, 'prompt_input'):
+            try:
+                print("AuxiliaryWindow: 尝试强制刷新 PromptInput 样式...")
+                self.prompt_input.style().unpolish(self.prompt_input)
+                self.prompt_input.style().polish(self.prompt_input)
+                # 也可以尝试更新整个 AuxiliaryWindow 的样式
+                # self.style().unpolish(self)
+                # self.style().polish(self)
+                print("AuxiliaryWindow: PromptInput 样式刷新完成")
+            except Exception as e:
+                print(f"AuxiliaryWindow: 刷新 PromptInput 样式时出错: {e}")
+        
+        # 9. 强制刷新 FileExplorer 样式
+        if hasattr(self, 'file_explorer'):
+            try:
+                print("AuxiliaryWindow: 尝试强制刷新 FileExplorer 样式...")
+                self.file_explorer.style().unpolish(self.file_explorer)
+                self.file_explorer.style().polish(self.file_explorer)
+                # 如果FileExplorer内部有需要单独更新的，也应调用
+                # self.file_explorer.update_theme() # 假设有这个方法
+                print("AuxiliaryWindow: FileExplorer 样式刷新完成")
+            except Exception as e:
+                 print(f"AuxiliaryWindow: 刷新 FileExplorer 样式时出错: {e}")
+                 
+        # 10. 强制刷新 PromptHistory 样式
+        if hasattr(self, 'prompt_history'):
+            try:
+                print("AuxiliaryWindow: 尝试强制刷新 PromptHistory 样式...")
+                self.prompt_history.style().unpolish(self.prompt_history)
+                self.prompt_history.style().polish(self.prompt_history)
+                # 如果PromptHistory内部有需要单独更新的，也应调用
+                # self.prompt_history.update_theme() # 假设有这个方法
+                print("AuxiliaryWindow: PromptHistory 样式刷新完成")
+            except Exception as e:
+                 print(f"AuxiliaryWindow: 刷新 PromptHistory 样式时出错: {e}")
+                 
+        print("AuxiliaryWindow: 图标和样式更新完成。") 

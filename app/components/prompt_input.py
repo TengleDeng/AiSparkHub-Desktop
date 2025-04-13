@@ -4,6 +4,9 @@
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QTextEdit, QPushButton
 from PyQt6.QtCore import Qt, pyqtSignal
 import qtawesome as qta
+from PyQt6.QtWidgets import QApplication
+from PyQt6.QtCore import QTimer
+from app.controllers.theme_manager import ThemeManager
 
 class PromptInput(QWidget):
     """提示词输入组件"""
@@ -14,6 +17,17 @@ class PromptInput(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setup_ui()
+        
+        # 获取 ThemeManager 并连接信号
+        self.theme_manager = None
+        app = QApplication.instance()
+        if hasattr(app, 'theme_manager') and isinstance(app.theme_manager, ThemeManager):
+            self.theme_manager = app.theme_manager
+            self.theme_manager.theme_changed.connect(self._update_button_icon)
+            QTimer.singleShot(0, self._update_button_icon) # 设置初始图标
+        else:
+            print("警告：无法在 PromptInput 中获取 ThemeManager 实例")
+            QTimer.singleShot(0, self._update_button_icon) # 尝试用默认色
     
     def setup_ui(self):
         """设置UI界面"""
@@ -30,37 +44,11 @@ class PromptInput(QWidget):
         
         # 创建发送按钮
         self.send_button = QPushButton("发送")
-        self.send_button.setIcon(qta.icon("fa5s.paper-plane", color="#88C0D0"))
         self.send_button.clicked.connect(self.submit_prompt)
         layout.addWidget(self.send_button)
         
         # 设置快捷键
         self.text_edit.installEventFilter(self)
-        
-        # 设置样式
-        self.setStyleSheet("""
-            QTextEdit {
-                background-color: #2E3440;
-                color: #D8DEE9;
-                border: 1px solid #3B4252;
-                border-radius: 4px;
-                padding: 8px;
-            }
-            QPushButton {
-                background-color: #5E81AC;
-                color: white;
-                border: none;
-                border-radius: 4px;
-                padding: 8px 16px;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #81A1C1;
-            }
-            QPushButton:pressed {
-                background-color: #4C566A;
-            }
-        """)
     
     def submit_prompt(self):
         """提交提示词"""
@@ -91,4 +79,26 @@ class PromptInput(QWidget):
             if event.key() == Qt.Key.Key_Return and event.modifiers() == Qt.KeyboardModifier.ControlModifier:
                 self.submit_prompt()
                 return True
-        return super().eventFilter(obj, event) 
+        return super().eventFilter(obj, event)
+        
+    # 新增方法：更新发送按钮图标颜色
+    def _update_button_icon(self):
+        print("PromptInput: 更新发送按钮图标颜色...")
+        icon_color = '#88C0D0' # Default accent color
+        if self.theme_manager:
+            theme_colors = self.theme_manager.get_current_theme_colors()
+            icon_color = theme_colors.get('accent', icon_color) # 使用 accent 颜色
+        else:
+            # Fallback for light theme if no manager
+             app = QApplication.instance()
+             if hasattr(app, 'palette') and app.palette().window().color().lightnessF() > 0.5: # 检查全局调色板
+                 icon_color = '#5E81AC' # Darker accent for light mode
+                 
+        if hasattr(self, 'send_button'):
+            try:
+                self.send_button.setIcon(qta.icon("fa5s.paper-plane", color=icon_color))
+                print("PromptInput: 发送按钮图标颜色更新完成")
+            except Exception as e:
+                print(f"PromptInput: 更新图标时出错 - {e}")
+        else:
+             print("PromptInput: send_button 尚未初始化") 

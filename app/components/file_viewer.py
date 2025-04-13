@@ -11,9 +11,9 @@ import markdown
 import io
 import tempfile
 import qtawesome as qta
-from PyQt6.QtCore import Qt, QUrl, QSize, pyqtSignal
+from PyQt6.QtCore import Qt, QUrl, QSize, pyqtSignal, pyqtSlot
 from PyQt6.QtWidgets import (
-    QWidget, QTextEdit, QVBoxLayout, QToolBar, 
+    QWidget, QTextEdit, QVBoxLayout, QToolBar, QApplication,
     QPushButton, QLabel
 )
 from PyQt6.QtWebEngineWidgets import QWebEngineView
@@ -50,34 +50,20 @@ class FileViewer(QWidget):
     # 添加信号，用于将文件内容复制到提示词
     file_content_to_prompt = pyqtSignal(str)
     
-    def __init__(self):
+    def __init__(self, theme_manager=None):
         super().__init__()
+        
+        # 获取或设置主题管理器
+        self.theme_manager = theme_manager or QApplication.instance().theme_manager
         
         # 创建布局
         self.layout = QVBoxLayout(self)
         self.layout.setContentsMargins(0, 0, 0, 0)
-        self.layout.setSpacing(0)
+        self.layout.setSpacing(0) # No spacing between toolbar and viewer
         
         # 创建工具栏
         self.toolbar = QToolBar()
         self.toolbar.setIconSize(QSize(16, 16))
-        self.toolbar.setStyleSheet("""
-            QToolBar {
-                background-color: #3B4252;
-                border: none;
-                spacing: 5px;
-                padding: 5px;
-            }
-            QToolButton {
-                background-color: transparent;
-                border: none;
-                border-radius: 4px;
-                padding: 5px;
-            }
-            QToolButton:hover {
-                background-color: #4C566A;
-            }
-        """)
         
         # 添加工具栏
         self.layout.addWidget(self.toolbar)
@@ -86,6 +72,12 @@ class FileViewer(QWidget):
         self.file_path = None
         self.file_type = None
         self.viewer = None
+        self.copy_to_prompt_action = None # Store the action
+        
+        # 连接主题变化信号
+        if self.theme_manager:
+            self.theme_manager.theme_changed.connect(self._update_theme)
+            self._update_theme() # Apply initial theme (styles toolbar)
     
     def open_file(self, file_path, file_type=None):
         """打开文件并显示内容
@@ -95,6 +87,7 @@ class FileViewer(QWidget):
             file_type (str, optional): 文件类型。默认为None，会根据扩展名自动判断。
         """
         if not os.path.exists(file_path):
+            print(f"File not found: {file_path}")
             return
         
         # 保存文件路径和类型
@@ -118,15 +111,16 @@ class FileViewer(QWidget):
             else:
                 file_type = 'text'
         
-        self.file_type = file_type
+        self.file_type = file_type # Store determined file type
         
-        # 清空工具栏
+        # 清空工具栏 (先保留按钮实例)
         self.toolbar.clear()
         
-        # 添加复制到提示词按钮
-        copy_to_prompt_action = QAction(qta.icon('fa5s.copy', color='#D8DEE9'), "复制到提示词", self)
-        copy_to_prompt_action.triggered.connect(self._copy_to_prompt)
-        self.toolbar.addAction(copy_to_prompt_action)
+        # 添加复制到提示词按钮 (或重新添加已存在的按钮)
+        if self.copy_to_prompt_action is None:
+            self.copy_to_prompt_action = QAction(qta.icon('fa5s.copy'), "复制到提示词", self)
+            self.copy_to_prompt_action.triggered.connect(self._copy_to_prompt)
+        self.toolbar.addAction(self.copy_to_prompt_action)
         
         # 如果已有查看器，移除它
         if self.viewer is not None:
@@ -134,159 +128,154 @@ class FileViewer(QWidget):
             self.viewer.deleteLater()
             self.viewer = None
         
-        # 创建新的查看器
-        self.viewer = self._create_viewer()
-        self.layout.addWidget(self.viewer)
+        # 调用 _update_theme 来创建/更新查看器并应用主题
+        self._update_theme()
     
-    def _create_viewer(self):
-        """根据文件类型创建对应的查看器
+    def _update_theme(self):
+        """更新组件的主题样式和内容"""
+        if not self.theme_manager:
+            return
         
-        Returns:
-            QWidget: 查看器组件
-        """
-        file_path = self.file_path
-        file_type = self.file_type
+        theme_colors = self.theme_manager.get_current_theme_colors()
         
-        if file_type == 'html':
-            # HTML查看器
-            viewer = QWebEngineView()
-            try:
-                with open(file_path, 'r', encoding='utf-8') as f:
-                    html_content = f.read()
-                viewer.setHtml(html_content, QUrl.fromLocalFile(file_path))
-            except Exception as e:
-                viewer = QTextEdit()
-                viewer.setReadOnly(True)
-                viewer.setPlainText(f"无法加载HTML文件: {e}")
+        # --- 更新工具栏样式 ---
+        toolbar_bg = theme_colors.get('secondary_bg', '#3B4252')
+        toolbar_hover_bg = theme_colors.get('tertiary_bg', '#4C566A')
+        icon_color = theme_colors.get('foreground', '#D8DEE9')
         
-        elif file_type == 'markdown':
-            # Markdown查看器
-            try:
-                with open(file_path, 'r', encoding='utf-8') as f:
-                    md_content = f.read()
-                
-                # 转换Markdown为HTML
-                html_content = markdown.markdown(
-                    md_content,
-                    extensions=['tables', 'fenced_code', 'codehilite']
-                )
-                
-                # 添加样式
-                styled_html = self._create_styled_html(html_content)
-                
-                # 创建Web视图显示渲染后的Markdown
-                viewer = QWebEngineView()
-                viewer.setHtml(styled_html, QUrl.fromLocalFile(os.path.dirname(file_path)))
-            except Exception as e:
-                viewer = QTextEdit()
-                viewer.setReadOnly(True)
-                viewer.setPlainText(f"无法加载Markdown文件: {e}")
+        self.toolbar.setStyleSheet(f"""
+            QToolBar {{
+                background-color: {toolbar_bg};
+                border: none;
+                spacing: 5px;
+                padding: 5px;
+            }}
+            QToolButton {{
+                background-color: transparent;
+                border: none;
+                border-radius: 4px;
+                padding: 5px;
+                color: {icon_color}; /* Set icon/text color */
+            }}
+            QToolButton:hover {{
+                background-color: {toolbar_hover_bg};
+            }}
+        """)
         
-        elif file_type == 'docx' and DOCX_SUPPORT:
-            # Word文档查看器
-            try:
-                # 转换Word文档为HTML
-                html_content = self._docx_to_html(file_path)
-                
-                # 添加样式
-                styled_html = self._create_styled_html(html_content)
-                
-                # 显示HTML
-                viewer = QWebEngineView()
-                viewer.setHtml(styled_html, QUrl.fromLocalFile(os.path.dirname(file_path)))
-            except Exception as e:
-                viewer = QTextEdit()
-                viewer.setReadOnly(True)
-                viewer.setPlainText(f"无法加载Word文档: {e}")
+        # --- 更新复制按钮图标颜色 ---
+        if self.copy_to_prompt_action:
+            self.copy_to_prompt_action.setIcon(qta.icon('fa5s.copy', color=icon_color))
         
-        elif file_type == 'powerpoint' and PPTX_SUPPORT:
-            # PowerPoint查看器
-            try:
-                # 转换PowerPoint为HTML
-                html_content = self._pptx_to_html(file_path)
-                
-                # 添加样式
-                styled_html = self._create_styled_html(html_content)
-                
-                # 显示HTML
-                viewer = QWebEngineView()
-                viewer.setHtml(styled_html, QUrl.fromLocalFile(os.path.dirname(file_path)))
-            except Exception as e:
-                viewer = QTextEdit()
-                viewer.setReadOnly(True)
-                viewer.setPlainText(f"无法加载PowerPoint文件: {e}")
+        # --- 更新查看器样式和内容 (仅当文件已加载时) ---
+        if not self.file_path:
+            return
         
-        elif file_type == 'excel' and EXCEL_SUPPORT:
-            # Excel查看器
-            try:
-                # 转换Excel为HTML表格
-                html_content = self._excel_to_html(file_path)
-                
-                # 添加样式
-                styled_html = self._create_styled_html(html_content)
-                
-                # 显示HTML
-                viewer = QWebEngineView()
-                viewer.setHtml(styled_html, QUrl.fromLocalFile(os.path.dirname(file_path)))
-            except Exception as e:
-                viewer = QTextEdit()
-                viewer.setReadOnly(True)
-                viewer.setPlainText(f"无法加载Excel文件: {e}")
-        
-        elif file_type == 'pdf' and PDF_SUPPORT:
-            # PDF查看器
-            try:
-                # 转换PDF为HTML
-                html_content = self._pdf_to_html(file_path)
-                
-                # 添加样式
-                styled_html = self._create_styled_html(html_content)
-                
-                # 显示HTML
-                viewer = QWebEngineView()
-                viewer.setHtml(styled_html, QUrl.fromLocalFile(os.path.dirname(file_path)))
-            except Exception as e:
-                viewer = QTextEdit()
-                viewer.setReadOnly(True)
-                viewer.setPlainText(f"无法加载PDF文件: {e}")
-        
+        # 确定查看器类型
+        if self.file_type in ['text']:
+            viewer_type = QTextEdit
+        elif self.file_type in ['html', 'markdown', 'docx', 'powerpoint', 'excel', 'pdf']:
+            viewer_type = QWebEngineView
         else:
-            # 纯文本查看器
-            viewer = QTextEdit()
-            viewer.setReadOnly(True)  # 只读模式
-            
-            # 设置等宽字体
-            font = QFont("Consolas, 'Courier New', monospace")
-            font.setStyleHint(QFont.StyleHint.Monospace)
-            viewer.setFont(font)
-            
-            # 设置样式
-            viewer.setStyleSheet("""
-                QTextEdit {
-                    background-color: #2E3440;
-                    color: #D8DEE9;
-                    border: none;
-                    padding: 8px;
-                }
-            """)
-            
-            try:
-                # 读取文件内容
-                with open(file_path, 'r', encoding='utf-8') as f:
-                    content = f.read()
-                viewer.setPlainText(content)
-            except UnicodeDecodeError:
-                try:
-                    # 尝试使用系统默认编码
-                    with open(file_path, 'r') as f:
-                        content = f.read()
-                    viewer.setPlainText(content)
-                except Exception as e:
-                    viewer.setPlainText(f"无法加载文件: {e}")
-            except Exception as e:
-                viewer.setPlainText(f"无法加载文件: {e}")
+            # 如果类型未知或不支持，也使用文本编辑器显示错误或原始文本
+            viewer_type = QTextEdit
+            self.file_type = 'text' # Treat as text
         
-        return viewer
+        # 创建或重用查看器
+        if self.viewer is None or not isinstance(self.viewer, viewer_type):
+            if self.viewer is not None:
+                old_viewer = self.viewer
+                self.layout.removeWidget(old_viewer)
+                old_viewer.deleteLater()
+                self.viewer = None # Ensure it's None before creating new
+        
+        self.viewer = viewer_type()
+        if isinstance(self.viewer, QTextEdit):
+            self.viewer.setReadOnly(True)
+            font = QFont("Consolas", 'Courier New', monospace)
+            font.setStyleHint(QFont.StyleHint.Monospace)
+            self.viewer.setFont(font)
+        self.layout.addWidget(self.viewer)
+        
+        # --- 加载内容并应用样式 ---
+        try:
+            if isinstance(self.viewer, QTextEdit):
+                text_bg = theme_colors.get('background', '#2E3440')
+                text_fg = theme_colors.get('foreground', '#D8DEE9')
+                self.viewer.setStyleSheet(f"""
+                    QTextEdit {{
+                        background-color: {text_bg};
+                        color: {text_fg};
+                        border: none;
+                        padding: 8px;
+                    }}
+                """)
+                # 读取文本内容
+                content = self._get_text_content(self.file_path)
+                self.viewer.setPlainText(content)
+            
+            elif isinstance(self.viewer, QWebEngineView):
+                base_html_content = ""
+                if self.file_type == 'html':
+                    # For raw HTML, we could try injecting CSS, but for now just load it.
+                    # Theming might not work perfectly for external HTML.
+                    self.viewer.setUrl(QUrl.fromLocalFile(self.file_path))
+                    return # Skip styled HTML generation for raw HTML
+                elif self.file_type == 'markdown':
+                    base_html_content = self._md_to_html(self.file_path)
+                elif self.file_type == 'docx' and DOCX_SUPPORT:
+                    base_html_content = self._docx_to_html(self.file_path)
+                elif self.file_type == 'powerpoint' and PPTX_SUPPORT:
+                    base_html_content = self._pptx_to_html(self.file_path)
+                elif self.file_type == 'excel' and EXCEL_SUPPORT:
+                    base_html_content = self._excel_to_html(self.file_path)
+                elif self.file_type == 'pdf' and PDF_SUPPORT:
+                    base_html_content = self._pdf_to_html(self.file_path)
+                else:
+                    base_html_content = f"<p>不支持的文件类型: {self.file_type}</p>"
+                
+                # Create styled HTML and set it
+                styled_html = self._create_styled_html(base_html_content)
+                # Use setHtml with a base URL for relative paths if needed
+                self.viewer.setHtml(styled_html, QUrl.fromLocalFile(os.path.dirname(self.file_path)))
+        
+        except Exception as e:
+            error_message = f"无法加载或应用主题: {e}"
+            if isinstance(self.viewer, QTextEdit):
+                self.viewer.setPlainText(error_message)
+            elif isinstance(self.viewer, QWebEngineView):
+                # Display error within the web view itself
+                error_html = self._create_styled_html(f"<p style='color: red;'>{error_message}</p>")
+                self.viewer.setHtml(error_html)
+            print(f"Error updating file viewer theme/content: {e}")
+    
+    def _get_text_content(self, file_path):
+        """安全地读取文本文件内容"""
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                return f.read()
+        except UnicodeDecodeError:
+            try:
+                # Fallback to system default encoding (less reliable)
+                with open(file_path, 'r') as f:
+                    return f.read()
+            except Exception as decode_err:
+                return f"无法解码文件内容 ({decode_err}): {file_path}"
+        except Exception as read_err:
+            return f"读取文件时出错 ({read_err}): {file_path}"
+    
+    def _md_to_html(self, file_path):
+        """将Markdown文件转换为基础HTML"""
+        try:
+            md_content = self._get_text_content(file_path)
+            if md_content.startswith("无法") or md_content.startswith("读取文件时出错"):
+                return f"<p>{md_content}</p>"
+            html_content = markdown.markdown(
+                md_content,
+                extensions=['tables', 'fenced_code', 'codehilite'] # Add more extensions if needed
+            )
+            return html_content
+        except Exception as e:
+            return f"<p>Markdown转换失败: {e}</p>"
     
     def _create_styled_html(self, content):
         """创建带有样式的HTML内容
@@ -297,6 +286,22 @@ class FileViewer(QWidget):
         Returns:
             str: 带样式的HTML
         """
+        if not self.theme_manager:
+            # Fallback if theme manager isn't available
+            # (You might want to define default dark/light colors here)
+            bg_color = "#2E3440"
+            fg_color = "#D8DEE9"
+            secondary_bg = "#3B4252"
+            accent_color = "#88C0D0"
+        else:
+            # 获取当前主题颜色
+            theme_colors = self.theme_manager.get_current_theme_colors()
+            bg_color = theme_colors.get('background', "#2E3440")
+            fg_color = theme_colors.get('foreground', "#D8DEE9")
+            secondary_bg = theme_colors.get('secondary_bg', "#3B4252")
+            accent_color = theme_colors.get('accent', "#88C0D0")
+            tertiary_bg = theme_colors.get('tertiary_bg', "#4C566A") # Used for borders etc.
+        
         return f"""
         <html>
         <head>
@@ -304,29 +309,29 @@ class FileViewer(QWidget):
                 body {{
                     font-family: 'Segoe UI', Arial, sans-serif;
                     line-height: 1.6;
-                    color: #D8DEE9;
-                    background-color: #2E3440;
+                    color: {fg_color};
+                    background-color: {bg_color};
                     padding: 20px;
                     max-width: 900px;
                     margin: 0 auto;
                 }}
                 h1, h2, h3, h4, h5, h6 {{
-                    color: #ECEFF4;
+                    color: {fg_color}; /* Use main foreground color */
                     margin-top: 24px;
                     margin-bottom: 16px;
                 }}
-                h1 {{ font-size: 2em; border-bottom: 1px solid #4C566A; padding-bottom: 0.3em; }}
-                h2 {{ font-size: 1.5em; border-bottom: 1px solid #4C566A; padding-bottom: 0.3em; }}
-                a {{ color: #88C0D0; text-decoration: none; }}
+                h1 {{ font-size: 2em; border-bottom: 1px solid {tertiary_bg}; padding-bottom: 0.3em; }}
+                h2 {{ font-size: 1.5em; border-bottom: 1px solid {tertiary_bg}; padding-bottom: 0.3em; }}
+                a {{ color: {accent_color}; text-decoration: none; }}
                 a:hover {{ text-decoration: underline; }}
                 code {{
                     font-family: 'Consolas', 'Monaco', monospace;
-                    background-color: #3B4252;
+                    background-color: {secondary_bg};
                     padding: 0.2em 0.4em;
                     border-radius: 3px;
                 }}
                 pre {{
-                    background-color: #3B4252;
+                    background-color: {secondary_bg};
                     padding: 16px;
                     border-radius: 4px;
                     overflow: auto;
@@ -341,20 +346,20 @@ class FileViewer(QWidget):
                     margin: 16px 0;
                 }}
                 table, th, td {{
-                    border: 1px solid #4C566A;
+                    border: 1px solid {tertiary_bg};
                 }}
                 th, td {{
                     padding: 8px 12px;
                     text-align: left;
                 }}
                 th {{
-                    background-color: #3B4252;
+                    background-color: {secondary_bg};
                 }}
                 blockquote {{
-                    border-left: 4px solid #4C566A;
+                    border-left: 4px solid {tertiary_bg};
                     margin: 16px 0;
                     padding: 0 16px;
-                    color: #D8DEE9;
+                    color: {fg_color};
                 }}
                 img {{
                     max-width: 100%;
@@ -363,7 +368,7 @@ class FileViewer(QWidget):
                 hr {{
                     border: none;
                     height: 1px;
-                    background-color: #4C566A;
+                    background-color: {tertiary_bg};
                     margin: 24px 0;
                 }}
             </style>

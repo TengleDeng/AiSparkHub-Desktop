@@ -10,6 +10,8 @@ from PyQt6.QtGui import QFileSystemModel, QIcon, QAction, QDrag
 import qtawesome as qta
 import os
 import json
+from PyQt6.QtWidgets import QApplication
+from app.controllers.theme_manager import ThemeManager
 
 class DraggableTreeView(QTreeView):
     """支持拖动的树形视图"""
@@ -89,7 +91,19 @@ class FileExplorer(QWidget):
         
         self.load_settings()
         self.setup_ui()
-    
+        
+        # 获取 ThemeManager 并连接信号
+        self.theme_manager = None
+        app = QApplication.instance()
+        if hasattr(app, 'theme_manager') and isinstance(app.theme_manager, ThemeManager):
+            self.theme_manager = app.theme_manager
+            self.theme_manager.theme_changed.connect(self._update_icons)
+            # 初始化时调用一次图标检查以设置颜色
+            QTimer.singleShot(200, lambda: self._check_tab_close_buttons(-1))
+        else:
+            print("警告：无法在 FileExplorer 中获取 ThemeManager 实例")
+            QTimer.singleShot(200, lambda: self._check_tab_close_buttons(-1)) # 即使没有Manager也尝试用默认色设置
+            
     def setup_ui(self):
         """设置UI界面"""
         # 创建布局
@@ -112,98 +126,6 @@ class FileExplorer(QWidget):
         # 使用简单延迟加载，避免启动时阻塞界面
         QTimer.singleShot(100, self.init_tabs)
         
-        # 设置样式
-        self.setStyleSheet("""
-            QTabWidget::pane {
-                border: none;
-                background-color: #2E3440;
-            }
-            QTabBar {
-                background-color: #2E3440;
-            }
-            QTabBar::tab {
-                background-color: #3B4252;
-                color: #D8DEE9;
-                padding: 5px 10px;
-                border: none;
-                border-top-left-radius: 4px;
-                border-top-right-radius: 4px;
-                margin-top: 1px; /* 稍微从顶部下移1px，避免与分隔线重叠 */
-                height: 38px;
-            }
-            QTabBar::tab:selected {
-                background-color: #4C566A;
-                color: #ECEFF4;
-            }
-            QTabBar::tab:hover:!selected {
-                background-color: #434C5E;
-            }
-            QTabBar::close-button {
-                image: none;
-                background: transparent;
-                border: none;
-                margin: 0px;
-                padding: 0px;
-            }
-            QTabBar::close-button:hover {
-                background: #BF616A;
-                border-radius: 2px;
-            }
-            QTreeView {
-                background-color: #2E3440;
-                border: none;
-                outline: none;
-            }
-            QTreeView::item {
-                padding: 4px;
-            }
-            QTreeView::item:hover {
-                background-color: #3B4252;
-            }
-            QTreeView::item:selected {
-                background-color: #4C566A;
-            }
-            QTreeView::branch {
-                background-color: #2E3440;
-            }
-            QTreeView::branch:selected {
-                background-color: #4C566A;
-            }
-            /* 统一滚动条样式 */
-            QScrollBar:vertical {
-                background: #2E3440;
-                width: 14px;
-                margin: 0px;
-            }
-            QScrollBar::handle:vertical {
-                background: #4C566A;
-                min-height: 20px;
-                border-radius: 7px;
-            }
-            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
-                height: 0px;
-            }
-            QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {
-                background: none;
-            }
-            QScrollBar:horizontal {
-                background: #2E3440;
-                height: 14px;
-                margin: 0px;
-            }
-            QScrollBar::handle:horizontal {
-                background: #4C566A;
-                min-width: 20px;
-                border-radius: 7px;
-            }
-            QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
-                width: 0px;
-            }
-            QScrollBar::add-page:horizontal, QScrollBar::sub-page:horizontal {
-                background: none;
-            }
-        """)
-        
         # 监听标签页添加事件，为新标签页设置关闭图标
         self.tab_widget.tabBarClicked.connect(self._check_tab_close_buttons)
         self.tab_widget.currentChanged.connect(self._check_tab_close_buttons)
@@ -211,7 +133,12 @@ class FileExplorer(QWidget):
     def _check_tab_close_buttons(self, index):
         """检查并设置标签页关闭按钮图标"""
         # 为标签页设置qtawesome图标
-        close_icon = qta.icon('fa5s.times', color='#D8DEE9')
+        icon_color = '#D8DEE9' # Default color
+        if self.theme_manager:
+            theme_colors = self.theme_manager.get_current_theme_colors()
+            icon_color = theme_colors.get('foreground', icon_color)
+            
+        close_icon = qta.icon('fa5s.times', color=icon_color)
         
         # 遍历所有标签页，检查是否有未设置图标的关闭按钮
         for i in range(self.tab_widget.count()):
@@ -424,4 +351,10 @@ class FileExplorer(QWidget):
     
     def save_settings(self):
         """保存根目录列表"""
-        self.settings.setValue("file_explorer/root_paths", self.root_paths) 
+        self.settings.setValue("file_explorer/root_paths", self.root_paths)
+    
+    # 新增方法：更新图标颜色以响应主题变化
+    def _update_icons(self):
+        print("FileExplorer: 接收到主题变化信号，正在更新图标...")
+        # 重新检查所有标签页关闭按钮的图标颜色
+        self._check_tab_close_buttons(-1) 

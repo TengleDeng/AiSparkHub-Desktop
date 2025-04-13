@@ -4,8 +4,8 @@
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QListWidget, QListWidgetItem,
                            QLineEdit, QLabel, QHBoxLayout, QPushButton, QMenu,
                            QScrollArea, QFrame, QToolButton, QSizePolicy,
-                           QMessageBox)
-from PyQt6.QtCore import Qt, pyqtSignal, QSize
+                           QMessageBox, QApplication)
+from PyQt6.QtCore import Qt, pyqtSignal, QSize, QTimer
 from PyQt6.QtGui import QIcon, QColor, QAction, QPalette, QFont, QPixmap
 import qtawesome as qta
 from datetime import datetime
@@ -13,6 +13,7 @@ import webbrowser
 from urllib.parse import urlparse
 import os
 import sys
+from app.controllers.theme_manager import ThemeManager
 
 class PromptItemWidget(QWidget):
     """自定义提示词历史记录小部件"""
@@ -49,6 +50,18 @@ class PromptItemWidget(QWidget):
         self.setup_ui()
         self.update_data(prompt_data)
         
+        # 获取 ThemeManager 实例 (从父级或全局)
+        self.theme_manager = None
+        app = QApplication.instance()
+        if hasattr(app, 'theme_manager') and isinstance(app.theme_manager, ThemeManager):
+             self.theme_manager = app.theme_manager
+             self.theme_manager.theme_changed.connect(self.update_icons)
+             # 初始图标颜色设置 (可能需要延迟)
+             QTimer.singleShot(0, self.update_icons)
+        else:
+             print("警告: PromptItemWidget 无法获取 ThemeManager")
+             QTimer.singleShot(0, self.update_icons) # 尝试用默认颜色更新
+        
     def setup_ui(self):
         """设置UI界面"""
         # 主布局
@@ -62,25 +75,13 @@ class PromptItemWidget(QWidget):
         
         # 时间标签
         self.time_label = QLabel()
-        self.time_label.setStyleSheet("""
-            color: #81A1C1;
-            font-size: 12px;
-            text-align: left;
-            padding: 0;
-        """)
+        self.time_label.setObjectName("timeLabel") # 添加 objectName
         self.time_label.setFixedWidth(70)  # 减小宽度，因为现在是两行显示
         self.time_label.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)  # 文本左对齐
         header_layout.addWidget(self.time_label)
         
         # 添加一个水平框架作为图标容器
         self.icons_frame = QFrame()
-        self.icons_frame.setStyleSheet("""
-            QFrame {
-                background-color: transparent;
-                border: none;
-                padding: 0px;
-            }
-        """)
         self.icons_frame.setFixedHeight(20)  # 设置为20px高度
         self.icons_layout = QHBoxLayout(self.icons_frame)
         self.icons_layout.setContentsMargins(0, 0, 0, 0)
@@ -93,9 +94,7 @@ class PromptItemWidget(QWidget):
         
         # 发送按钮 - 改为普通按钮，不带下拉菜单
         self.send_btn = QToolButton()
-        self.send_btn.setIcon(qta.icon('fa5s.paper-plane', color='#8FBCBB'))
         self.send_btn.setToolTip("发送原始提示词")
-        self.send_btn.setStyleSheet(self.get_button_style())
         self.send_btn.setFixedSize(QSize(20, 20))
         self.send_btn.setIconSize(QSize(16, 16))
         self.send_btn.clicked.connect(self.send_prompt_text)  # 直接连接发送方法
@@ -103,9 +102,7 @@ class PromptItemWidget(QWidget):
         
         # 新增总结按钮
         self.summarize_btn = QToolButton()
-        self.summarize_btn.setIcon(qta.icon('fa5s.chart-bar', color='#B48EAD'))  # 使用不同图标标识总结功能
         self.summarize_btn.setToolTip("总结AI回复")
-        self.summarize_btn.setStyleSheet(self.get_button_style())
         self.summarize_btn.setFixedSize(QSize(20, 20))
         self.summarize_btn.setIconSize(QSize(16, 16))
         self.summarize_btn.clicked.connect(self.summarize_responses)  # 直接连接总结方法
@@ -114,7 +111,6 @@ class PromptItemWidget(QWidget):
         # 收藏按钮 - 使用自定义图标
         self.favorite_btn = QToolButton()
         self.favorite_btn.setToolTip("收藏提示词")
-        self.favorite_btn.setStyleSheet(self.get_button_style())
         self.favorite_btn.setFixedSize(QSize(20, 20))
         self.favorite_btn.setIconSize(QSize(16, 16))
         self.favorite_btn.clicked.connect(self.toggle_favorite)
@@ -138,9 +134,7 @@ class PromptItemWidget(QWidget):
         
         # 删除按钮
         self.delete_btn = QToolButton()
-        self.delete_btn.setIcon(qta.icon('fa5s.trash-alt', color='#BF616A'))
         self.delete_btn.setToolTip("删除提示词")
-        self.delete_btn.setStyleSheet(self.get_button_style())
         self.delete_btn.setFixedSize(QSize(20, 20))
         self.delete_btn.setIconSize(QSize(16, 16))
         self.delete_btn.clicked.connect(self.delete_prompt)
@@ -150,47 +144,18 @@ class PromptItemWidget(QWidget):
         
         # 提示词内容
         self.content_label = QLabel()
+        self.content_label.setObjectName("contentLabel") # 添加 objectName
         self.content_label.setWordWrap(True)
-        self.content_label.setStyleSheet("""
-            color: #E5E9F0;
-            background-color: #3B4252;
-            border-radius: 6px;
-            padding: 8px;
-            font-size: 13px;
-        """)
         self.content_label.setTextFormat(Qt.TextFormat.PlainText)
         self.content_label.setMaximumHeight(66)  # 约3行文本高度
         self.content_label.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Minimum)
         main_layout.addWidget(self.content_label)
         
         # 设置容器样式
-        self.setStyleSheet("""
-            QWidget {
-                background-color: #2E3440;
-                border-radius: 8px;
-            }
-        """)
         self.setMinimumHeight(110)
         self.setMaximumHeight(140)
         
-    def get_button_style(self):
-        """获取按钮样式"""
-        return """
-            QToolButton {
-                background-color: #3B4252;
-                border-radius: 10px;
-                padding: 2px;
-                border: none;
-            }
-            QToolButton:hover {
-                background-color: #4C566A;
-            }
-            QToolButton:pressed {
-                background-color: #5E81AC;
-            }
-        """
-    
-    def create_ai_link_button(self, url):
+    def create_ai_link_button(self, url, icon_color='#D8DEE9'):
         """创建AI链接按钮"""
         btn = QToolButton()
         
@@ -298,19 +263,17 @@ class PromptItemWidget(QWidget):
             icon_name = icon_map.get(ai_key.lower() if ai_key else "", "fa5s.globe")
             try:
                 print(f"尝试使用qtawesome图标: {icon_name}")
-                icon = qta.icon(icon_name, color='#88C0D0')
+                default_color = icon_color # 使用传入的颜色
+                icon = qta.icon(icon_name, color=default_color) # 使用 default_color
                 print(f"成功加载qtawesome图标: {icon_name}")
             except Exception as e:
                 # 如果依然失败，使用最安全的图标
                 print(f"qtawesome图标加载失败: {e}")
-                icon = qta.icon("fa5s.globe", color='#88C0D0')
+                icon = qta.icon("fa5s.globe", color=default_color) # 使用 default_color
                 print("回退到默认图标: fa5s.globe")
         
         btn.setIcon(icon)
         btn.setToolTip(f"打开链接: {url}")
-        
-        # 使用与其他按钮相同的样式
-        btn.setStyleSheet(self.get_button_style())
         
         # 使用与其他按钮相同的大小
         btn.setFixedSize(QSize(20, 20))
@@ -387,7 +350,8 @@ class PromptItemWidget(QWidget):
             if url_key in prompt_data and prompt_data[url_key] and prompt_data[url_key].strip():
                 url = prompt_data[url_key]
                 print(f"调试 - {url_key}: {url}")
-                btn = self.create_ai_link_button(url)
+                # 传递当前图标颜色
+                btn = self.create_ai_link_button(url, icon_color='#D8DEE9')
                 self.icons_layout.addWidget(btn)
                 url_count += 1
         
@@ -409,7 +373,6 @@ class PromptItemWidget(QWidget):
         btn = QToolButton()
         btn.setIcon(qta.icon('fa5s.external-link-alt', color='#88C0D0'))
         btn.setToolTip("在AI视图中打开所有链接")
-        btn.setStyleSheet(self.get_button_style())
         btn.setFixedSize(QSize(20, 20))
         btn.setIconSize(QSize(16, 16))
         btn.clicked.connect(self.open_all_links)
@@ -469,31 +432,6 @@ class PromptItemWidget(QWidget):
         msg_box.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
         msg_box.setDefaultButton(QMessageBox.StandardButton.No)
         
-        # 设置对话框样式
-        msg_box.setStyleSheet("""
-            QMessageBox {
-                background-color: #2E3440;
-                color: #D8DEE9;
-            }
-            QLabel {
-                color: #E5E9F0;
-            }
-            QPushButton {
-                background-color: #4C566A;
-                color: #E5E9F0;
-                border: none;
-                border-radius: 4px;
-                padding: 6px 12px;
-                min-width: 80px;
-            }
-            QPushButton:hover {
-                background-color: #5E81AC;
-            }
-            QPushButton:pressed {
-                background-color: #81A1C1;
-            }
-        """)
-        
         # 显示对话框并获取用户选择
         response = msg_box.exec()
         
@@ -523,6 +461,59 @@ class PromptItemWidget(QWidget):
             print(f"请求总结AI回复，提示词ID: {prompt_id}")
             self.summarize_ai_responses.emit(prompt_id)
 
+    def update_icons(self):
+        print("PromptItemWidget: 更新图标颜色...")
+        icon_color = '#D8DEE9' # Default
+        if self.theme_manager:
+            theme_colors = self.theme_manager.get_current_theme_colors()
+            icon_color = theme_colors.get('foreground', icon_color)
+            
+        # 更新按钮图标颜色
+        self.send_btn.setIcon(qta.icon('fa5s.paper-plane', color=icon_color))
+        self.summarize_btn.setIcon(qta.icon('fa5s.chart-bar', color=icon_color))
+        self.delete_btn.setIcon(qta.icon('fa5s.trash-alt', color=icon_color))
+        
+        # 更新收藏按钮图标和颜色
+        is_favorite = self.prompt_data.get('favorite', False)
+        star_icon_name = 'fa5s.star' # 默认实心
+        star_color = icon_color # 默认颜色
+        if is_favorite:
+             star_color = theme_colors.get('warning', '#EBCB8B') if self.theme_manager else '#EBCB8B' # 收藏用黄色
+        else:
+            # 尝试空星图标
+            try:
+                qta.icon('fa.star-o')
+                star_icon_name = 'fa.star-o'
+            except Exception:
+                 try:
+                     qta.icon('mdi.star-outline')
+                     star_icon_name = 'mdi.star-outline'
+                 except Exception:
+                     # 使用灰色实心星
+                     star_color = theme_colors.get('tertiary_bg', '#4C566A') if self.theme_manager else '#4C566A'
+                     
+        self.favorite_btn.setIcon(qta.icon(star_icon_name, color=star_color))
+        
+        # 更新AI链接按钮图标颜色 (需要重新创建或遍历)
+        for i in range(self.icons_layout.count()):
+            widget = self.icons_layout.itemAt(i).widget()
+            if isinstance(widget, QToolButton) and hasattr(widget, 'property') and widget.property("url"): # 检查是否是AI链接按钮
+                # 重新创建按钮以更新颜色 (简单但可能低效)
+                # 或者直接更新图标颜色 (如果qtawesome支持)
+                # 尝试直接更新颜色
+                current_icon = widget.icon()
+                # 假设qta.icon返回的QIcon可以通过某种方式获取原始名称和选项
+                # 但标准QIcon没有这个功能，所以我们可能需要重新创建
+                url = widget.property("url")
+                # 重新创建按钮图标
+                new_btn = self.create_ai_link_button(url, icon_color=icon_color)
+                widget.setIcon(new_btn.icon()) # 只更新图标
+                new_btn.deleteLater() # 删除临时按钮
+            elif widget and widget.toolTip().startswith("在AI视图中打开所有链接"): # 更新打开所有按钮
+                 widget.setIcon(qta.icon('fa5s.external-link-alt', color=icon_color))
+                 
+        print("PromptItemWidget: 图标颜色更新完成")
+
 
 class PromptHistory(QWidget):
     """提示词历史记录组件"""
@@ -540,6 +531,19 @@ class PromptHistory(QWidget):
         self.db_manager = db_manager
         self.setup_ui()
         self.refresh_history()
+        
+        # 获取 ThemeManager 并连接信号 (PromptItemWidget会自行处理)
+        self.theme_manager = None
+        app = QApplication.instance()
+        if hasattr(app, 'theme_manager') and isinstance(app.theme_manager, ThemeManager):
+             self.theme_manager = app.theme_manager
+             self.theme_manager.theme_changed.connect(self._update_icons) # 更新自身图标
+             # QTimer.singleShot(0, self._update_icons) # 初始调用
+        else:
+             print("警告: PromptHistory 无法获取 ThemeManager")
+             # QTimer.singleShot(0, self._update_icons) # 尝试用默认色
+        # 初始调用放这里确保按钮已创建
+        QTimer.singleShot(0, self._update_icons)
     
     def setup_ui(self):
         """设置UI界面"""
@@ -555,54 +559,34 @@ class PromptHistory(QWidget):
         
         # 创建搜索框
         self.search_input = QLineEdit()
+        self.search_input.setObjectName("searchInput") # 添加 objectName
         self.search_input.setPlaceholderText("搜索历史记录...")
         self.search_input.textChanged.connect(self.search_history)
         toolbar.addWidget(self.search_input, 1)  # 搜索框占据大部分空间
         
         # 添加收藏过滤按钮 - 使用自定义图标
         self.favorite_filter_btn = QPushButton(self)
+        self.favorite_filter_btn.setObjectName("favoriteFilterBtn") # 添加 objectName
         
         # 创建星形图标
-        self.filter_star_normal = qta.icon('fa5s.star', color='#D8DEE9')  # 普通状态
-        self.filter_star_active = qta.icon('fa5s.star', color='#EBCB8B')  # 激活状态（黄色）
+        # self.filter_star_normal = qta.icon('fa5s.star', color='#D8DEE9') # 颜色动态
+        # self.filter_star_active = qta.icon('fa5s.star', color='#EBCB8B') # 颜色动态
         
-        self.favorite_filter_btn.setIcon(self.filter_star_normal)
+        # self.favorite_filter_btn.setIcon(self.filter_star_normal) # 初始在 _update_icons 设置
         self.favorite_filter_btn.setToolTip("显示收藏的提示词")
         self.favorite_filter_btn.setCheckable(True)
         self.favorite_filter_btn.clicked.connect(self.toggle_favorite_filter)
-        self.favorite_filter_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #2E3440;
-                border: 1px solid #3B4252;
-                border-radius: 4px;
-                padding: 4px;
-            }
-            QPushButton:checked {
-                background-color: #5E81AC;
-            }
-            QPushButton:hover {
-                background-color: #3B4252;
-            }
-        """)
+        # self.favorite_filter_btn.setStyleSheet(\"\"\" ... \"\"\") # 移除
         toolbar.addWidget(self.favorite_filter_btn)
         
         # 添加刷新按钮
-        refresh_btn = QPushButton(self)
-        refresh_btn.setIcon(qta.icon('fa5s.sync'))
-        refresh_btn.setToolTip("刷新历史记录")
-        refresh_btn.clicked.connect(self.refresh_history)
-        refresh_btn.setStyleSheet("""
-            QPushButton {
-                background-color: #2E3440;
-                border: 1px solid #3B4252;
-                border-radius: 4px;
-                padding: 4px;
-            }
-            QPushButton:hover {
-                background-color: #3B4252;
-            }
-        """)
-        toolbar.addWidget(refresh_btn)
+        self.refresh_btn = QPushButton(self)
+        self.refresh_btn.setObjectName("refreshBtn") # 添加 objectName
+        # self.refresh_btn.setIcon(qta.icon('fa5s.sync')) # 初始在 _update_icons 设置
+        self.refresh_btn.setToolTip("刷新历史记录")
+        self.refresh_btn.clicked.connect(self.refresh_history)
+        # self.refresh_btn.setStyleSheet(\"\"\" ... \"\"\") # 移除
+        toolbar.addWidget(self.refresh_btn)
         
         # 添加工具栏到主布局
         layout.addLayout(toolbar)
@@ -615,6 +599,7 @@ class PromptHistory(QWidget):
         
         # 创建容器小部件用于存放历史记录项
         self.content_widget = QWidget()
+        self.content_widget.setObjectName("contentWidget") # 添加 objectName
         self.content_layout = QVBoxLayout(self.content_widget)
         self.content_layout.setContentsMargins(10, 10, 10, 10)
         self.content_layout.setSpacing(8)  # 设置条目之间的间距
@@ -622,25 +607,6 @@ class PromptHistory(QWidget):
         
         self.scroll_area.setWidget(self.content_widget)
         layout.addWidget(self.scroll_area)
-        
-        # 设置样式
-        self.setStyleSheet("""
-            QLineEdit {
-                background-color: #2E3440;
-                color: #D8DEE9;
-                border: 1px solid #3B4252;
-                border-radius: 4px;
-                padding: 8px;
-            }
-            QScrollArea {
-                background-color: #2E3440;
-                border: none;
-            }
-            QWidget#content_widget {
-                background-color: #2E3440;
-            }
-        """)
-        self.content_widget.setObjectName("content_widget")
         
         # 初始化记录收藏过滤状态
         self.show_favorites_only = False
@@ -866,11 +832,13 @@ class PromptHistory(QWidget):
         """切换收藏过滤状态"""
         self.show_favorites_only = checked
         
-        # 根据状态切换图标颜色
-        if checked:
-            self.favorite_filter_btn.setIcon(self.filter_star_active)
-        else:
-            self.favorite_filter_btn.setIcon(self.filter_star_normal)
+        # 根据状态切换图标颜色（现在由 _update_icons 处理）
+        # if checked:
+        #     self.favorite_filter_btn.setIcon(self.filter_star_active)
+        # else:
+        #     self.favorite_filter_btn.setIcon(self.filter_star_normal)
+            
+        self._update_icons() # 调用更新确保按钮图标颜色正确
             
         self.refresh_history()
     
@@ -923,7 +891,6 @@ class PromptHistory(QWidget):
     
     def copy_prompt_to_clipboard(self, text):
         """复制提示词到剪贴板"""
-        from PyQt6.QtWidgets import QApplication
         QApplication.clipboard().setText(text)
     
     def on_open_all_urls(self, urls):
@@ -967,3 +934,26 @@ class PromptHistory(QWidget):
         
         # 转发请求到辅助窗口处理
         self.request_summarize_responses.emit(prompt_id)
+
+    def _update_icons(self):
+        print("PromptHistory: 更新自身图标颜色...")
+        icon_color = '#D8DEE9' # Default
+        active_color = '#EBCB8B' # Default Yellow for active filter
+        
+        if self.theme_manager:
+            theme_colors = self.theme_manager.get_current_theme_colors()
+            icon_color = theme_colors.get('foreground', icon_color)
+            active_color = theme_colors.get('warning', active_color)
+            
+        # 更新刷新按钮图标
+        if hasattr(self, 'refresh_btn'): # 需要保存引用
+            self.refresh_btn.setIcon(qta.icon('fa5s.sync', color=icon_color))
+            
+        # 更新收藏过滤按钮图标
+        if hasattr(self, 'favorite_filter_btn'):
+            if self.favorite_filter_btn.isChecked():
+                self.favorite_filter_btn.setIcon(qta.icon('fa5s.star', color=active_color))
+            else:
+                 self.favorite_filter_btn.setIcon(qta.icon('fa5s.star', color=icon_color))
+                 
+        print("PromptHistory: 自身图标颜色更新完成")

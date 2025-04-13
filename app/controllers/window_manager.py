@@ -290,34 +290,32 @@ class WindowManager(QObject):
             print("主窗口已显示")
     
     def apply_theme_to_windows(self):
-        """应用当前主题样式到所有窗口"""
+        """应用当前主题到主窗口和辅助窗口"""
+        # 获取主题管理器
         app = QApplication.instance()
-        
         if not hasattr(app, 'theme_manager'):
-            print("警告：未找到主题管理器")
+            print("警告：未找到主题管理器，无法更新窗口主题")
             return
             
-        # 获取当前主题样式
-        theme_colors = app.theme_manager.get_current_theme_colors()
-        is_dark = theme_colors['is_dark']
+        theme_manager = app.theme_manager
+        is_dark = theme_manager.current_theme == "dark"
         
-        # 更新最大化/还原按钮图标
-        if self.main_window and hasattr(self.main_window, 'maximize_button'):
-            import qtawesome as qta
-            icon_name = 'fa5s.window-restore' if self.main_window.isMaximized() else 'fa5s.window-maximize'
-            self.main_window.maximize_button.setIcon(qta.icon(icon_name))
+        # 应用基础主题到两个窗口（确保 QApplication 样式表应用）
+        # ThemeManager.apply_theme 已经处理了 QApplication 的 stylesheet
+        
+        # 更新主窗口的特定样式和图标
+        # MainWindow 内部应该有自己的方法来响应 theme_changed 信号
+        # 或者我们可以显式调用 (如果需要)
+        if hasattr(self.main_window, '_update_window_control_icons'):
+            self.main_window._update_window_control_icons()
+        if hasattr(self.main_window, 'update_tab_style'): # 更新标签页样式
+            self.main_window.update_tab_style()
             
-        if self.auxiliary_window and hasattr(self.auxiliary_window, 'maximize_button'):
-            import qtawesome as qta
-            icon_name = 'fa5s.window-restore' if self.auxiliary_window.isMaximized() else 'fa5s.window-maximize'
-            self.auxiliary_window.maximize_button.setIcon(qta.icon(icon_name))
-            
-        # 更新主题切换按钮图标
-        if self.main_window and hasattr(self.main_window, 'theme_button'):
-            self.main_window._update_theme_icon()
-            
-        if self.auxiliary_window and hasattr(self.auxiliary_window, 'theme_button'):
-            self.auxiliary_window._update_theme_icon()
+        # 更新辅助窗口的特定样式和图标
+        # AuxiliaryWindow 内部应该有自己的方法来响应 theme_changed 信号
+        if hasattr(self.auxiliary_window, '_update_aux_window_icons'):
+            # self.auxiliary_window._update_theme_icon() # 错误的方法名!
+            self.auxiliary_window._update_aux_window_icons() # 调用正确的方法
         
         # 打印主题切换状态
         print(f"已成功应用{'深色' if is_dark else '浅色'}主题到应用程序")

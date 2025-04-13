@@ -9,6 +9,9 @@ import qtawesome as qta
 from app.components.tab_manager import TabManager
 from app.components.ai_view import AIView
 from app.components.web_view import WebView
+from app.controllers.settings_manager import SettingsManager
+from app.controllers.theme_manager import ThemeManager
+from app.controllers.window_manager import WindowManager
 
 class MainWindow(QMainWindow):
     """主窗口类 - 管理多标签页和AI对话界面"""
@@ -19,7 +22,7 @@ class MainWindow(QMainWindow):
         self.setMinimumSize(1000, 600)
         
         # 设置无边框窗口
-        self.setWindowFlags(Qt.WindowType.FramelessWindowHint)
+        self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.Window)
         
         # 设置图标
         self.setWindowIcon(qta.icon('fa5s.robot', color='#88C0D0'))
@@ -59,29 +62,6 @@ class MainWindow(QMainWindow):
         self.close_button.clicked.connect(self.close)
         self.close_button.setObjectName("closeButton")
         
-        # 设置按钮样式
-        button_style = """
-            QPushButton {
-                background: transparent;
-                border: none;
-                padding: 8px 12px;
-                margin: 0;
-            }
-            QPushButton:hover {
-                background: #3B4252;
-            }
-        """
-        
-        self.close_button.setStyleSheet(button_style + """
-            QPushButton:hover {
-                background: #BF616A;
-            }
-        """)
-        
-        self.minimize_button.setStyleSheet(button_style)
-        self.maximize_button.setStyleSheet(button_style)
-        self.theme_button.setStyleSheet(button_style)
-        
         # 将窗口控制按钮添加到标签页右上角
         buttons_widget = QWidget()
         buttons_layout = QHBoxLayout(buttons_widget)
@@ -111,7 +91,13 @@ class MainWindow(QMainWindow):
         app = QApplication.instance()
         if hasattr(app, 'theme_manager'):
             app.theme_manager.theme_changed.connect(self.update_tab_style)
-    
+        
+        self.theme_manager = app.theme_manager
+
+        # 连接主题变化信号，用于更新窗口控制按钮图标
+        if self.theme_manager:
+            self.theme_manager.theme_changed.connect(self._update_window_control_icons)
+
     def create_default_ai_tab(self):
         """创建默认的AI对话标签页"""
         # 创建AI视图
@@ -137,10 +123,10 @@ class MainWindow(QMainWindow):
         """切换窗口最大化状态"""
         if self.isMaximized():
             self.showNormal()
-            self.maximize_button.setIcon(qta.icon('fa5s.window-maximize'))
+            self.maximize_button.setIcon(qta.icon('fa5s.window-restore'))
         else:
             self.showMaximized()
-            self.maximize_button.setIcon(qta.icon('fa5s.window-restore'))
+            self.maximize_button.setIcon(qta.icon('fa5s.window-maximize'))
     
     def mousePressEvent(self, event):
         """处理鼠标按下事件，用于窗口拖动"""
@@ -205,20 +191,44 @@ class MainWindow(QMainWindow):
             else:
                 print("无法访问主题管理器")
                 
-            self._update_theme_icon()
+            self._update_window_control_icons()
         except Exception as e:
-            print(f"切换主题出错: {e}")
+            print(f"Error toggling theme: {e}")
     
-    def _update_theme_icon(self):
-        """根据当前主题更新主题切换按钮图标"""
-        # 获取当前应用程序实例
-        app = QApplication.instance()
+    def _update_window_control_icons(self):
+        """更新所有窗口控制按钮的图标颜色"""
+        print("MainWindow: 接收到主题变化信号，正在更新窗口控制按钮图标...")
+        if not self.theme_manager:
+            print("警告: ThemeManager 未初始化，无法更新窗口控制按钮图标")
+            return
+            
+        theme_colors = self.theme_manager.get_current_theme_colors()
+        icon_color = theme_colors.get('foreground', '#D8DEE9') # 获取前景色
+        print(f"MainWindow: 当前主题图标颜色: {icon_color}")
         
-        if hasattr(app, 'theme_manager'):
-            is_dark = app.theme_manager.current_theme == "dark"
-            # 深色模式显示月亮图标，浅色模式显示太阳图标
-            self.theme_button.setIcon(qta.icon('fa5s.moon') if is_dark else qta.icon('fa5s.sun'))
-            self.theme_button.setToolTip("切换到浅色主题" if is_dark else "切换到深色主题") 
+        # 更新最小化按钮
+        if hasattr(self, 'minimize_button'):
+            self.minimize_button.setIcon(qta.icon("fa5s.window-minimize", color=icon_color))
+            
+        # 更新最大化/恢复按钮
+        if hasattr(self, 'maximize_button'):
+            if self.isMaximized():
+                self.maximize_button.setIcon(qta.icon("fa5s.window-restore", color=icon_color))
+            else:
+                self.maximize_button.setIcon(qta.icon("fa5s.window-maximize", color=icon_color))
+        
+        # 更新主题按钮
+        if hasattr(self, 'theme_button'):
+            if self.theme_manager.current_theme == "dark":
+                self.theme_button.setIcon(qta.icon("fa5s.moon", color=icon_color))
+            else:
+                self.theme_button.setIcon(qta.icon("fa5s.sun", color=icon_color))
+                
+        # 更新关闭按钮
+        if hasattr(self, 'close_button'):
+             self.close_button.setIcon(qta.icon("fa5s.times", color=icon_color))
+             
+        print("MainWindow: 窗口控制按钮图标更新完成。")
     
     def update_tab_style(self):
         """更新标签样式以匹配当前主题"""
@@ -227,12 +237,71 @@ class MainWindow(QMainWindow):
             self.tab_manager.update_style()
 
     def _update_theme_icon(self):
-        """根据当前主题更新主题切换按钮图标"""
-        # 获取当前应用程序实例
-        app = QApplication.instance()
+        """更新主题切换按钮的图标"""
+        # 这个方法的逻辑将被合并到 _update_window_control_icons
+        pass # 保留空方法或移除，并在调用处移除调用
         
-        if hasattr(app, 'theme_manager'):
-            is_dark = app.theme_manager.current_theme == "dark"
-            # 深色模式显示月亮图标，浅色模式显示太阳图标
-            self.theme_button.setIcon(qta.icon('fa5s.moon') if is_dark else qta.icon('fa5s.sun'))
-            self.theme_button.setToolTip("切换到浅色主题" if is_dark else "切换到深色主题") 
+        # app = QApplication.instance()
+        # icon_color = "#D8DEE9"
+        # if hasattr(app, 'theme_manager') and app.theme_manager.current_theme == "light":
+        #     icon_color = "#2E3440"
+            
+        # if self.theme_manager:
+        #     if self.theme_manager.current_theme == "dark":
+        #         self.theme_button.setIcon(qta.icon("fa5s.moon", color=icon_color))
+        #     else:
+        #         self.theme_button.setIcon(qta.icon("fa5s.sun", color=icon_color))
+        # else: # Fallback if theme_manager is not available
+        #      self.theme_button.setIcon(qta.icon("fa5s.moon", color=icon_color))
+
+    def _init_title_bar(self):
+        """初始化自定义标题栏"""
+        self.showMaximized()
+        
+        # 更新最大化/恢复按钮的图标
+        self._update_window_control_icons()
+        
+    def resizeEvent(self, event):
+        """窗口大小调整事件，用于更新按钮图标"""
+        super().resizeEvent(event)
+        # 更新最大化/恢复按钮图标（包含颜色）
+        self._update_window_control_icons()
+        
+    def _show_context_menu(self, position):
+        # 实现显示上下文菜单的逻辑
+        pass
+
+    def _update_window_control_icons(self):
+        """更新所有窗口控制按钮的图标颜色"""
+        print("MainWindow: 接收到主题变化信号，正在更新窗口控制按钮图标...")
+        if not self.theme_manager:
+            print("警告: ThemeManager 未初始化，无法更新窗口控制按钮图标")
+            return
+            
+        theme_colors = self.theme_manager.get_current_theme_colors()
+        icon_color = theme_colors.get('foreground', '#D8DEE9') # 获取前景色
+        print(f"MainWindow: 当前主题图标颜色: {icon_color}")
+        
+        # 更新最小化按钮
+        if hasattr(self, 'minimize_button'):
+            self.minimize_button.setIcon(qta.icon("fa5s.window-minimize", color=icon_color))
+            
+        # 更新最大化/恢复按钮
+        if hasattr(self, 'maximize_button'):
+            if self.isMaximized():
+                self.maximize_button.setIcon(qta.icon("fa5s.window-restore", color=icon_color))
+            else:
+                self.maximize_button.setIcon(qta.icon("fa5s.window-maximize", color=icon_color))
+        
+        # 更新主题按钮
+        if hasattr(self, 'theme_button'):
+            if self.theme_manager.current_theme == "dark":
+                self.theme_button.setIcon(qta.icon("fa5s.moon", color=icon_color))
+            else:
+                self.theme_button.setIcon(qta.icon("fa5s.sun", color=icon_color))
+                
+        # 更新关闭按钮
+        if hasattr(self, 'close_button'):
+             self.close_button.setIcon(qta.icon("fa5s.times", color=icon_color))
+             
+        print("MainWindow: 窗口控制按钮图标更新完成。") 
