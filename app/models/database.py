@@ -281,7 +281,7 @@ class DatabaseManager:
         return results
     
     def search_prompt_details(self, search_text, limit=50):
-        """搜索提示词详细信息
+        """搜索提示词和AI回复详细信息
         
         Args:
             search_text (str): 搜索文本
@@ -294,8 +294,18 @@ class DatabaseManager:
         
         search_pattern = f"%{search_text}%"
         cursor.execute(
-            "SELECT * FROM prompt_details WHERE prompt LIKE ? ORDER BY timestamp DESC LIMIT ?",
-            (search_pattern, limit)
+            """SELECT * FROM prompt_details 
+               WHERE prompt LIKE ? 
+               OR ai1_reply LIKE ? 
+               OR ai2_reply LIKE ? 
+               OR ai3_reply LIKE ? 
+               OR ai4_reply LIKE ? 
+               OR ai5_reply LIKE ? 
+               OR ai6_reply LIKE ? 
+               ORDER BY timestamp DESC LIMIT ?""",
+            (search_pattern, search_pattern, search_pattern, 
+             search_pattern, search_pattern, search_pattern, 
+             search_pattern, limit)
         )
         
         results = []

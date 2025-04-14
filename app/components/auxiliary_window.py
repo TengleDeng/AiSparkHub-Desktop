@@ -525,7 +525,9 @@ class AuxiliaryWindow(QMainWindow):
         self.tabs.currentChanged.connect(self._check_tab_close_buttons)
         
         # 创建提示词输入
-        self.prompt_input = PromptInput()
+        self.prompt_input = PromptInput(self)
+        # 传递数据库管理器
+        self.prompt_input.db_manager = self.db_manager
         
         # 添加提示词标签页（不可关闭）
         prompt_idx = self.tabs.addTab(self.prompt_input, qta.icon('fa5s.keyboard', color='#81A1C1'), "提示词")
