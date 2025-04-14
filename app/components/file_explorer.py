@@ -289,8 +289,8 @@ class FileExplorer(QWidget):
         """设置树形视图的文件系统模型"""
         # 创建文件系统模型
         model = QFileSystemModel()
-        # 减少文件系统监视以提高性能
-        model.setOption(QFileSystemModel.Option.DontWatchForChanges, True)
+        # 允许监视文件系统变化，以便自动更新视图
+        # model.setOption(QFileSystemModel.Option.DontWatchForChanges, True)
         model.setRootPath(path)
         model.setFilter(QDir.AllEntries | QDir.NoDotAndDotDot)
         
@@ -308,7 +308,27 @@ class FileExplorer(QWidget):
         tree_view.setHeaderHidden(True)
         for i in range(1, model.columnCount()):
             tree_view.hideColumn(i)
+            
+        # 保存model引用到tree_view中，以便后续访问
+        tree_view.setProperty("file_model", model)
     
+    def refresh_current_view(self):
+        """刷新当前活动的文件视图"""
+        if self.tab_widget.count() == 0 or self.tab_widget.currentIndex() == self.plus_tab_index:
+            return
+            
+        current_tree_view = self.tab_widget.currentWidget()
+        if not isinstance(current_tree_view, QTreeView):
+            return
+            
+        # 获取模型并刷新
+        model = current_tree_view.model()
+        if isinstance(model, QFileSystemModel):
+            current_path = model.rootPath()
+            model.setRootPath("")  # 重置路径
+            model.setRootPath(current_path)  # 重新设置路径，触发刷新
+            print(f"已刷新文件视图: {current_path}")
+
     def add_folder(self):
         """添加新文件夹到浏览器"""
         folder_path = QFileDialog.getExistingDirectory(self, "选择文件夹")
@@ -390,6 +410,10 @@ class FileExplorer(QWidget):
             
         menu = QMenu()
         
+        # 添加"使用默认应用打开"选项
+        open_action = menu.addAction("使用默认应用打开")
+        open_action.triggered.connect(lambda: self.open_with_default_app(file_path))
+        
         # 对于可查看的文件类型，添加"查看文件"选项
         if os.path.isfile(file_path):
             _, ext = os.path.splitext(file_path.lower())
@@ -410,37 +434,149 @@ class FileExplorer(QWidget):
                 menu.addSeparator()
         
         # 添加"在资源管理器中显示"选项
-        show_action = menu.addAction("在文件资源管理器中显示")
+        show_action = menu.addAction("在系统资源管理器中显示")
         show_action.triggered.connect(lambda: self.open_in_explorer(file_path))
+        
+        # 添加"重命名"选项
+        rename_action = menu.addAction("重命名")
+        rename_action.triggered.connect(lambda: self.rename_file(file_path, tree_view, index))
+        
+        # 添加"删除"选项
+        delete_action = menu.addAction("删除")
+        delete_action.triggered.connect(lambda: self.delete_file(file_path))
         
         if menu.actions():
             menu.exec(tree_view.viewport().mapToGlobal(position))
     
+    def open_with_default_app(self, path):
+        """使用系统默认应用打开文件"""
+        import subprocess
+        import platform
+        
+        try:
+            if platform.system() == "Windows":
+                os.startfile(path)
+            elif platform.system() == "Darwin":  # macOS
+                subprocess.run(['open', path])
+            else:  # Linux
+                subprocess.run(['xdg-open', path])
+                
+            print(f"已使用默认应用打开: {path}")
+        except Exception as e:
+            print(f"无法打开文件: {str(e)}")
+            QMessageBox.warning(self, "打开失败", f"无法使用默认应用打开文件: {str(e)}")
+            
     def open_in_explorer(self, path):
         """在系统文件管理器中打开指定路径"""
         import subprocess
         import platform
         
-        if platform.system() == "Windows":
-            # Windows系统
-            if os.path.isfile(path):
-                # 如果是文件，打开所在文件夹并选中该文件
-                subprocess.run(['explorer', '/select,', path])
-            else:
-                # 如果是文件夹，直接打开
-                subprocess.run(['explorer', path])
-        elif platform.system() == "Darwin":
-            # macOS系统
-            subprocess.run(['open', '-R', path])
-        else:
-            # Linux系统，尝试使用xdg-open
-            try:
+        try:
+            path = os.path.normpath(path)  # 规范化路径
+            print(f"尝试在文件资源管理器中打开: {path}")
+            
+            if platform.system() == "Windows":
+                # Windows系统
                 if os.path.isfile(path):
-                    subprocess.run(['xdg-open', os.path.dirname(path)])
+                    # 如果是文件，打开所在文件夹并选中该文件
+                    # 注意这里/select,后面不应该有空格，且路径需要完整的字符串形式
+                    subprocess.Popen(f'explorer /select,"{path}"')
                 else:
-                    subprocess.run(['xdg-open', path])
-            except FileNotFoundError:
-                pass
+                    # 如果是文件夹，直接打开
+                    subprocess.Popen(f'explorer "{path}"')
+            elif platform.system() == "Darwin":
+                # macOS系统
+                subprocess.run(['open', '-R', path])
+            else:
+                # Linux系统，尝试使用xdg-open
+                try:
+                    if os.path.isfile(path):
+                        subprocess.run(['xdg-open', os.path.dirname(path)])
+                    else:
+                        subprocess.run(['xdg-open', path])
+                except FileNotFoundError:
+                    pass
+        except Exception as e:
+            print(f"打开文件资源管理器失败: {e}")
+            QMessageBox.warning(self, "错误", f"无法在文件资源管理器中显示: {str(e)}")
+    
+    def rename_file(self, file_path, tree_view, index):
+        """重命名文件或文件夹"""
+        if not os.path.exists(file_path):
+            QMessageBox.warning(self, "错误", "文件或文件夹不存在")
+            return
+            
+        # 获取文件名和路径
+        file_name = os.path.basename(file_path)
+        dir_path = os.path.dirname(file_path)
+        
+        # 弹出重命名对话框
+        from PyQt6.QtWidgets import QInputDialog
+        new_name, ok = QInputDialog.getText(
+            self, "重命名", "请输入新名称:", text=file_name
+        )
+        
+        if ok and new_name and new_name != file_name:
+            new_path = os.path.join(dir_path, new_name)
+            
+            # 检查新名称的文件是否已存在
+            if os.path.exists(new_path):
+                QMessageBox.warning(self, "错误", f"文件 '{new_name}' 已存在")
+                return
+                
+            try:
+                # 重命名文件
+                os.rename(file_path, new_path)
+                
+                # 刷新视图
+                model = tree_view.model()
+                if isinstance(model, QFileSystemModel):
+                    # 强制刷新当前目录
+                    parent_dir = os.path.dirname(file_path)
+                    model.setRootPath("")
+                    model.setRootPath(model.rootPath())
+                    
+                    # 获取父目录的索引并刷新
+                    parent_index = model.index(parent_dir)
+                    if parent_index.isValid():
+                        # 通知模型数据已更改
+                        model.directoryLoaded.emit(parent_dir)
+                
+                print(f"已重命名: {file_path} -> {new_path}")
+            except Exception as e:
+                QMessageBox.warning(self, "重命名失败", f"无法重命名文件: {str(e)}")
+                
+    def delete_file(self, file_path):
+        """删除文件或文件夹"""
+        if not os.path.exists(file_path):
+            QMessageBox.warning(self, "错误", "文件或文件夹不存在")
+            return
+            
+        # 确认对话框
+        msg_text = "文件夹" if os.path.isdir(file_path) else "文件"
+        reply = QMessageBox.question(
+            self, "确认删除", 
+            f"确定要删除此{msg_text}吗?\n{os.path.basename(file_path)}",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+        )
+        
+        if reply == QMessageBox.StandardButton.Yes:
+            try:
+                # 保存父目录路径以便之后刷新
+                parent_dir = os.path.dirname(file_path)
+                
+                if os.path.isdir(file_path):
+                    import shutil
+                    shutil.rmtree(file_path)
+                else:
+                    os.remove(file_path)
+                
+                # 刷新当前视图
+                self.refresh_current_view()
+                
+                print(f"已删除: {file_path}")
+            except Exception as e:
+                QMessageBox.warning(self, "删除失败", f"无法删除{msg_text}: {str(e)}")
     
     def remove_tab(self, index):
         """移除指定的选项卡"""
