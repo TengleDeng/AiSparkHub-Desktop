@@ -6,7 +6,7 @@
 # 用于管理和同步提示词到主窗口的 AI 对话页面。
 
 from PyQt6.QtWidgets import QMainWindow, QWidget, QHBoxLayout, QPushButton, QVBoxLayout, QLabel, QSplitter, QFrame, QToolBar, QStackedWidget, QTabWidget, QApplication, QMessageBox, QSizePolicy
-from PyQt6.QtCore import Qt, QPoint, pyqtSignal, QSize, QTimer, QUrl
+from PyQt6.QtCore import Qt, QPoint, pyqtSignal, QSize, QTimer, QUrl, QSettings
 from PyQt6.QtGui import QIcon
 import qtawesome as qta
 import os
@@ -259,6 +259,12 @@ class AuxiliaryWindow(QMainWindow):
         QTimer.singleShot(500, self.load_search_page)
         # 在 __init__ 末尾调用一次图标更新，确保初始状态正确
         QTimer.singleShot(0, self._update_aux_window_icons)
+        
+        # 加载存储的分割器位置
+        QTimer.singleShot(300, self.load_splitter_sizes)
+        
+        # 监听分割器位置变化并保存
+        self.splitter.splitterMoved.connect(self.save_splitter_sizes)
     
     def start_local_server(self):
         """启动本地HTTP服务器，以便加载本地HTML文件"""
@@ -640,6 +646,9 @@ class AuxiliaryWindow(QMainWindow):
     
     def closeEvent(self, event):
         """处理窗口关闭事件"""
+        # 保存分割器位置
+        self.save_splitter_sizes()
+        
         # 关闭HTTP服务器
         if hasattr(self, 'server') and self.server:
             try:
@@ -1530,3 +1539,31 @@ class AuxiliaryWindow(QMainWindow):
                  print(f"AuxiliaryWindow: 刷新 PromptHistory 样式时出错: {e}")
                  
         print("AuxiliaryWindow: 图标和样式更新完成。") 
+
+    def load_splitter_sizes(self):
+        """加载保存的分割器位置"""
+        settings = QSettings("AiSparkHub", "AiSparkHub-Desktop")
+        if settings.contains("auxiliary_window/splitter_sizes"):
+            # 从设置中获取保存的尺寸
+            sizes = settings.value("auxiliary_window/splitter_sizes")
+            
+            # 确保正确转换为整数列表
+            if isinstance(sizes, list) and len(sizes) == 3:
+                try:
+                    # QSettings可能会将值存储为字符串或其他类型，确保转换为整数
+                    int_sizes = [int(size) for size in sizes]
+                    self.splitter.setSizes(int_sizes)
+                    print(f"已加载分割器位置: {int_sizes}")
+                except (ValueError, TypeError) as e:
+                    print(f"转换分割器尺寸时出错: {e}")
+    
+    def save_splitter_sizes(self, pos=None, index=None):
+        """保存分割器位置"""
+        # 参数pos和index是splitterMoved信号传递的，但我们不需要它们
+        sizes = self.splitter.sizes()
+        
+        # 只有当所有尺寸都合理时才保存
+        if all(size > 0 for size in sizes):
+            settings = QSettings("AiSparkHub", "AiSparkHub-Desktop")
+            settings.setValue("auxiliary_window/splitter_sizes", sizes)
+            print(f"已保存分割器位置: {sizes}") 
