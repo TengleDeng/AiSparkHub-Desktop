@@ -4,14 +4,46 @@
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QTreeView, QHeaderView, 
                            QToolBar, QFileDialog, QPushButton, QHBoxLayout, 
                            QListWidget, QStackedWidget, QSplitter, QLabel,
-                           QMenu, QTabWidget, QAbstractItemView, QScrollBar, QFrame, QSizePolicy)
-from PyQt6.QtCore import Qt, QDir, QModelIndex, pyqtSignal, QSettings, QSize, QTimer, QUrl, QMimeData
+                           QMenu, QTabWidget, QAbstractItemView, QScrollBar, QFrame, QSizePolicy,
+                           QMessageBox)
+from PyQt6.QtCore import Qt, QDir, QModelIndex, pyqtSignal, QSettings, QSize, QTimer, QUrl, QMimeData, QThread
 from PyQt6.QtGui import QFileSystemModel, QIcon, QAction, QDrag
 import qtawesome as qta
 import os
 import json
 from PyQt6.QtWidgets import QApplication
 from app.controllers.theme_manager import ThemeManager
+
+# 文件扫描线程
+class ScanThread(QThread):
+    scan_complete = pyqtSignal(dict)
+    progress_update = pyqtSignal(int, int)  # 当前进度、总数
+    
+    def __init__(self, pkm_folder):
+        super().__init__()
+        self.pkm_folder = pkm_folder
+        
+    def run(self):
+        # 在线程内创建新的数据库管理器实例
+        from app.models.database import DatabaseManager
+        db_manager = DatabaseManager()
+        
+        # 设置PKM文件夹路径
+        db_manager.pkm_folder = self.pkm_folder
+        
+        # 先统计文件总数
+        total_files = 0
+        for root, dirs, files in os.walk(self.pkm_folder):
+            for file in files:
+                if file.lower().endswith('.md'):
+                    total_files += 1
+        
+        # 发送初始进度
+        self.progress_update.emit(0, total_files)
+        
+        # 执行数据库扫描
+        result = db_manager.scan_pkm_folder(progress_callback=self.progress_update.emit)
+        self.scan_complete.emit(result)
 
 class DraggableTreeView(QTreeView):
     """支持拖动的树形视图"""
@@ -96,6 +128,7 @@ class FileExplorer(QWidget):
         self.bottom_toolbar = None
         self.index_action = None
         self.kbflow_action = None
+        self.pkm_db_action = None
         self.plus_tab_index = -1
         
         self.load_settings()
@@ -155,6 +188,12 @@ class FileExplorer(QWidget):
         self.index_action.setToolTip("文件索引")
         self.index_action.triggered.connect(self.show_index)
         self.bottom_toolbar.addAction(self.index_action)
+        
+        # 添加PKM数据库按钮
+        self.pkm_db_action = QAction(qta.icon('fa5s.brain'), "PKM数据库", self)
+        self.pkm_db_action.setToolTip("PKM文件数据库")
+        self.pkm_db_action.triggered.connect(self.show_pkm_database)
+        self.bottom_toolbar.addAction(self.pkm_db_action)
         
         # 添加空白间隔填充工具栏右侧
         spacer = QWidget()
@@ -480,6 +519,10 @@ class FileExplorer(QWidget):
         if hasattr(self, 'kbflow_action') and self.kbflow_action:
             self.kbflow_action.setIcon(qta.icon('fa5s.book', color=icon_color))
         
+        # 更新PKM数据库按钮图标
+        if hasattr(self, 'pkm_db_action') and self.pkm_db_action:
+            self.pkm_db_action.setIcon(qta.icon('fa5s.brain', color=icon_color))
+        
         # 更新工具栏样式
         self.bottom_toolbar.setStyleSheet(f"""
             QToolBar {{
@@ -642,4 +685,294 @@ class FileExplorer(QWidget):
             print(f"启动知识库工具: {tool_path}")
         except Exception as e:
             print(f"启动知识库工具失败: {e}")
-        
+
+    def show_pkm_database(self):
+        """显示PKM数据库设置和管理界面"""
+        try:
+            # 导入数据库管理器
+            from app.models.database import DatabaseManager
+            from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, 
+                                        QPushButton, QFileDialog, QProgressBar, 
+                                        QLineEdit, QTextEdit, QCheckBox)
+            from PyQt6.QtCore import QThread, pyqtSignal
+            
+            # 创建设置对话框
+            dialog = QDialog(self)
+            dialog.setWindowTitle("PKM数据库设置")
+            dialog.resize(600, 450)
+            
+            # 创建对话框布局
+            layout = QVBoxLayout(dialog)
+            
+            # 创建数据库管理器实例
+            db_manager = DatabaseManager()
+            
+            # 添加文件夹路径显示和选择控件
+            folder_layout = QHBoxLayout()
+            folder_layout.addWidget(QLabel("监控文件夹:"))
+            
+            folder_path = QLineEdit()
+            folder_path.setReadOnly(True)
+            if db_manager.pkm_folder:
+                folder_path.setText(db_manager.pkm_folder)
+            folder_layout.addWidget(folder_path, 1)
+            
+            browse_button = QPushButton("浏览...")
+            browse_button.clicked.connect(lambda: self._select_pkm_folder(folder_path, db_manager))
+            folder_layout.addWidget(browse_button)
+            
+            layout.addLayout(folder_layout)
+            
+            # 添加监控开关
+            monitor_layout = QHBoxLayout()
+            monitor_checkbox = QCheckBox("启用实时文件监控")
+            monitor_checkbox.setChecked(True)  # 默认启用
+            monitor_checkbox.setToolTip("启用后，会自动监控文件变化并更新数据库")
+            
+            # 连接监控开关信号
+            monitor_checkbox.stateChanged.connect(
+                lambda state: self._toggle_file_monitoring(state, db_manager, status_text)
+            )
+            
+            monitor_layout.addWidget(monitor_checkbox)
+            layout.addLayout(monitor_layout)
+            
+            # 添加扫描按钮和状态显示
+            scan_layout = QHBoxLayout()
+            scan_button = QPushButton("扫描文件夹")
+            scan_button.clicked.connect(lambda: self._scan_pkm_folder(db_manager, status_text, progress_bar, scan_button))
+            scan_layout.addWidget(scan_button)
+            
+            progress_bar = QProgressBar()
+            progress_bar.setTextVisible(True)
+            progress_bar.setRange(0, 100)
+            progress_bar.setValue(0)
+            scan_layout.addWidget(progress_bar)
+            
+            layout.addLayout(scan_layout)
+            
+            # 添加搜索功能
+            search_layout = QHBoxLayout()
+            search_layout.addWidget(QLabel("搜索:"))
+            
+            search_input = QLineEdit()
+            search_input.setPlaceholderText("输入搜索内容...")
+            search_layout.addWidget(search_input, 1)
+            
+            search_button = QPushButton("搜索")
+            search_button.clicked.connect(
+                lambda: self._search_pkm_files(db_manager, search_input.text(), status_text)
+            )
+            search_layout.addWidget(search_button)
+            
+            layout.addLayout(search_layout)
+            
+            # 添加状态文本显示区域
+            status_text = QTextEdit()
+            status_text.setReadOnly(True)
+            status_text.setPlaceholderText("操作结果将显示在这里...")
+            layout.addWidget(status_text)
+            
+            # 连接文件监控器的信号到状态显示
+            if hasattr(db_manager, 'file_watcher'):
+                db_manager.file_watcher.file_added.connect(
+                    lambda path: status_text.append(f"文件已添加: {os.path.basename(path)}")
+                )
+                db_manager.file_watcher.file_modified.connect(
+                    lambda path: status_text.append(f"文件已更新: {os.path.basename(path)}")
+                )
+                db_manager.file_watcher.file_deleted.connect(
+                    lambda path: status_text.append(f"文件已删除: {os.path.basename(path)}")
+                )
+                db_manager.file_watcher.scan_completed.connect(
+                    lambda result: self._handle_scan_result(result, status_text, progress_bar, scan_button)
+                )
+            
+            # 添加关闭按钮
+            close_button = QPushButton("关闭")
+            close_button.clicked.connect(dialog.accept)
+            layout.addWidget(close_button)
+            
+            # 定义对话框关闭处理
+            def on_dialog_closed():
+                # 停止任何正在运行的扫描线程
+                if hasattr(self, 'scan_thread') and self.scan_thread.isRunning():
+                    self.scan_thread.terminate()
+                    self.scan_thread.wait()
+                    print("对话框关闭，扫描线程已终止")
+            
+            # 连接对话框关闭信号
+            dialog.finished.connect(on_dialog_closed)
+            
+            # 显示对话框
+            dialog.exec()
+            
+        except Exception as e:
+            QMessageBox.critical(self, "错误", f"打开PKM数据库设置出错: {str(e)}")
+    
+    def _select_pkm_folder(self, folder_path_field, db_manager):
+        """选择PKM文件夹"""
+        try:
+            # 获取当前设置的文件夹（如果有）
+            start_dir = db_manager.pkm_folder if db_manager.pkm_folder else ""
+            
+            # 打开文件夹选择对话框
+            folder = QFileDialog.getExistingDirectory(
+                self, "选择PKM文件夹", start_dir,
+                QFileDialog.Option.ShowDirsOnly | QFileDialog.Option.DontResolveSymlinks
+            )
+            
+            # 如果用户选择了文件夹，更新设置
+            if folder:
+                # 保存设置
+                if db_manager.save_pkm_settings(folder):
+                    folder_path_field.setText(folder)
+                    QMessageBox.information(self, "成功", "PKM文件夹设置已保存")
+                else:
+                    QMessageBox.warning(self, "警告", "无法保存PKM文件夹设置")
+                    
+        except Exception as e:
+            QMessageBox.critical(self, "错误", f"选择PKM文件夹出错: {str(e)}")
+    
+    def _scan_pkm_folder(self, db_manager, status_text, progress_bar, scan_button):
+        """扫描PKM文件夹，更新数据库"""
+        try:
+            # 检查是否已设置文件夹
+            if not db_manager.pkm_folder:
+                QMessageBox.warning(self, "警告", "请先选择PKM文件夹")
+                return
+                
+            # 禁用扫描按钮，避免重复点击
+            scan_button.setEnabled(False)
+            
+            # 重置进度条和状态
+            progress_bar.setValue(0)
+            status_text.clear()
+            status_text.append("开始扫描文件夹...")
+            
+            # 创建线程实例
+            self.scan_thread = ScanThread(db_manager.pkm_folder)
+            
+            # 连接进度更新信号
+            self.scan_thread.progress_update.connect(
+                lambda current, total: self._update_scan_progress(current, total, progress_bar, status_text)
+            )
+            
+            # 连接完成信号
+            self.scan_thread.scan_complete.connect(
+                lambda result: self._handle_scan_result(result, status_text, progress_bar, scan_button)
+            )
+            
+            # 设置进度条初始值
+            progress_bar.setRange(0, 100)
+            progress_bar.setValue(0)
+            
+            # 启动线程
+            self.scan_thread.start()
+            
+        except Exception as e:
+            scan_button.setEnabled(True)
+            progress_bar.setRange(0, 100)
+            progress_bar.setValue(0)
+            status_text.append(f"扫描出错: {str(e)}")
+            QMessageBox.critical(self, "错误", f"扫描PKM文件夹出错: {str(e)}")
+            
+    def _update_scan_progress(self, current, total, progress_bar, status_text):
+        """更新扫描进度"""
+        try:
+            if not progress_bar or not progress_bar.isVisible():
+                return
+                
+            if total <= 0:
+                progress_bar.setValue(0)
+                return
+                
+            # 计算百分比并更新进度条
+            percent = min(int(current * 100 / total), 100)
+            progress_bar.setValue(percent)
+            
+            # 更新状态文本
+            if current == 0:
+                status_text.append(f"准备扫描 {total} 个Markdown文件...")
+            elif current == total:
+                status_text.append(f"已完成所有 {total} 个文件扫描 (100%)")
+            elif current % 20 == 0 or current == 1:  # 第一个文件和每20个文件更新一次信息
+                status_text.append(f"正在扫描: {current}/{total} 文件 ({percent}%)")
+                # 确保滚动到底部
+                status_text.verticalScrollBar().setValue(status_text.verticalScrollBar().maximum())
+                
+            # 处理QT事件，确保UI响应
+            QApplication.processEvents()
+                
+        except Exception as e:
+            print(f"更新进度条出错: {e}")
+    
+    def _handle_scan_result(self, result, status_text, progress_bar, scan_button):
+        """处理扫描结果"""
+        try:
+            # 检查UI组件是否仍然有效
+            if not progress_bar or not progress_bar.isVisible() or not status_text or not scan_button:
+                print("UI组件已关闭，无法显示结果")
+                return
+                
+            # 恢复进度条状态
+            progress_bar.setRange(0, 100)
+            progress_bar.setValue(100)
+            
+            # 显示扫描结果
+            if 'error' in result and result['error']:
+                status_text.append(f"扫描失败: {result['error']}")
+            else:
+                status_text.append(f"扫描完成:")
+                status_text.append(f"- 添加了 {result['added']} 个文件")
+                status_text.append(f"- 更新了 {result['updated']} 个文件")
+                status_text.append(f"- 删除了 {result['deleted']} 个文件")
+                
+            # 重新启用扫描按钮
+            scan_button.setEnabled(True)
+        except RuntimeError:
+            # 捕获C++对象已删除错误
+            print("UI组件已被销毁，无法更新界面")
+        except Exception as e:
+            print(f"处理扫描结果出错: {e}")
+    
+    def _toggle_file_monitoring(self, state, db_manager, status_text):
+        """切换文件监控状态"""
+        try:
+            if not hasattr(db_manager, 'file_watcher') or not db_manager.pkm_folder:
+                status_text.append("请先设置PKM文件夹")
+                return
+                
+            if state:  # 启用监控
+                if db_manager.file_watcher.start_monitoring(db_manager.pkm_folder):
+                    status_text.append("已启用文件监控")
+                else:
+                    status_text.append("启用文件监控失败")
+            else:  # 禁用监控
+                db_manager.file_watcher.stop_monitoring()
+                status_text.append("已禁用文件监控")
+        except Exception as e:
+            status_text.append(f"切换监控状态出错: {str(e)}")
+    
+    def _search_pkm_files(self, db_manager, query, status_text):
+        """搜索PKM文件"""
+        try:
+            if not query.strip():
+                status_text.append("请输入搜索内容")
+                return
+                
+            status_text.append(f"搜索: {query}")
+            results = db_manager.search_pkm_files(query)
+            
+            if not results:
+                status_text.append("未找到匹配的文件")
+                return
+                
+            status_text.append(f"找到 {len(results)} 个匹配文件:")
+            for result in results:
+                title = result.get('title', result.get('file_name', '未知标题'))
+                status_text.append(f"- {title} ({os.path.basename(result['file_path'])})")
+                
+        except Exception as e:
+            status_text.append(f"搜索出错: {str(e)}")
+            
