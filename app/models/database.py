@@ -15,6 +15,7 @@ import time
 from urllib.parse import urlparse
 import hashlib
 from PyQt6.QtCore import QObject, QFileSystemWatcher, pyqtSignal
+from watchdog.observers import Observer
 
 class PKMFileWatcher(QObject):
     """PKM文件监控类，监控MD文件的变化"""
@@ -52,41 +53,43 @@ class PKMFileWatcher(QObject):
         self.file_modified.connect(self._on_file_modified)
         self.file_deleted.connect(self._on_file_deleted)
     
-    def start_monitoring(self, folder_path):
+    def start_monitoring(self, folders):
         """开始监控文件夹
         
         Args:
-            folder_path: 要监控的文件夹路径
-        
+            folders: 要监控的文件夹路径列表
+            
         Returns:
-            bool: 是否成功启动监控
+            bool: 成功返回True，失败返回False
         """
-        if not folder_path or not os.path.exists(folder_path):
-            print(f"无法监控不存在的文件夹: {folder_path}")
-            return False
-        
         try:
-            # 停止现有监控
-            self.stop_monitoring()
+            # 如果已经在监控，先停止
+            if self.watcher.directories() or self.watcher.files():
+                self.stop_monitoring()
             
             # 添加根目录到监控列表
-            self.watcher.addPath(folder_path)
-            
-            # 递归添加所有子目录
-            for root, dirs, files in os.walk(folder_path):
-                # 添加目录到监控
-                for dir_name in dirs:
-                    dir_path = os.path.join(root, dir_name)
-                    self.watcher.addPath(dir_path)
+            for folder in folders:
+                if not folder or not os.path.exists(folder):
+                    print(f"无法监控不存在的文件夹: {folder}")
+                    continue
                 
-                # 记录所有Markdown文件
-                for file_name in files:
-                    if file_name.lower().endswith('.md'):
-                        file_path = os.path.join(root, file_name)
-                        self.known_files.add(file_path)
-                        self.watcher.addPath(file_path)
+                self.watcher.addPath(folder)
+                
+                # 递归添加所有子目录
+                for root, dirs, files in os.walk(folder):
+                    # 添加目录到监控
+                    for dir_name in dirs:
+                        dir_path = os.path.join(root, dir_name)
+                        self.watcher.addPath(dir_path)
+                    
+                    # 记录所有Markdown文件
+                    for file_name in files:
+                        if file_name.lower().endswith('.md'):
+                            file_path = os.path.join(root, file_name)
+                            self.known_files.add(file_path)
+                            self.watcher.addPath(file_path)
             
-            print(f"开始监控文件夹: {folder_path}")
+            print(f"开始监控文件夹: {folders}")
             print(f"共监控 {len(self.watcher.directories())} 个目录和 {len(self.watcher.files())} 个文件")
             return True
             
@@ -261,14 +264,20 @@ class DatabaseManager:
             
         # PKM文件监控文件夹路径
         self.pkm_folder = None
+        self.pkm_folders = []
         self.load_pkm_settings()
         
         # 创建文件监控器
         self.file_watcher = PKMFileWatcher(self)
         
         # 如果已配置PKM文件夹，启动监控
-        if self.pkm_folder and os.path.exists(self.pkm_folder):
-            self.file_watcher.start_monitoring(self.pkm_folder)
+        if self.pkm_folders:
+            for folder in self.pkm_folders:
+                if os.path.exists(folder):
+                    self.file_watcher.start_monitoring([folder])
+        elif self.pkm_folder and os.path.exists(self.pkm_folder):
+            # 兼容旧版本单文件夹配置
+            self.file_watcher.start_monitoring([self.pkm_folder])
     
     def _get_data_directory(self):
         """获取应用数据目录
@@ -345,6 +354,15 @@ class DatabaseManager:
             created_at INTEGER NOT NULL,
             updated_at INTEGER NOT NULL,
             tags TEXT DEFAULT ''
+        )
+        ''')
+        
+        # 创建PKM文件夹表，用于存储多个监控文件夹
+        cursor.execute('''
+        CREATE TABLE IF NOT EXISTS pkm_folders (
+            id TEXT PRIMARY KEY,
+            folder_path TEXT NOT NULL,
+            added_at INTEGER NOT NULL
         )
         ''')
         
@@ -804,13 +822,42 @@ class DatabaseManager:
                 with open(config_file, 'r', encoding='utf-8') as f:
                     settings = json.load(f)
                     self.pkm_folder = settings.get('pkm_folder', None)
-                    print(f"已加载PKM文件夹设置: {self.pkm_folder}")
+                    self.pkm_folders = settings.get('pkm_folders', [])
+                    
+                    # 兼容旧版本：如果有pkm_folder但没有pkm_folders，将pkm_folder添加到pkm_folders
+                    if self.pkm_folder and not self.pkm_folders:
+                        self.pkm_folders = [self.pkm_folder]
+                        
+                    # 加载数据库中保存的文件夹
+                    if self.conn:
+                        try:
+                            cursor = self.conn.cursor()
+                            cursor.execute("SELECT folder_path FROM pkm_folders")
+                            rows = cursor.fetchall()
+                            db_folders = [row['folder_path'] for row in rows]
+                            
+                            # 确保所有数据库中的文件夹都在pkm_folders中
+                            for folder in db_folders:
+                                if folder not in self.pkm_folders:
+                                    self.pkm_folders.append(folder)
+                        except:
+                            pass
+                    
+                    print(f"已加载PKM文件夹设置: {len(self.pkm_folders)}个文件夹")
         except Exception as e:
             print(f"加载PKM设置出错: {e}")
             self.pkm_folder = None
+            self.pkm_folders = []
     
-    def save_pkm_settings(self, pkm_folder):
-        """保存PKM文件夹设置"""
+    def save_pkm_settings(self, pkm_folders):
+        """保存PKM文件夹设置
+        
+        Args:
+            pkm_folders (list): PKM文件夹路径列表
+            
+        Returns:
+            bool: 是否保存成功
+        """
         try:
             # 获取数据库所在目录的父目录作为配置目录
             db_dir = self._get_data_directory()
@@ -823,16 +870,38 @@ class DatabaseManager:
             config_file = os.path.join(config_dir, "pkm_settings.json")
             
             # 保存设置
-            self.pkm_folder = pkm_folder
+            self.pkm_folders = pkm_folders
+            self.pkm_folder = pkm_folders[0] if pkm_folders else None  # 兼容旧版本
+            
             with open(config_file, 'w', encoding='utf-8') as f:
-                json.dump({'pkm_folder': pkm_folder}, f, ensure_ascii=False)
+                json.dump({
+                    'pkm_folder': self.pkm_folder,
+                    'pkm_folders': self.pkm_folders
+                }, f, ensure_ascii=False)
+            
+            # 更新数据库中的文件夹记录
+            if self.conn:
+                cursor = self.conn.cursor()
+                # 清空现有记录
+                cursor.execute("DELETE FROM pkm_folders")
                 
-            print(f"已保存PKM文件夹设置: {pkm_folder}")
+                # 添加新记录
+                current_time = int(time.time())
+                for folder in self.pkm_folders:
+                    folder_id = hashlib.md5(folder.encode('utf-8')).hexdigest()
+                    cursor.execute(
+                        "INSERT INTO pkm_folders (id, folder_path, added_at) VALUES (?, ?, ?)",
+                        (folder_id, folder, current_time)
+                    )
+                self.conn.commit()
+                
+            print(f"已保存PKM文件夹设置: {len(self.pkm_folders)}个文件夹")
             
             # 重新启动文件监控
             self.file_watcher.stop_monitoring()
-            if self.pkm_folder and os.path.exists(self.pkm_folder):
-                self.file_watcher.start_monitoring(self.pkm_folder)
+            for folder in self.pkm_folders:
+                if os.path.exists(folder):
+                    self.file_watcher.start_monitoring([folder])
                 
             return True
         except Exception as e:
@@ -875,17 +944,22 @@ class DatabaseManager:
             file_path (str): 文件的完整路径
             
         Returns:
-            bool: 操作是否成功
+            dict: 操作状态字典，包含状态和消息
         """
         if not self.conn:
             print("数据库未连接")
-            return False
+            return {'status': 'error', 'message': '数据库未连接'}
+            
+        # 确认文件后缀为markdown
+        if not file_path.lower().endswith('.md'):
+            print(f"非Markdown文件，跳过: {file_path}")
+            return {'status': 'skipped', 'message': '非Markdown文件'}
             
         try:
-            # 确认文件存在且为Markdown文件
-            if not os.path.exists(file_path) or not file_path.lower().endswith('.md'):
-                print(f"文件不存在或非Markdown文件: {file_path}")
-                return False
+            # 确认文件存在
+            if not os.path.exists(file_path):
+                print(f"文件不存在: {file_path}")
+                return {'status': 'error', 'message': '文件不存在'}
                 
             # 读取文件内容
             with open(file_path, 'r', encoding='utf-8') as f:
@@ -894,7 +968,7 @@ class DatabaseManager:
             # 计算文件hash
             file_hash = self.compute_file_hash(file_path)
             if not file_hash:
-                return False
+                return {'status': 'error', 'message': '计算文件哈希失败'}
                 
             # 获取文件名和时间信息
             file_name = os.path.basename(file_path)
@@ -905,14 +979,8 @@ class DatabaseManager:
             # 提取标题（如果有）
             title = self.extract_title_from_md(content)
             
-            # 生成文件ID（使用相对路径的hash值）
-            try:
-                rel_path = os.path.relpath(file_path, self.pkm_folder)
-                file_id = hashlib.md5(rel_path.encode('utf-8')).hexdigest()
-            except ValueError:
-                # 如果计算相对路径失败（可能路径在不同驱动器上），使用绝对路径
-                file_id = hashlib.md5(file_path.encode('utf-8')).hexdigest()
-                print(f"使用绝对路径生成ID: {file_path}")
+            # 生成文件ID（使用文件路径的hash值）
+            file_id = hashlib.md5(file_path.encode('utf-8')).hexdigest()
             
             # 检查文件是否已存在于数据库中
             cursor = self.conn.cursor()
@@ -922,7 +990,7 @@ class DatabaseManager:
             # 如果文件已存在且hash值相同，不需要更新
             if row and row['hash'] == file_hash:
                 print(f"文件未变更，无需更新: {file_path}")
-                return True
+                return {'status': 'unchanged', 'message': '文件未变更'}
                 
             # 添加或更新文件
             cursor.execute("""
@@ -936,11 +1004,11 @@ class DatabaseManager:
             
             self.conn.commit()
             print(f"已{'更新' if row else '添加'}文件到PKM数据库: {file_path}")
-            return True
+            return {'status': 'updated' if row else 'added', 'message': f"已{'更新' if row else '添加'}文件"}
             
         except Exception as e:
             print(f"添加或更新PKM文件出错: {e}")
-            return False
+            return {'status': 'error', 'message': str(e)}
     
     def delete_pkm_file(self, file_path):
         """从数据库中删除PKM文件
@@ -1026,87 +1094,102 @@ class DatabaseManager:
             print(f"搜索PKM文件出错: {e}")
             return []
     
-    def scan_pkm_folder(self, progress_callback=None):
+    def scan_pkm_folder(self, callback=None):
         """扫描PKM文件夹，更新数据库
         
         Args:
-            progress_callback: 可选的进度回调函数，接收两个参数：当前处理文件数和总文件数
-        
+            callback: 可选的回调函数，用于报告进度和结果
+            
         Returns:
-            dict: 包含添加、更新和删除文件数量的字典
+            dict: 扫描结果统计
         """
-        if not self.pkm_folder or not os.path.exists(self.pkm_folder):
-            print(f"PKM文件夹不存在: {self.pkm_folder}")
-            return {'added': 0, 'updated': 0, 'deleted': 0, 'error': '文件夹不存在'}
+        if not self.pkm_folders:
+            if callback:
+                callback({
+                    'status': 'error', 
+                    'message': '未设置PKM文件夹路径'
+                })
+            return {'status': 'error', 'message': '未设置PKM文件夹路径'}
             
-        try:
-            # 获取数据库中所有文件路径
-            cursor = self.conn.cursor()
-            cursor.execute("SELECT id, file_path FROM pkm_files")
-            db_files = {row['id']: row['file_path'] for row in cursor.fetchall()}
-            
-            # 第一步：先统计文件夹中的所有.md文件
-            all_md_files = []
-            print("正在统计所有Markdown文件...")
-            for root, dirs, files in os.walk(self.pkm_folder):
-                for file in files:
-                    if file.lower().endswith('.md'):
+        total_stats = {
+            'total_files': 0,
+            'added_files': 0,
+            'updated_files': 0,
+            'unchanged_files': 0,
+            'failed_files': 0,
+            'status': 'success'
+        }
+        
+        # 扫描所有配置的文件夹
+        for folder_path in self.pkm_folders:
+            if not os.path.exists(folder_path) or not os.path.isdir(folder_path):
+                if callback:
+                    callback({
+                        'status': 'error', 
+                        'message': f'无法访问文件夹: {folder_path}'
+                    })
+                continue
+                
+            try:
+                # 遍历文件夹中的所有文件
+                for root, dirs, files in os.walk(folder_path):
+                    for file in files:
+                        total_stats['total_files'] += 1
+                        
+                        # 获取文件路径
                         file_path = os.path.join(root, file)
-                        all_md_files.append(file_path)
-            
-            total_files = len(all_md_files)
-            print(f"找到 {total_files} 个Markdown文件")
-            
-            # 发送初始进度
-            if progress_callback:
-                progress_callback(0, total_files)
-            
-            # 第二步：依次处理每个文件
-            added_count = 0
-            updated_count = 0
-            processed_count = 0
-            
-            for file_path in all_md_files:
-                # 处理文件
-                try:
-                    rel_path = os.path.relpath(file_path, self.pkm_folder)
-                    file_id = hashlib.md5(rel_path.encode('utf-8')).hexdigest()
-                except ValueError:
-                    # 如果计算相对路径失败，使用绝对路径
-                    file_id = hashlib.md5(file_path.encode('utf-8')).hexdigest()
+                        
+                        # 只处理Markdown文件
+                        if not file.lower().endswith('.md'):
+                            continue
+                        
+                        try:
+                            # 添加或更新文件
+                            result = self.add_or_update_pkm_file(file_path)
+                            
+                            # 更新统计信息
+                            if result['status'] == 'added':
+                                total_stats['added_files'] += 1
+                            elif result['status'] == 'updated':
+                                total_stats['updated_files'] += 1
+                            elif result['status'] == 'unchanged':
+                                total_stats['unchanged_files'] += 1
+                            
+                            # 报告进度
+                            if callback:
+                                callback({
+                                    'current': total_stats['total_files'],
+                                    'file_path': file_path,
+                                    'status': result['status']
+                                })
+                                
+                        except Exception as e:
+                            total_stats['failed_files'] += 1
+                            print(f"处理文件出错 {file_path}: {str(e)}")
+                            
+                            if callback:
+                                callback({
+                                    'current': total_stats['total_files'],
+                                    'file_path': file_path,
+                                    'status': 'error',
+                                    'message': str(e)
+                                })
+                        
+            except Exception as e:
+                if callback:
+                    callback({
+                        'status': 'error', 
+                        'message': f'扫描文件夹出错 {folder_path}: {str(e)}'
+                    })
                 
-                result = self.add_or_update_pkm_file(file_path)
-                if result:
-                    if file_id in db_files:
-                        updated_count += 1
-                    else:
-                        added_count += 1
-                
-                # 更新进度
-                processed_count += 1
-                if progress_callback and processed_count % 5 == 0:  # 每5个文件更新一次进度，减少UI开销
-                    progress_callback(processed_count, total_files)
+                # 继续处理其他文件夹
+                continue
+        
+        # 最终结果回调
+        if callback:
+            callback(total_stats)
             
-            # 确保最终进度为100%
-            if progress_callback and total_files > 0:
-                progress_callback(total_files, total_files)
-            
-            # 第三步：检查需要删除的文件（数据库中存在但实际文件系统中不存在的文件）
-            deleted_count = 0
-            for file_id, file_path in db_files.items():
-                if file_path not in all_md_files and not os.path.exists(file_path):
-                    self.delete_pkm_file(file_path)
-                    deleted_count += 1
-            
-            return {
-                'added': added_count, 
-                'updated': updated_count, 
-                'deleted': deleted_count
-            }
-            
-        except Exception as e:
-            print(f"扫描PKM文件夹出错: {e}")
-            return {'added': 0, 'updated': 0, 'deleted': 0, 'error': str(e)}
+        return total_stats
     
     def get_pkm_file_content(self, file_id):
         """获取指定文件的内容

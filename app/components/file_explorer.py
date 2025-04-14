@@ -19,31 +19,42 @@ class ScanThread(QThread):
     scan_complete = pyqtSignal(dict)
     progress_update = pyqtSignal(int, int)  # 当前进度、总数
     
-    def __init__(self, pkm_folder):
+    def __init__(self, pkm_folders=None):
         super().__init__()
-        self.pkm_folder = pkm_folder
+        # 接收单个文件夹或文件夹列表
+        if isinstance(pkm_folders, str):
+            self.pkm_folders = [pkm_folders]
+        elif isinstance(pkm_folders, list):
+            self.pkm_folders = pkm_folders
+        else:
+            self.pkm_folders = []
         
     def run(self):
         # 在线程内创建新的数据库管理器实例
         from app.models.database import DatabaseManager
         db_manager = DatabaseManager()
         
-        # 设置PKM文件夹路径
-        db_manager.pkm_folder = self.pkm_folder
-        
-        # 先统计文件总数
-        total_files = 0
-        for root, dirs, files in os.walk(self.pkm_folder):
-            for file in files:
-                if file.lower().endswith('.md'):
-                    total_files += 1
-        
-        # 发送初始进度
-        self.progress_update.emit(0, total_files)
-        
+        # 设置进度回调函数
+        def progress_callback(data):
+            if isinstance(data, dict) and 'current' in data:
+                # 新版本进度回调
+                self.progress_update.emit(data.get('current', 0), data.get('total', 100))
+            elif isinstance(data, tuple) and len(data) == 2:
+                # 兼容旧版本回调
+                self.progress_update.emit(data[0], data[1])
+                
         # 执行数据库扫描
-        result = db_manager.scan_pkm_folder(progress_callback=self.progress_update.emit)
-        self.scan_complete.emit(result)
+        result = db_manager.scan_pkm_folder(callback=progress_callback)
+        
+        # 转换结果以兼容旧版本UI
+        compat_result = {
+            'added': result.get('added_files', 0),
+            'updated': result.get('updated_files', 0),
+            'deleted': result.get('deleted_files', 0),
+            'error': result.get('message', None) if result.get('status') == 'error' else None
+        }
+        
+        self.scan_complete.emit(compat_result)
 
 class DraggableTreeView(QTreeView):
     """支持拖动的树形视图"""
@@ -693,13 +704,15 @@ class FileExplorer(QWidget):
             from app.models.database import DatabaseManager
             from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, 
                                         QPushButton, QFileDialog, QProgressBar, 
-                                        QLineEdit, QTextEdit, QCheckBox)
-            from PyQt6.QtCore import QThread, pyqtSignal
+                                        QLineEdit, QTextEdit, QCheckBox, QListWidget,
+                                        QToolButton, QMenu)
+            # QAction应从QtGui导入，而不是QtWidgets
+            from PyQt6.QtCore import QThread, pyqtSignal, Qt
             
             # 创建设置对话框
             dialog = QDialog(self)
             dialog.setWindowTitle("PKM数据库设置")
-            dialog.resize(600, 450)
+            dialog.resize(600, 500)
             
             # 创建对话框布局
             layout = QVBoxLayout(dialog)
@@ -707,21 +720,35 @@ class FileExplorer(QWidget):
             # 创建数据库管理器实例
             db_manager = DatabaseManager()
             
-            # 添加文件夹路径显示和选择控件
-            folder_layout = QHBoxLayout()
-            folder_layout.addWidget(QLabel("监控文件夹:"))
+            # 添加文件夹列表显示区域
+            layout.addWidget(QLabel("监控文件夹列表:"))
             
-            folder_path = QLineEdit()
-            folder_path.setReadOnly(True)
-            if db_manager.pkm_folder:
-                folder_path.setText(db_manager.pkm_folder)
-            folder_layout.addWidget(folder_path, 1)
+            # 创建文件夹列表控件
+            folders_list = QListWidget()
+            folders_list.setSelectionMode(QListWidget.SelectionMode.SingleSelection)
+            folders_list.setAlternatingRowColors(True)
             
-            browse_button = QPushButton("浏览...")
-            browse_button.clicked.connect(lambda: self._select_pkm_folder(folder_path, db_manager))
-            folder_layout.addWidget(browse_button)
+            # 填充现有文件夹列表
+            if db_manager.pkm_folders:
+                for folder in db_manager.pkm_folders:
+                    folders_list.addItem(folder)
             
-            layout.addLayout(folder_layout)
+            layout.addWidget(folders_list)
+            
+            # 添加文件夹操作按钮组
+            folder_btns_layout = QHBoxLayout()
+            
+            # 添加文件夹按钮
+            add_folder_btn = QPushButton("添加文件夹")
+            add_folder_btn.clicked.connect(lambda: self._add_pkm_folder(folders_list, db_manager))
+            folder_btns_layout.addWidget(add_folder_btn)
+            
+            # 移除文件夹按钮
+            remove_folder_btn = QPushButton("移除文件夹")
+            remove_folder_btn.clicked.connect(lambda: self._remove_pkm_folder(folders_list, db_manager))
+            folder_btns_layout.addWidget(remove_folder_btn)
+            
+            layout.addLayout(folder_btns_layout)
             
             # 添加监控开关
             monitor_layout = QHBoxLayout()
@@ -800,6 +827,18 @@ class FileExplorer(QWidget):
                     self.scan_thread.terminate()
                     self.scan_thread.wait()
                     print("对话框关闭，扫描线程已终止")
+                
+                # 断开所有信号连接，避免更新已销毁的UI组件
+                if hasattr(db_manager, 'file_watcher'):
+                    try:
+                        db_manager.file_watcher.file_added.disconnect()
+                        db_manager.file_watcher.file_modified.disconnect()
+                        db_manager.file_watcher.file_deleted.disconnect()
+                        db_manager.file_watcher.scan_completed.disconnect()
+                        print("对话框关闭，文件监控信号已断开")
+                    except (TypeError, RuntimeError):
+                        # 如果信号未连接或已断开，忽略错误
+                        pass
             
             # 连接对话框关闭信号
             dialog.finished.connect(on_dialog_closed)
@@ -810,8 +849,64 @@ class FileExplorer(QWidget):
         except Exception as e:
             QMessageBox.critical(self, "错误", f"打开PKM数据库设置出错: {str(e)}")
     
+    def _add_pkm_folder(self, folders_list, db_manager):
+        """添加PKM监控文件夹"""
+        try:
+            # 获取当前已有的文件夹列表
+            current_folders = [folders_list.item(i).text() for i in range(folders_list.count())]
+            
+            # 打开文件夹选择对话框
+            start_dir = current_folders[0] if current_folders else ""
+            folder = QFileDialog.getExistingDirectory(
+                self, "选择PKM文件夹", start_dir,
+                QFileDialog.Option.ShowDirsOnly | QFileDialog.Option.DontResolveSymlinks
+            )
+            
+            # 如果用户选择了文件夹，并且不在当前列表中，添加到列表
+            if folder and folder not in current_folders:
+                folders_list.addItem(folder)
+                current_folders.append(folder)
+                
+                # 保存设置
+                if db_manager.save_pkm_settings(current_folders):
+                    QMessageBox.information(self, "成功", "PKM文件夹已添加并保存设置")
+                else:
+                    QMessageBox.warning(self, "警告", "无法保存PKM文件夹设置")
+            elif folder in current_folders:
+                QMessageBox.information(self, "提示", "该文件夹已在监控列表中")
+                    
+        except Exception as e:
+            QMessageBox.critical(self, "错误", f"添加PKM文件夹出错: {str(e)}")
+    
+    def _remove_pkm_folder(self, folders_list, db_manager):
+        """移除PKM监控文件夹"""
+        try:
+            # 获取当前选中的项
+            selected_items = folders_list.selectedItems()
+            if not selected_items:
+                QMessageBox.information(self, "提示", "请先选择要移除的文件夹")
+                return
+                
+            # 获取当前文件夹列表
+            current_folders = [folders_list.item(i).text() for i in range(folders_list.count())]
+            
+            # 从列表中移除选中的文件夹
+            for item in selected_items:
+                row = folders_list.row(item)
+                folders_list.takeItem(row)
+                current_folders.remove(item.text())
+            
+            # 保存更新后的设置
+            if db_manager.save_pkm_settings(current_folders):
+                QMessageBox.information(self, "成功", "已从监控列表中移除所选文件夹")
+            else:
+                QMessageBox.warning(self, "警告", "无法保存PKM文件夹设置")
+                
+        except Exception as e:
+            QMessageBox.critical(self, "错误", f"移除PKM文件夹出错: {str(e)}")
+    
     def _select_pkm_folder(self, folder_path_field, db_manager):
-        """选择PKM文件夹"""
+        """选择PKM文件夹 (旧版本兼容方法)"""
         try:
             # 获取当前设置的文件夹（如果有）
             start_dir = db_manager.pkm_folder if db_manager.pkm_folder else ""
@@ -825,7 +920,7 @@ class FileExplorer(QWidget):
             # 如果用户选择了文件夹，更新设置
             if folder:
                 # 保存设置
-                if db_manager.save_pkm_settings(folder):
+                if db_manager.save_pkm_settings([folder]):
                     folder_path_field.setText(folder)
                     QMessageBox.information(self, "成功", "PKM文件夹设置已保存")
                 else:
@@ -838,8 +933,8 @@ class FileExplorer(QWidget):
         """扫描PKM文件夹，更新数据库"""
         try:
             # 检查是否已设置文件夹
-            if not db_manager.pkm_folder:
-                QMessageBox.warning(self, "警告", "请先选择PKM文件夹")
+            if not db_manager.pkm_folders:
+                QMessageBox.warning(self, "警告", "请先添加至少一个PKM文件夹")
                 return
                 
             # 禁用扫描按钮，避免重复点击
@@ -850,8 +945,10 @@ class FileExplorer(QWidget):
             status_text.clear()
             status_text.append("开始扫描文件夹...")
             
-            # 创建线程实例
-            self.scan_thread = ScanThread(db_manager.pkm_folder)
+            # 创建线程实例 - 因为现在支持多文件夹，这里传递第一个作为兼容处理
+            # 实际扫描将通过数据库管理器处理多个文件夹
+            first_folder = db_manager.pkm_folders[0] if db_manager.pkm_folders else ""
+            self.scan_thread = ScanThread(first_folder)
             
             # 连接进度更新信号
             self.scan_thread.progress_update.connect(
@@ -939,13 +1036,15 @@ class FileExplorer(QWidget):
     def _toggle_file_monitoring(self, state, db_manager, status_text):
         """切换文件监控状态"""
         try:
-            if not hasattr(db_manager, 'file_watcher') or not db_manager.pkm_folder:
+            if not hasattr(db_manager, 'file_watcher') or not db_manager.pkm_folders:
                 status_text.append("请先设置PKM文件夹")
                 return
                 
             if state:  # 启用监控
-                if db_manager.file_watcher.start_monitoring(db_manager.pkm_folder):
-                    status_text.append("已启用文件监控")
+                # 启动对所有文件夹的监控
+                success = db_manager.file_watcher.start_monitoring(db_manager.pkm_folders)
+                if success:
+                    status_text.append(f"已启用{len(db_manager.pkm_folders)}个文件夹的监控")
                 else:
                     status_text.append("启用文件监控失败")
             else:  # 禁用监控

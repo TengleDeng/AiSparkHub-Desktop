@@ -117,7 +117,88 @@ class PromptInput(QWidget):
     def submit_prompt(self):
         """提交提示词"""
         text = self.text_edit.toPlainText().strip()
-        if text:
+        search_query = self.search_input.text().strip()
+        
+        if not text:
+            # 提示词为空不发送
+            return
+        
+        if search_query:
+            # 搜索框有内容，整合搜索结果与提示词
+            try:
+                # 获取选择的搜索范围
+                scope_text = self.search_scope_combo.currentText()
+                if scope_text == "搜索: 提示词":
+                    scope = 'prompts'
+                elif scope_text == "搜索: PKM":
+                    scope = 'pkm'
+                else:  # 默认为全部
+                    scope = 'all'
+                
+                # 获取搜索结果(10条)
+                search_results = self.db_manager.search_combined(search_query, scope=scope, limit=10)
+                
+                # 首先构建问题部分
+                final_prompt = f"{text}\n\n"
+                final_prompt += f"以下是与问题相关的本地知识库资料(关键词:{search_query})，请参考这些资料回答上述问题。如果资料与问题无关，请使用你自己的知识回答。\n\n"
+                
+                # 构建搜索结果部分(不限单个文档长度，但总长度限制)
+                search_content = ""
+                for i, result in enumerate(search_results, 1):
+                    result_type = result.get('type', 'unknown')
+                    
+                    if result_type == 'pkm':
+                        # 获取PKM文件内容
+                        file_id = result.get('id')
+                        if file_id:
+                            pkm_data = self.db_manager.get_pkm_file_content(file_id)
+                            if pkm_data and 'content' in pkm_data:
+                                title = pkm_data.get('title', pkm_data.get('file_name', '未命名文档'))
+                                content = pkm_data.get('content', '')
+                                # 移除多余空行
+                                content = "\n".join([line for line in content.split("\n") if line.strip()])
+                                search_content += f"【参考资料{i}】{title}\n{content}\n\n"
+                    
+                    elif result_type == 'prompt':
+                        # 添加提示词和AI回复
+                        prompt = result.get('prompt', '')
+                        # 移除多余空行
+                        prompt = "\n".join([line for line in prompt.split("\n") if line.strip()])
+                        search_content += f"【历史问题{i}】{prompt}\n"
+                        
+                        # 添加AI回复
+                        replies = []
+                        for webview in result.get('webviews', []):
+                            reply = webview.get('reply', '')
+                            if reply:
+                                # 移除多余空行
+                                reply = "\n".join([line for line in reply.split("\n") if line.strip()])
+                                replies.append(reply)
+                        
+                        if replies:
+                            search_content += f"【历史回答】{''.join(replies)}\n\n"
+                
+                # 计算总长度并限制在18000字符以内
+                max_chars = 18000
+                current_length = len(final_prompt)
+                remaining_chars = max_chars - current_length
+                
+                if len(search_content) > remaining_chars:
+                    # 如果搜索内容超过剩余字符数，则截断
+                    search_content = search_content[:remaining_chars-100] + "\n\n...(由于内容过长，部分资料已省略)"
+                
+                # 合并最终提示词
+                final_prompt += search_content
+                
+                # 发送整合后的提示词
+                self.prompt_submitted.emit(final_prompt)
+                
+            except Exception as e:
+                print(f"整合搜索结果时出错: {e}")
+                # 如果出错，仍然发送原始提示词
+                self.prompt_submitted.emit(text)
+        else:
+            # 搜索框为空，直接发送提示词
             self.prompt_submitted.emit(text)
     
     def clear(self):
