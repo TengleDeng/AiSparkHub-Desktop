@@ -340,7 +340,7 @@ class AIView(QWidget):
         # 连接选择变更信号
         ai_selector.currentIndexChanged.connect(lambda index, c=container, s=ai_selector: self.on_ai_changed(c, index, s))
         
-        # 创建控制按钮的通用样式 - 移除 hover 和 pressed 样式
+        # 创建控制按钮的通用样式 - 添加 hover 和 pressed 样式
         button_style = """
             QPushButton {
                 background-color: transparent;
@@ -349,6 +349,12 @@ class AIView(QWidget):
                 border-radius: 3px;
                 max-width: 22px;
                 max-height: 22px;
+            }
+            QPushButton:hover {
+                background-color: rgba(120, 120, 120, 0.2);
+            }
+            QPushButton:pressed {
+                background-color: rgba(100, 100, 100, 0.3);
             }
         """
         
