@@ -3,13 +3,14 @@
 
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QTextEdit, QPushButton, 
                            QHBoxLayout, QLineEdit, QListWidget, QListWidgetItem, 
-                           QLabel, QFrame)
+                           QLabel, QFrame, QComboBox)
 from PyQt6.QtCore import Qt, pyqtSignal, QSize
 from PyQt6.QtGui import QIcon, QColor
 import qtawesome as qta
 from PyQt6.QtWidgets import QApplication
 from PyQt6.QtCore import QTimer
 from app.controllers.theme_manager import ThemeManager
+import os
 
 class PromptInput(QWidget):
     """提示词输入组件"""
@@ -50,6 +51,12 @@ class PromptInput(QWidget):
         search_layout = QHBoxLayout()
         search_layout.setContentsMargins(0, 5, 0, 5)
         search_layout.setSpacing(8)
+        
+        # 添加搜索范围选择下拉框
+        self.search_scope_combo = QComboBox()
+        self.search_scope_combo.addItems(["搜索: 全部", "搜索: 提示词", "搜索: PKM"])
+        self.search_scope_combo.setToolTip("选择搜索范围")
+        search_layout.addWidget(self.search_scope_combo)
         
         # 添加搜索框
         self.search_input = QLineEdit()
@@ -152,9 +159,18 @@ class PromptInput(QWidget):
             self.search_results.setVisible(False)
             return
             
-        # 执行搜索
+        # 获取选择的搜索范围
+        scope_text = self.search_scope_combo.currentText()
+        if scope_text == "搜索: 提示词":
+            scope = 'prompts'
+        elif scope_text == "搜索: PKM":
+            scope = 'pkm'
+        else: # 默认为全部
+            scope = 'all'
+            
+        # 执行组合搜索
         try:
-            results = self.db_manager.search_prompt_details(search_text)
+            results = self.db_manager.search_combined(search_text, scope=scope)
             
             # 清空并填充结果列表
             self.search_results.clear()
@@ -173,7 +189,7 @@ class PromptInput(QWidget):
             
             # 添加搜索结果统计信息
             result_count = len(results)
-            count_item = QListWidgetItem(f"找到 {result_count} 条匹配结果")
+            count_item = QListWidgetItem(f"在 [{scope_text.replace('搜索: ', '')}] 中找到 {result_count} 条匹配结果")
             count_item.setFlags(Qt.ItemFlag.NoItemFlags)  # 设置为不可选
             count_item.setBackground(QColor(header_bg))
             count_item.setForeground(QColor(text_color))
@@ -183,7 +199,6 @@ class PromptInput(QWidget):
             
             if results:
                 for i, result in enumerate(results):
-                    # 创建列表项
                     item = QListWidgetItem()
                     
                     # 设置项目样式 - 根据主题设置交替背景色
@@ -192,34 +207,47 @@ class PromptInput(QWidget):
                     else:
                         item.setBackground(QColor(item_bg_2))
                     
-                    # 限制显示长度
-                    prompt = result['prompt']
-                    if len(prompt) > 60:
-                        display_text = prompt[:60] + "..."
-                    else:
-                        display_text = prompt
+                    # 根据结果类型显示不同内容
+                    result_type = result.get('type', 'unknown')
+                    display_text = f"{i+1}. "
+                    
+                    if result_type == 'prompt':
+                        prompt = result.get('prompt', '')
+                        if len(prompt) > 60:
+                            display_text += "[提示] " + prompt[:60] + "..."
+                        else:
+                            display_text += "[提示] " + prompt
                         
-                    # 添加序号
-                    display_text = f"{i+1}. {display_text}"
-                        
-                    # 可能的匹配回复片段
-                    match_reply = ""
-                    for webview in result['webviews']:
-                        reply = webview.get('reply', '')
-                        if reply and search_text.lower() in reply.lower():
-                            # 从匹配部分附近提取一小段文本
-                            idx = reply.lower().find(search_text.lower())
-                            start = max(0, idx - 20)
-                            end = min(len(reply), idx + len(search_text) + 20)
-                            match_reply = "..." + reply[start:end] + "..."
-                            break
+                        # 查找匹配的回复片段 (保持不变)
+                        match_reply = ""
+                        for webview in result.get('webviews', []):
+                            reply = webview.get('reply', '')
+                            if reply and search_text.lower() in reply.lower():
+                                idx = reply.lower().find(search_text.lower())
+                                start = max(0, idx - 20)
+                                end = min(len(reply), idx + len(search_text) + 20)
+                                match_reply = "..." + reply[start:end] + "..."
+                                break
+                        if match_reply:
+                            display_text += f"\n匹配回复: {match_reply}"
                             
-                    # 如果在回复中找到匹配，添加到显示文本
-                    if match_reply:
-                        display_text += f"\n匹配回复: {match_reply}"
+                    elif result_type == 'pkm':
+                        title = result.get('title', result.get('file_name', '未知标题'))
+                        if len(title) > 60:
+                            display_text += "[PKM] " + title[:60] + "..."
+                        else:
+                            display_text += "[PKM] " + title
+                        
+                        # 显示文件路径
+                        file_path = result.get('file_path', '')
+                        if file_path:
+                            display_text += f"\n路径: ...{os.path.basename(os.path.dirname(file_path))}{os.sep}{os.path.basename(file_path)}" # 简化路径显示
+                            
+                    else: # 未知类型
+                        display_text += f"[未知类型] {str(result)[:60]}..."
                     
                     item.setText(display_text)
-                    item.setData(Qt.ItemDataRole.UserRole, result)  # 存储完整数据
+                    item.setData(Qt.ItemDataRole.UserRole, result) # 存储完整数据，包含type
                     self.search_results.addItem(item)
                 
                 self.search_results.setVisible(True)
@@ -248,14 +276,33 @@ class PromptInput(QWidget):
     def on_search_result_selected(self, item):
         """处理搜索结果选择"""
         data = item.data(Qt.ItemDataRole.UserRole)
-        if data and 'prompt' in data:
-            # 设置提示词内容
-            self.text_edit.setText(data['prompt'])
-            # 隐藏搜索结果
+        if data:
+            result_type = data.get('type')
+            if result_type == 'prompt':
+                self.text_edit.setText(data.get('prompt', ''))
+            elif result_type == 'pkm':
+                # 对于PKM结果，获取文件内容并填入输入框
+                file_id = data.get('id')
+                if file_id and self.db_manager:
+                    try:
+                        pkm_data = self.db_manager.get_pkm_file_content(file_id)
+                        if pkm_data and 'content' in pkm_data:
+                            self.text_edit.setText(pkm_data['content'])
+                        else:
+                            self.text_edit.setText(f"错误：无法获取PKM文件内容 (ID: {file_id})")
+                            print(f"无法获取PKM文件内容 (ID: {file_id})")
+                    except Exception as e:
+                        self.text_edit.setText(f"错误：获取PKM内容时出错: {str(e)}")
+                        print(f"获取PKM内容时出错: {e}")
+                else:
+                    self.text_edit.setText("错误：无法识别PKM文件ID或缺少数据库管理器")
+                    print("无法识别PKM文件ID或缺少数据库管理器")
+            else:
+                 self.text_edit.setText(f"未知类型结果: {str(data)}")
+            
+            # 隐藏搜索结果，清空搜索框等 (保持不变)
             self.search_results.setVisible(False)
-            # 清空搜索框
             self.search_input.clear()
-            # 设置焦点到文本框
             self.text_edit.setFocus()
         
     # 更新图标颜色

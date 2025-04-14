@@ -1143,4 +1143,48 @@ class DatabaseManager:
             
         except Exception as e:
             print(f"获取PKM文件内容出错: {e}")
-            return None 
+            return None
+    
+    def search_combined(self, query, scope='all', limit=50):
+        """组合搜索提示词和PKM文件
+        
+        Args:
+            query (str): 搜索查询
+            scope (str): 搜索范围 ('prompts', 'pkm', 'all')
+            limit (int): 返回结果数量限制
+            
+        Returns:
+            list: 匹配的记录列表，每个记录包含'type'字段 ('prompt'或'pkm')
+        """
+        if not self.conn:
+            print("数据库未连接")
+            return []
+            
+        results = []
+        
+        try:
+            # 搜索提示词
+            if scope in ['prompts', 'all']:
+                prompt_results = self.search_prompt_details(query, limit=limit)
+                for res in prompt_results:
+                    res['type'] = 'prompt' # 添加类型标识
+                    results.append(res)
+                    
+            # 搜索PKM文件
+            if scope in ['pkm', 'all']:
+                pkm_results = self.search_pkm_files(query, limit=limit)
+                for res in pkm_results:
+                    res['type'] = 'pkm' # 添加类型标识
+                    results.append(res)
+            
+            # 如果是搜索全部，根据时间戳/更新时间排序 (降序)
+            if scope == 'all':
+                results.sort(key=lambda x: x.get('timestamp', x.get('updated_at', 0)), reverse=True)
+                # 限制最终结果数量
+                results = results[:limit]
+                
+            return results
+            
+        except Exception as e:
+            print(f"组合搜索出错: {e}")
+            return [] 
