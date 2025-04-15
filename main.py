@@ -93,16 +93,21 @@ def setup_tray_icon(app, main_window, auxiliary_window):
 def toggle_window_visibility(window):
     """切换窗口显示/隐藏状态"""
     try:
+        print(f"当前窗口状态 - 可见: {window.isVisible()}, 窗口标题: {window.windowTitle()}")
         if window.isVisible():
-            print(f"隐藏窗口: {window.windowTitle()}")
+            print(f"执行隐藏窗口: {window.windowTitle()}")
             window.hide()
         else:
-            print(f"显示窗口: {window.windowTitle()}")
+            print(f"执行显示窗口: {window.windowTitle()}")
+            window.setWindowState(window.windowState() & ~Qt.WindowState.WindowMinimized)  # 确保窗口不是最小化状态
             window.show()
             window.raise_()  # 确保窗口在最前
             window.activateWindow()  # 确保窗口获得焦点
+        print(f"操作后窗口状态 - 可见: {window.isVisible()}, 窗口标题: {window.windowTitle()}")
     except Exception as e:
         print(f"切换窗口可见性时出错: {e}")
+        import traceback
+        traceback.print_exc()
 
 def tray_icon_activated(reason, window, tray_icon):
     """处理托盘图标点击事件"""
@@ -114,11 +119,72 @@ def setup_global_shortcuts(app, main_window, auxiliary_window):
     # 记录按键状态
     alt_pressed = False
     
-    # 保持一个对窗口的强引用
-    window_refs = {
-        'x': main_window,
-        'c': auxiliary_window
+    # 窗口显示状态强制切换函数
+    def force_toggle_window(window):
+        try:
+            window_state = window.windowState()
+            is_visible = window.isVisible()
+            is_minimized = bool(window_state & Qt.WindowState.WindowMinimized)
+            
+            print(f"窗口当前状态: 可见={is_visible}, 最小化={is_minimized}, 标题={window.windowTitle()}")
+            
+            # 如果窗口可见，则强制隐藏
+            if is_visible:
+                print(f"强制隐藏窗口: {window.windowTitle()}")
+                # 直接写入应用状态变量，确保正确记录
+                window.setProperty("_visible_before_hide", True)
+                window.hide()
+                print(f"窗口隐藏后状态: 可见={window.isVisible()}")
+            else:
+                # 窗口不可见，则强制显示
+                print(f"强制显示窗口: {window.windowTitle()}")
+                # 如果窗口最小化，先还原
+                if is_minimized:
+                    window.setWindowState(window_state & ~Qt.WindowState.WindowMinimized)
+                # 使用强制显示序列
+                window.show()
+                window.raise_()
+                window.activateWindow()
+                window.setFocus(Qt.FocusReason.OtherFocusReason)
+                # 设置窗口为激活状态
+                window.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, False)
+                print(f"窗口显示后状态: 可见={window.isVisible()}, 激活={window.isActiveWindow()}")
+        except Exception as e:
+            print(f"切换窗口状态出错: {e}")
+            import traceback
+            traceback.print_exc()
+    
+    # 保持一个对窗口的强引用和处理函数的引用
+    window_actions = {
+        'x': lambda: force_toggle_window(main_window),
+        'c': lambda: force_toggle_window(auxiliary_window)
     }
+    
+    # 创建用于消息传递的事件处理器
+    from PyQt6.QtCore import QObject, pyqtSignal, pyqtSlot
+    
+    class WindowToggleHandler(QObject):
+        # 定义信号
+        toggle_main_window = pyqtSignal()
+        toggle_aux_window = pyqtSignal()
+        
+        @pyqtSlot()
+        def _toggle_main(self):
+            print("执行主窗口切换")
+            force_toggle_window(main_window)
+        
+        @pyqtSlot()
+        def _toggle_aux(self):
+            print("执行辅助窗口切换")
+            force_toggle_window(auxiliary_window)
+    
+    # 创建事件处理器实例并连接信号
+    handler = WindowToggleHandler()
+    handler.toggle_main_window.connect(handler._toggle_main)
+    handler.toggle_aux_window.connect(handler._toggle_aux)
+    
+    # 保存到应用实例以防被垃圾回收
+    app._window_toggle_handler = handler
     
     def on_press(key):
         """按键按下事件处理"""
@@ -143,14 +209,17 @@ def setup_global_shortcuts(app, main_window, auxiliary_window):
                 if key_char:
                     key_char = key_char.lower()
                     
-                    # 如果是我们关注的快捷键
-                    if key_char in window_refs:
-                        # 在主线程中执行窗口操作
-                        QTimer.singleShot(0, lambda: toggle_window_visibility(window_refs[key_char]))
-                        print(f"触发快捷键: Alt+{key_char}")
-                        
+                    # 根据按键触发相应的信号
+                    if key_char == 'x':
+                        print("触发快捷键: Alt+x (主窗口)")
+                        handler.toggle_main_window.emit()
+                    elif key_char == 'c':
+                        print("触发快捷键: Alt+c (辅助窗口)")
+                        handler.toggle_aux_window.emit()
         except Exception as e:
             print(f"快捷键处理出错: {e}")
+            import traceback
+            traceback.print_exc()
     
     def on_release(key):
         """按键释放事件处理"""
@@ -175,15 +244,10 @@ def setup_global_shortcuts(app, main_window, auxiliary_window):
             print(f"启动键盘监听器出错: {e}")
             return None
     
-    # 延迟启动监听器，确保应用已完全初始化
-    def delayed_start():
-        listener = start_listener()
-        # 保存引用到app对象防止被垃圾回收
-        app._keyboard_listener = listener
-        return listener
-    
-    # 使用QTimer延迟启动监听器，确保UI已完全加载
-    QTimer.singleShot(500, delayed_start)
+    # 立即启动监听器
+    listener = start_listener()
+    # 保存引用到app对象防止被垃圾回收
+    app._keyboard_listener = listener
     
     # 定义清理函数
     def cleanup_listener():
@@ -196,6 +260,42 @@ def setup_global_shortcuts(app, main_window, auxiliary_window):
     
     # 返回清理函数
     return cleanup_listener
+
+# 新增的更可靠的窗口切换函数
+def toggle_window_visibility_robust(window):
+    """更可靠的窗口显示/隐藏切换函数"""
+    try:
+        # 详细记录窗口当前状态
+        window_state = window.windowState()
+        is_visible = window.isVisible()
+        is_active = window.isActiveWindow()
+        is_minimized = bool(window_state & Qt.WindowState.WindowMinimized)
+        
+        print(f"窗口详细状态: 可见={is_visible}, 激活={is_active}, 最小化={is_minimized}, 标题={window.windowTitle()}")
+        
+        if is_visible and not is_minimized:
+            # 如果窗口可见且未最小化,则隐藏
+            print(f"执行隐藏窗口: {window.windowTitle()}")
+            window.hide()
+        else:
+            # 否则显示并激活窗口
+            print(f"执行显示窗口: {window.windowTitle()}")
+            # 先恢复窗口状态(如果最小化)
+            if is_minimized:
+                window.setWindowState(window_state & ~Qt.WindowState.WindowMinimized)
+            
+            window.show()
+            window.raise_()
+            window.activateWindow()
+            # 强制窗口获得焦点
+            window.setFocus(Qt.FocusReason.OtherFocusReason)
+        
+        # 验证操作结果
+        print(f"操作后窗口状态 - 可见: {window.isVisible()}, 激活: {window.isActiveWindow()}, 标题: {window.windowTitle()}")
+    except Exception as e:
+        print(f"切换窗口可见性时出错: {e}")
+        import traceback
+        traceback.print_exc()
 
 def main():
     """应用主入口函数"""
