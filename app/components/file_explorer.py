@@ -8,7 +8,7 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QTreeView, QHeaderView,
                            QMessageBox, QTableWidget, QTableWidgetItem, QGroupBox, QDialog, QCheckBox, QTextEdit,
                            QProgressBar, QLineEdit, QGridLayout)
 from PyQt6.QtCore import Qt, QDir, QModelIndex, pyqtSignal, QSettings, QSize, QTimer, QUrl, QMimeData, QThread
-from PyQt6.QtGui import QFileSystemModel, QIcon, QAction, QDrag
+from PyQt6.QtGui import QFileSystemModel, QIcon, QAction, QDrag, QColor
 import qtawesome as qta
 import os
 import json
@@ -720,8 +720,24 @@ class FileExplorer(QWidget):
             folder_layout = QVBoxLayout()
             folder_layout.setSpacing(5)  # 减少内部间距
             
-            # 添加文件夹列表显示区域
-            folder_layout.addWidget(QLabel("监控文件夹列表:"))
+            # 添加文件夹列表标签和监控开关到同一行
+            folder_header_layout = QHBoxLayout()
+            folder_header_layout.addWidget(QLabel("监控文件夹列表:"))
+            
+            # 添加监控开关
+            monitor_checkbox = QCheckBox("启用实时文件监控")
+            monitor_checkbox.setChecked(True)  # 默认启用
+            monitor_checkbox.setToolTip("启用后，会自动监控文件变化并更新数据库")
+            # 连接监控开关信号
+            monitor_checkbox.stateChanged.connect(
+                lambda state: self._toggle_file_monitoring(state, db_manager, status_text)
+            )
+            folder_header_layout.addWidget(monitor_checkbox)
+            
+            # 添加空白间隔，确保两个元素分散在两端
+            folder_header_layout.addStretch(1)
+            
+            folder_layout.addLayout(folder_header_layout)
             
             # 创建文件夹列表控件
             folders_list = QListWidget()
@@ -786,7 +802,18 @@ class FileExplorer(QWidget):
             layout.addWidget(stats_group)
             
             # 初始加载统计数据
-            self._refresh_file_stats(stats_table, db_manager)
+            # self._refresh_file_stats(stats_table, db_manager)  # 移除立即加载
+            
+            # 显示正在加载的提示
+            loading_row = stats_table.rowCount()
+            stats_table.insertRow(loading_row)
+            loading_item = QTableWidgetItem("正在加载统计数据...")
+            loading_item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            stats_table.setSpan(loading_row, 0, 1, 4)  # 合并单元格
+            stats_table.setItem(loading_row, 0, loading_item)
+            
+            # 使用QTimer延迟加载统计数据，让UI先打开
+            QTimer.singleShot(100, lambda: self._delayed_load_stats(stats_table, db_manager))
             
             # ======== 文件格式设置部分 ========
             format_group = QGroupBox("文件格式设置")
@@ -814,34 +841,6 @@ class FileExplorer(QWidget):
             format_group.setLayout(format_layout)
             format_group.setMaximumHeight(120)  # 限制最大高度
             layout.addWidget(format_group)
-            
-            # ======== 监控设置部分 ========
-            monitor_group = QGroupBox("监控设置")
-            monitor_layout = QHBoxLayout()
-            
-            # 添加监控开关
-            monitor_checkbox = QCheckBox("启用实时文件监控")
-            monitor_checkbox.setChecked(True)  # 默认启用
-            monitor_checkbox.setToolTip("启用后，会自动监控文件变化并更新数据库")
-            
-            # 连接监控开关信号
-            monitor_checkbox.stateChanged.connect(
-                lambda state: self._toggle_file_monitoring(state, db_manager, status_text)
-            )
-            
-            monitor_layout.addWidget(monitor_checkbox)
-            
-            # 添加测试监控状态按钮
-            test_monitor_btn = QPushButton("测试监控状态")
-            test_monitor_btn.setToolTip("检查文件监控状态是否正常工作")
-            test_monitor_btn.clicked.connect(
-                lambda: self._test_monitoring(db_manager)
-            )
-            monitor_layout.addWidget(test_monitor_btn)
-            monitor_layout.addStretch(1)  # 添加弹性空间
-            
-            monitor_group.setLayout(monitor_layout)
-            layout.addWidget(monitor_group)
             
             # ======== 扫描和操作部分 ========
             operation_group = QGroupBox("操作")
@@ -955,6 +954,7 @@ class FileExplorer(QWidget):
         try:
             # 导入必要的模块
             from PyQt6.QtCore import Qt
+            from PyQt6.QtGui import QColor
             import sqlite3
             
             # 清空表格
@@ -978,11 +978,49 @@ class FileExplorer(QWidget):
             # 获取数据库中的文件统计
             db_stats = self._get_db_file_stats(db_manager)
             
-            # 设置背景颜色 - 使用浅色方案
-            header_bg = Qt.GlobalColor.lightGray  # 文件夹头行背景
-            alternate_bg = Qt.GlobalColor.white   # 普通行背景
-            normal_bg = Qt.GlobalColor.white      # 普通行背景
-            total_bg = Qt.GlobalColor.lightGray   # 总计行背景
+            # 获取当前主题的颜色
+            is_dark_theme = False
+            foreground_color = QColor("#000000")  # 默认前景色黑色
+            
+            if self.theme_manager:
+                theme_colors = self.theme_manager.get_current_theme_colors()
+                # 获取前景色，用于判断当前主题是否为深色
+                foreground_color = QColor(theme_colors.get('foreground', '#000000'))
+                # 判断是否为深色主题 - 如果前景色较亮则是深色主题
+                is_dark_theme = foreground_color.lightness() > 128
+                
+            # 根据主题设置表格颜色
+            if is_dark_theme:
+                # 深色主题配色方案
+                header_bg = QColor("#3B4252")    # 深色主题头行背景
+                alternate_bg = QColor("#2E3440") # 深色主题普通行背景1
+                normal_bg = QColor("#434C5E")    # 深色主题普通行背景2
+                total_bg = QColor("#4C566A")     # 深色主题总计行背景
+                foreground_color = QColor("#ECEFF4")  # 深色主题前景色
+                error_color = QColor("#BF616A")       # 深色主题错误色
+            else:
+                # 浅色主题配色方案
+                header_bg = QColor("#E5E9F0")    # 浅色主题头行背景
+                alternate_bg = QColor("#ECEFF4") # 浅色主题普通行背景1
+                normal_bg = QColor("#FFFFFF")    # 浅色主题普通行背景2
+                total_bg = QColor("#D8DEE9")     # 浅色主题总计行背景
+                foreground_color = QColor("#2E3440")  # 浅色主题前景色
+                error_color = QColor("#BF616A")       # 浅色主题错误色
+            
+            # 设置表格整体样式
+            table.setStyleSheet(f"""
+                QTableWidget {{
+                    background-color: {alternate_bg.name()};
+                    color: {foreground_color.name()};
+                    gridline-color: {header_bg.name()};
+                }}
+                QHeaderView::section {{
+                    background-color: {header_bg.name()};
+                    color: {foreground_color.name()};
+                    padding: 4px;
+                    border: 1px solid {header_bg.name()};
+                }}
+            """)
             
             # 统计文件系统中的文件
             for folder in db_manager.pkm_folders:
@@ -1015,6 +1053,7 @@ class FileExplorer(QWidget):
                     item = table.item(row_index, col)
                     if item:
                         item.setBackground(header_bg)
+                        item.setForeground(foreground_color)
                         font = item.font()
                         font.setBold(True)
                         item.setFont(font)
@@ -1045,20 +1084,25 @@ class FileExplorer(QWidget):
                     fs_item = QTableWidgetItem(str(count))
                     db_item = QTableWidgetItem(str(db_count))
                     
-                    # 如果有差异，使用红色前景色
+                    # 如果有差异，使用错误色前景色
                     if count != db_count:
-                        fs_item.setForeground(Qt.GlobalColor.red)
-                        db_item.setForeground(Qt.GlobalColor.red)
+                        fs_item.setForeground(error_color)
+                        db_item.setForeground(error_color)
+                    else:
+                        fs_item.setForeground(foreground_color)
+                        db_item.setForeground(foreground_color)
                     
                     table.setItem(row_index, 2, fs_item)
                     table.setItem(row_index, 3, db_item)
                     
-                    # 设置交替行背景色 - 使用统一浅色
+                    # 设置交替行背景色
                     row_bg = alternate_bg if row_index % 2 == 0 else normal_bg
                     for col in range(4):
                         item = table.item(row_index, col)
                         if item:
                             item.setBackground(row_bg)
+                            if not item.foreground().color().isValid():
+                                item.setForeground(foreground_color)
                     
                     row_index += 1
             
@@ -1067,12 +1111,12 @@ class FileExplorer(QWidget):
             total_item = QTableWidgetItem("所有文件夹")
             total_item.setFont(table.font())
             total_item.setBackground(total_bg)
-            total_item.setForeground(Qt.GlobalColor.black)
+            total_item.setForeground(foreground_color)
             table.setItem(row_index, 0, total_item)
             
             total_label = QTableWidgetItem("总计")
             total_label.setBackground(total_bg)
-            total_label.setForeground(Qt.GlobalColor.black)
+            total_label.setForeground(foreground_color)
             font = total_label.font()
             font.setBold(True)
             total_label.setFont(font)
@@ -1082,7 +1126,7 @@ class FileExplorer(QWidget):
             total_fs = sum(total_fs_files.values())
             total_fs_item = QTableWidgetItem(str(total_fs))
             total_fs_item.setBackground(total_bg)
-            total_fs_item.setForeground(Qt.GlobalColor.black)
+            total_fs_item.setForeground(foreground_color)
             total_fs_item.setFont(font)
             table.setItem(row_index, 2, total_fs_item)
             
@@ -1090,14 +1134,14 @@ class FileExplorer(QWidget):
             total_db = sum(total_db_files.values())
             total_db_item = QTableWidgetItem(str(total_db))
             total_db_item.setBackground(total_bg)
-            total_db_item.setForeground(Qt.GlobalColor.black)
+            total_db_item.setForeground(foreground_color)
             total_db_item.setFont(font)
             table.setItem(row_index, 3, total_db_item)
             
-            # 如果总数有差异，标记为红色
+            # 如果总数有差异，标记为错误色
             if total_fs != total_db:
-                total_fs_item.setForeground(Qt.GlobalColor.red)
-                total_db_item.setForeground(Qt.GlobalColor.red)
+                total_fs_item.setForeground(error_color)
+                total_db_item.setForeground(error_color)
             
             # 调整行高以提高可读性
             for i in range(table.rowCount()):
@@ -1446,60 +1490,6 @@ class FileExplorer(QWidget):
         except Exception as e:
             QMessageBox.critical(self, "错误", f"保存PKM设置出错: {str(e)}")
             
-    def _test_monitoring(self, db_manager):
-        """测试文件监控功能"""
-        try:
-            if not hasattr(db_manager, 'file_watcher'):
-                QMessageBox.warning(self, "警告", "文件监控器未初始化")
-                return
-                
-            # 检查是否有文件夹正在监控
-            is_monitoring = bool(db_manager.file_watcher.watcher.directories() or db_manager.file_watcher.watcher.files())
-            if not is_monitoring:
-                QMessageBox.warning(self, "警告", "文件监控未启动，请先启用监控")
-                return
-                
-            # 检查信号连接状态并尝试重新连接
-            has_signals_connected = getattr(db_manager.file_watcher, '_signals_connected', False)
-            if not has_signals_connected and hasattr(db_manager.file_watcher, 'reconnect_signals'):
-                db_manager.file_watcher.reconnect_signals()
-                has_signals_connected = getattr(db_manager.file_watcher, '_signals_connected', False)
-                
-            if not has_signals_connected:
-                QMessageBox.warning(self, "警告", "文件监控信号未连接，请重启应用")
-                return
-            
-            # 显示监控状态信息
-            monitoring_stats = (
-                f"监控状态: 正在监控\n"
-                f"监控文件夹数量: {len(db_manager.file_watcher.watcher.directories())}\n"
-                f"监控文件数量: {len(db_manager.file_watcher.watcher.files())}\n"
-                f"已知Markdown文件: {len(db_manager.file_watcher.known_files)}\n"
-                f"数据库连接状态: {'已连接' if db_manager.conn else '未连接'}\n"
-                f"信号连接状态: {'已连接' if has_signals_connected else '未连接'}\n\n"
-                f"监控的文件夹:\n"
-            )
-            
-            # 添加监控的文件夹列表
-            folder_list = ""
-            for i, folder in enumerate(db_manager.pkm_folders, 1):
-                folder_exists = "存在" if os.path.exists(folder) else "不存在或无法访问"
-                folder_list += f"{i}. {folder} ({folder_exists})\n"
-            
-            # 测试说明
-            test_instructions = (
-                "\n测试方法:\n"
-                "1. 在任意受监控的文件夹中创建一个新的.md文件\n"
-                "2. 然后打开控制台查看是否输出「文件添加: xxx」的信息\n"
-                "3. 如果看到此消息，说明监控正常工作并更新了数据库\n"
-                "4. 您也可以修改或删除一个已存在的.md文件来测试"
-            )
-            
-            QMessageBox.information(self, "文件监控状态", monitoring_stats + folder_list + test_instructions)
-            
-        except Exception as e:
-            QMessageBox.critical(self, "错误", f"测试文件监控出错: {str(e)}")
-    
     def _add_pkm_folder(self, folders_list, db_manager):
         """添加PKM文件夹"""
         try:
@@ -1571,4 +1561,20 @@ class FileExplorer(QWidget):
         folder_count = folders_list.count() or 1  # 至少1行的高度
         ideal_height = min(max(folder_count * 25 + 10, 80), 150)
         folders_list.setFixedHeight(ideal_height)
+    
+    def _delayed_load_stats(self, table, db_manager):
+        """延迟加载统计数据的方法"""
+        try:
+            # 检查表格是否还存在
+            if not table or not table.isVisible():
+                return
+                
+            # 调用刷新统计方法
+            self._refresh_file_stats(table, db_manager)
+            
+        except Exception as e:
+            print(f"延迟加载统计数据出错: {e}")
+            # 清除加载提示
+            if table and table.rowCount() > 0:
+                table.setRowCount(0)
             
