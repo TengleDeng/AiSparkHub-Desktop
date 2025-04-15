@@ -406,10 +406,28 @@ class FileViewer(QWidget):
             print(f"Error updating file viewer theme/content: {e}")
     
     def _get_text_content(self, file_path):
-        """安全地读取文本文件内容"""
+        """安全地读取文本文件内容，使用格式转换器"""
         try:
-            with open(file_path, 'r', encoding='utf-8') as f:
-                return f.read()
+            # 尝试使用格式转换器提取内容
+            try:
+                from app.models.converters import ConverterFactory
+                
+                # 获取对应格式的转换器
+                converter = ConverterFactory.get_converter(file_path)
+                
+                # 提取内容和标题
+                content, _ = converter.extract_content(file_path)
+                
+                # 对于非markdown文件，需要转换成markdown
+                if not file_path.lower().endswith(('.md', '.markdown')):
+                    content = converter.convert_to_markdown(content)
+                
+                return content
+            except ImportError as e:
+                print(f"警告: 转换器模块不可用，回退到原方法: {e}")
+                # 回退到原始方法
+                with open(file_path, 'r', encoding='utf-8') as f:
+                    return f.read()
         except UnicodeDecodeError:
             try:
                 # Fallback to system default encoding (less reliable)
@@ -547,51 +565,55 @@ class FileViewer(QWidget):
         """
         if not DOCX_SUPPORT:
             return "<p>未安装python-docx库，无法查看Word文档</p>"
-            
-        doc = docx.Document(file_path)
-        html = []
         
-        # 处理文档内容
-        for para in doc.paragraphs:
-            if not para.text.strip():
-                continue
-                
-            # 处理不同样式的段落
-            if para.style.name.startswith('Heading'):
-                level = para.style.name.replace('Heading', '')
-                try:
-                    level_num = int(level.strip())
-                    if 1 <= level_num <= 6:
-                        html.append(f"<h{level_num}>{para.text}</h{level_num}>")
-                        continue
-                except ValueError:
-                    pass
+        try:    
+            doc = docx.Document(file_path)
+            html = []
             
-            # 默认作为普通段落处理
-            html.append(f"<p>{para.text}</p>")
-        
-        # 处理表格
-        for table in doc.tables:
-            html_table = ["<table>"]
-            
-            # 处理表格行
-            for i, row in enumerate(table.rows):
-                html_table.append("<tr>")
+            # 处理文档内容
+            for para in doc.paragraphs:
+                if not para.text.strip():
+                    continue
+                    
+                # 处理不同样式的段落
+                if para.style.name.startswith('Heading'):
+                    level = para.style.name.replace('Heading', '')
+                    try:
+                        level_num = int(level.strip())
+                        if 1 <= level_num <= 6:
+                            html.append(f"<h{level_num}>{para.text}</h{level_num}>")
+                            continue
+                    except ValueError:
+                        pass
                 
-                # 处理单元格
-                for cell in row.cells:
-                    # 第一行通常是表头
-                    if i == 0:
-                        html_table.append(f"<th>{cell.text}</th>")
-                    else:
-                        html_table.append(f"<td>{cell.text}</td>")
-                
-                html_table.append("</tr>")
+                # 默认作为普通段落处理
+                html.append(f"<p>{para.text}</p>")
             
-            html_table.append("</table>")
-            html.append("".join(html_table))
-        
-        return "".join(html)
+            # 处理表格
+            for table in doc.tables:
+                html_table = ["<table>"]
+                
+                # 处理表格行
+                for i, row in enumerate(table.rows):
+                    html_table.append("<tr>")
+                    
+                    # 处理单元格
+                    for cell in row.cells:
+                        # 第一行通常是表头
+                        if i == 0:
+                            html_table.append(f"<th>{cell.text}</th>")
+                        else:
+                            html_table.append(f"<td>{cell.text}</td>")
+                    
+                    html_table.append("</tr>")
+                
+                html_table.append("</table>")
+                html.append("".join(html_table))
+            
+            return "".join(html)
+        except Exception as e:
+            print(f"Error parsing Word document: {e}")
+            return f"<p>无法解析Word文档: {str(e)}</p><p>可能是不支持的文档格式或文档已损坏。</p>"
     
     def _pptx_to_html(self, file_path):
         """将PowerPoint转换为HTML
