@@ -37,26 +37,32 @@ class ScanThread(QThread):
         db_manager = DatabaseManager()
         
         # 设置进度回调函数
-        def progress_callback(data):
-            if isinstance(data, dict) and 'current' in data:
-                # 新版本进度回调
-                self.progress_update.emit(data.get('current', 0), data.get('total', 100))
-            elif isinstance(data, tuple) and len(data) == 2:
+        def progress_callback(stats_data):
+            # 新版本回调接收一个包含完整统计信息的字典
+            if isinstance(stats_data, dict):
+                current = stats_data.get('progress', 0)
+                total = 100  # 进度总是相对于100%
+                
+                # 保存当前正在扫描的文件名（如果有）
+                if 'current_file' in stats_data:
+                    self._current_scanning_file = stats_data['current_file']
+                
+                # 发送进度更新信号
+                self.progress_update.emit(current, total)
+                
+                # 如果已完成，发送完成信号
+                if current >= 100 or 'summary' in stats_data:
+                    self.scan_complete.emit(stats_data)
+            elif isinstance(stats_data, tuple) and len(stats_data) == 2:
                 # 兼容旧版本回调
-                self.progress_update.emit(data[0], data[1])
+                self.progress_update.emit(stats_data[0], stats_data[1])
                 
         # 执行数据库扫描
         result = db_manager.scan_pkm_folder(callback=progress_callback)
         
-        # 转换结果以兼容旧版本UI
-        compat_result = {
-            'added': result.get('added_files', 0),
-            'updated': result.get('updated_files', 0),
-            'deleted': result.get('deleted_files', 0),
-            'error': result.get('message', None) if result.get('status') == 'error' else None
-        }
-        
-        self.scan_complete.emit(compat_result)
+        # 确保扫描完成信号被发送（如果回调中没有发送）
+        if not isinstance(result, dict) or 'progress' not in result or result['progress'] < 100:
+            self.scan_complete.emit(result)
 
 class DraggableTreeView(QTreeView):
     """支持拖动的树形视图"""
@@ -1414,18 +1420,19 @@ class FileExplorer(QWidget):
             progress_bar.setValue(100)
             
             # 显示扫描结果
-            if 'error' in result and result['error']:
-                status_text.append(f"扫描失败: {result['error']}")
+            if isinstance(result, dict) and ('error' in result or result.get('status') == 'error'):
+                error_msg = result.get('error') or result.get('message', '未知错误')
+                status_text.append(f"扫描失败: {error_msg}")
             else:
-                # 获取按文件格式分类的结果（如果有的话）
+                # 获取按文件格式分类的结果
                 format_stats = result.get('format_stats', {})
                 
                 status_text.append("扫描完成:")
-                status_text.append(f"- 添加了 {result['added']} 个文件")
-                status_text.append(f"- 更新了 {result['updated']} 个文件")
-                status_text.append(f"- 删除了 {result.get('deleted', 0)} 个文件")
-                status_text.append(f"- 未变更 {result.get('unchanged', 0)} 个文件")
-                status_text.append(f"- 跳过 {result.get('skipped', 0)} 个文件")
+                status_text.append(f"- 添加了 {result.get('added_files', 0)} 个文件")
+                status_text.append(f"- 更新了 {result.get('updated_files', 0)} 个文件")
+                status_text.append(f"- 删除了 {result.get('deleted_files', 0)} 个文件")
+                status_text.append(f"- 未变更 {result.get('unchanged_files', 0)} 个文件")
+                status_text.append(f"- 跳过 {result.get('skipped_files', 0)} 个文件")
                 
                 # 显示按格式统计的结果
                 if format_stats:
@@ -1433,10 +1440,16 @@ class FileExplorer(QWidget):
                     for format_name, count in format_stats.items():
                         status_text.append(f"- {format_name}: {count} 个文件")
                 
+                # 如果有扫描摘要，显示它
+                if 'summary' in result:
+                    status_text.append(f"\n{result['summary']}")
+                
             # 重新启用扫描按钮
             scan_button.setEnabled(True)
         except Exception as e:
             print(f"处理原始扫描结果出错: {e}")
+            import traceback
+            traceback.print_exc()
             scan_button.setEnabled(True)
     
     def _scan_pkm_folder(self, db_manager, status_text, progress_bar, scan_button, update_callback=None):
@@ -1507,13 +1520,19 @@ class FileExplorer(QWidget):
             percent = min(int(current * 100 / total), 100)
             progress_bar.setValue(percent)
             
+            # 获取当前扫描的文件名（如果可用）
+            current_file = getattr(self, '_current_scanning_file', '')
+            
             # 更新状态文本
             if current == 0:
-                status_text.append(f"准备扫描 {total} 个文件...")
+                status_text.append(f"准备扫描文件...")
             elif current == total:
-                status_text.append(f"已完成所有 {total} 个文件扫描 (100%)")
+                status_text.append(f"已完成所有文件扫描 (100%)")
             elif current % 20 == 0 or current == 1:  # 第一个文件和每20个文件更新一次信息
-                status_text.append(f"正在扫描: {current}/{total} 文件 ({percent}%)")
+                if current_file:
+                    status_text.append(f"正在扫描: {current}/{total} 文件 ({percent}%) - {os.path.basename(current_file)}")
+                else:
+                    status_text.append(f"正在扫描: {current}/{total} 文件 ({percent}%)")
                 # 确保滚动到底部
                 status_text.verticalScrollBar().setValue(status_text.verticalScrollBar().maximum())
                 

@@ -1506,21 +1506,64 @@ class DatabaseManager:
                 # 添加或更新文件
                 result = self.add_or_update_pkm_file(file_path)
                 
-                # 更新统计
-                if result == "added":
-                    total_stats['added_files'] += 1
-                elif result == "updated":
-                    total_stats['updated_files'] += 1
-                elif result == "unchanged":
-                    total_stats['unchanged_files'] += 1
-                else:
-                    total_stats['failed_files'] += 1
-                    
-                # 更新格式统计
+                # 获取文件格式
                 format_name = self.get_format_for_extension(file_path) or "unknown"
-                if format_name not in total_stats['format_stats']:
-                    total_stats['format_stats'][format_name] = 0
-                total_stats['format_stats'][format_name] += 1
+                
+                # 更新统计
+                if isinstance(result, dict):
+                    status = result.get('status', '')
+                    message = result.get('message', '无消息')
+                    
+                    if status == 'added':
+                        total_stats['added_files'] += 1
+                        print(f"文件添加成功: {file_path} - {message}")
+                        # 更新格式统计
+                        if format_name not in total_stats['format_stats']:
+                            total_stats['format_stats'][format_name] = 0
+                        total_stats['format_stats'][format_name] += 1
+                    elif status == 'updated':
+                        total_stats['updated_files'] += 1
+                        print(f"文件更新成功: {file_path} - {message}")
+                        # 更新格式统计
+                        if format_name not in total_stats['format_stats']:
+                            total_stats['format_stats'][format_name] = 0
+                        total_stats['format_stats'][format_name] += 1
+                    elif status == 'unchanged':
+                        total_stats['unchanged_files'] += 1
+                        print(f"文件未变更: {file_path}")
+                        # 更新格式统计
+                        if format_name not in total_stats['format_stats']:
+                            total_stats['format_stats'][format_name] = 0
+                        total_stats['format_stats'][format_name] += 1
+                    elif status == 'skipped':
+                        total_stats['skipped_files'] += 1
+                        print(f"文件已跳过: {file_path} - {message}")
+                    else:
+                        # 处理其他状态（如error）
+                        total_stats['failed_files'] += 1
+                        print(f"文件处理失败: {file_path} - {status}: {message}")
+                else:
+                    # 兼容旧版逻辑，处理字符串返回值
+                    if result == "added":
+                        total_stats['added_files'] += 1
+                        # 更新格式统计
+                        if format_name not in total_stats['format_stats']:
+                            total_stats['format_stats'][format_name] = 0
+                        total_stats['format_stats'][format_name] += 1
+                    elif result == "updated":
+                        total_stats['updated_files'] += 1
+                        # 更新格式统计
+                        if format_name not in total_stats['format_stats']:
+                            total_stats['format_stats'][format_name] = 0
+                        total_stats['format_stats'][format_name] += 1
+                    elif result == "unchanged":
+                        total_stats['unchanged_files'] += 1
+                        # 更新格式统计
+                        if format_name not in total_stats['format_stats']:
+                            total_stats['format_stats'][format_name] = 0
+                        total_stats['format_stats'][format_name] += 1
+                    else:
+                        total_stats['failed_files'] += 1
                     
             except Exception as e:
                 print(f"处理文件出错 {file_path}: {str(e)}")
@@ -1530,6 +1573,8 @@ class DatabaseManager:
             processed_count += 1
             if callback and total_stats['total_files'] > 0:
                 total_stats['progress'] = int(processed_count / total_stats['total_files'] * 100)
+                # 添加当前正在处理的文件路径
+                total_stats['current_file'] = file_path
                 callback(total_stats)
         
         # 检查并处理已删除的文件
