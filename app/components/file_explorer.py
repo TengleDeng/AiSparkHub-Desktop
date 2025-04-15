@@ -5,7 +5,8 @@ from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QTreeView, QHeaderView,
                            QToolBar, QFileDialog, QPushButton, QHBoxLayout, 
                            QListWidget, QStackedWidget, QSplitter, QLabel,
                            QMenu, QTabWidget, QAbstractItemView, QScrollBar, QFrame, QSizePolicy,
-                           QMessageBox)
+                           QMessageBox, QTableWidget, QTableWidgetItem, QGroupBox, QDialog, QCheckBox, QTextEdit,
+                           QProgressBar, QLineEdit, QGridLayout)
 from PyQt6.QtCore import Qt, QDir, QModelIndex, pyqtSignal, QSettings, QSize, QTimer, QUrl, QMimeData, QThread
 from PyQt6.QtGui import QFileSystemModel, QIcon, QAction, QDrag
 import qtawesome as qta
@@ -13,6 +14,8 @@ import os
 import json
 from PyQt6.QtWidgets import QApplication
 from app.controllers.theme_manager import ThemeManager
+import sqlite3
+from app.models.database import DatabaseManager
 
 # 文件扫描线程
 class ScanThread(QThread):
@@ -31,7 +34,6 @@ class ScanThread(QThread):
         
     def run(self):
         # 在线程内创建新的数据库管理器实例
-        from app.models.database import DatabaseManager
         db_manager = DatabaseManager()
         
         # 设置进度回调函数
@@ -836,22 +838,14 @@ class FileExplorer(QWidget):
     def show_pkm_database(self):
         """显示PKM数据库设置和管理界面"""
         try:
-            # 导入数据库管理器
-            from app.models.database import DatabaseManager
-            from PyQt6.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, 
-                                        QPushButton, QFileDialog, QProgressBar, 
-                                        QLineEdit, QTextEdit, QCheckBox, QListWidget,
-                                        QToolButton, QMenu, QGroupBox)
-            # QAction应从QtGui导入，而不是QtWidgets
-            from PyQt6.QtCore import QThread, pyqtSignal, Qt
-            
             # 创建设置对话框
             dialog = QDialog(self)
             dialog.setWindowTitle("PKM数据库设置")
-            dialog.resize(650, 600)
+            dialog.resize(800, 600)  # 降低初始高度
             
             # 创建对话框布局
             layout = QVBoxLayout(dialog)
+            layout.setSpacing(10)  # 减少垂直间距
             
             # 创建数据库管理器实例
             db_manager = DatabaseManager()
@@ -859,6 +853,7 @@ class FileExplorer(QWidget):
             # ======== 文件夹设置部分 ========
             folder_group = QGroupBox("文件夹设置")
             folder_layout = QVBoxLayout()
+            folder_layout.setSpacing(5)  # 减少内部间距
             
             # 添加文件夹列表显示区域
             folder_layout.addWidget(QLabel("监控文件夹列表:"))
@@ -867,12 +862,16 @@ class FileExplorer(QWidget):
             folders_list = QListWidget()
             folders_list.setSelectionMode(QListWidget.SelectionMode.SingleSelection)
             folders_list.setAlternatingRowColors(True)
-            folders_list.setMinimumHeight(150)
             
             # 填充现有文件夹列表
             if db_manager.pkm_folders:
                 for folder in db_manager.pkm_folders:
                     folders_list.addItem(folder)
+            
+            # 动态计算理想高度 - 每行25像素，最小高度80，最大高度150
+            folder_count = folders_list.count() or 1  # 至少1行的高度
+            ideal_height = min(max(folder_count * 25 + 10, 80), 150)
+            folders_list.setFixedHeight(ideal_height)
             
             folder_layout.addWidget(folders_list)
             
@@ -893,26 +892,69 @@ class FileExplorer(QWidget):
             folder_group.setLayout(folder_layout)
             layout.addWidget(folder_group)
             
+            # ======== 文件统计表格 ========
+            stats_group = QGroupBox("文件统计")
+            stats_layout = QVBoxLayout()
+            stats_layout.setSpacing(5)  # 减少内部间距
+            
+            # 创建统计表格
+            stats_table = QTableWidget()
+            stats_table.setColumnCount(4)  # 文件夹, 文件类型, 文件系统数量, 数据库数量
+            stats_table.setHorizontalHeaderLabels(["文件夹", "文件类型", "文件系统数量", "数据库数量"])
+            stats_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeMode.Stretch)
+            stats_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeMode.ResizeToContents)
+            stats_table.horizontalHeader().setSectionResizeMode(2, QHeaderView.ResizeMode.ResizeToContents)
+            stats_table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeMode.ResizeToContents)
+            stats_table.setAlternatingRowColors(True)
+            stats_table.setFixedHeight(150)  # 固定高度
+            
+            stats_layout.addWidget(stats_table)
+            
+            # 添加刷新按钮
+            refresh_stats_btn = QPushButton("刷新统计")
+            refresh_stats_btn.clicked.connect(
+                lambda: self._refresh_file_stats(stats_table, db_manager)
+            )
+            stats_layout.addWidget(refresh_stats_btn)
+            
+            stats_group.setLayout(stats_layout)
+            layout.addWidget(stats_group)
+            
+            # 初始加载统计数据
+            self._refresh_file_stats(stats_table, db_manager)
+            
             # ======== 文件格式设置部分 ========
             format_group = QGroupBox("文件格式设置")
-            format_layout = QVBoxLayout()
+            format_layout = QGridLayout()  # 使用网格布局
+            format_layout.setSpacing(5)    # 减少间距
             
             # 创建文件格式复选框
             format_checkboxes = {}
             
             if hasattr(db_manager, 'supported_file_formats'):
+                row, col = 0, 0
+                max_cols = 3  # 每行显示3个选项
+                
                 for format_name, format_config in db_manager.supported_file_formats.items():
                     checkbox = QCheckBox(f"{format_config['description']} ({', '.join(format_config['extensions'])})")
                     checkbox.setChecked(format_config['enabled'])
                     format_checkboxes[format_name] = checkbox
-                    format_layout.addWidget(checkbox)
+                    
+                    format_layout.addWidget(checkbox, row, col)
+                    col += 1
+                    if col >= max_cols:
+                        col = 0
+                        row += 1
             
             format_group.setLayout(format_layout)
+            format_group.setMaximumHeight(120)  # 限制最大高度
             layout.addWidget(format_group)
             
             # ======== 监控设置部分 ========
-            # 添加监控开关
+            monitor_group = QGroupBox("监控设置")
             monitor_layout = QHBoxLayout()
+            
+            # 添加监控开关
             monitor_checkbox = QCheckBox("启用实时文件监控")
             monitor_checkbox.setChecked(True)  # 默认启用
             monitor_checkbox.setToolTip("启用后，会自动监控文件变化并更新数据库")
@@ -931,14 +973,20 @@ class FileExplorer(QWidget):
                 lambda: self._test_monitoring(db_manager)
             )
             monitor_layout.addWidget(test_monitor_btn)
+            monitor_layout.addStretch(1)  # 添加弹性空间
             
-            layout.addLayout(monitor_layout)
+            monitor_group.setLayout(monitor_layout)
+            layout.addWidget(monitor_group)
             
             # ======== 扫描和操作部分 ========
+            operation_group = QGroupBox("操作")
+            operation_layout = QVBoxLayout()
+            operation_layout.setSpacing(5)  # 减少间距
+            
             # 添加扫描按钮和状态显示
             scan_layout = QHBoxLayout()
             scan_button = QPushButton("扫描文件夹")
-            scan_button.clicked.connect(lambda: self._scan_pkm_folder(db_manager, status_text, progress_bar, scan_button))
+            scan_button.clicked.connect(lambda: self._scan_pkm_folder(db_manager, status_text, progress_bar, scan_button, lambda: self._refresh_file_stats(stats_table, db_manager)))
             scan_layout.addWidget(scan_button)
             
             progress_bar = QProgressBar()
@@ -947,7 +995,7 @@ class FileExplorer(QWidget):
             progress_bar.setValue(0)
             scan_layout.addWidget(progress_bar)
             
-            layout.addLayout(scan_layout)
+            operation_layout.addLayout(scan_layout)
             
             # 添加搜索功能
             search_layout = QHBoxLayout()
@@ -963,12 +1011,16 @@ class FileExplorer(QWidget):
             )
             search_layout.addWidget(search_button)
             
-            layout.addLayout(search_layout)
+            operation_layout.addLayout(search_layout)
+            
+            operation_group.setLayout(operation_layout)
+            layout.addWidget(operation_group)
             
             # 添加状态文本显示区域
             status_text = QTextEdit()
             status_text.setReadOnly(True)
             status_text.setPlaceholderText("操作结果将显示在这里...")
+            status_text.setFixedHeight(100)  # 限制高度
             layout.addWidget(status_text)
             
             # 连接文件监控器的信号到状态显示
@@ -979,16 +1031,16 @@ class FileExplorer(QWidget):
                 
                 # 连接UI信号 - 这些连接只在对话框打开时有效，关闭时会断开
                 db_manager.file_watcher.file_added.connect(
-                    lambda path: status_text.append(f"文件已添加: {os.path.basename(path)}")
+                    lambda path: self._handle_file_change(path, "添加", status_text, lambda: self._refresh_file_stats(stats_table, db_manager))
                 )
                 db_manager.file_watcher.file_modified.connect(
-                    lambda path: status_text.append(f"文件已更新: {os.path.basename(path)}")
+                    lambda path: self._handle_file_change(path, "更新", status_text, None)
                 )
                 db_manager.file_watcher.file_deleted.connect(
-                    lambda path: status_text.append(f"文件已删除: {os.path.basename(path)}")
+                    lambda path: self._handle_file_change(path, "删除", status_text, lambda: self._refresh_file_stats(stats_table, db_manager))
                 )
                 db_manager.file_watcher.scan_completed.connect(
-                    lambda result: self._handle_scan_result(result, status_text, progress_bar, scan_button)
+                    lambda result: self._handle_scan_result(result, status_text, progress_bar, scan_button, lambda: self._refresh_file_stats(stats_table, db_manager))
                 )
             
             # ======== 底部按钮部分 ========
@@ -1046,77 +1098,349 @@ class FileExplorer(QWidget):
             
         except Exception as e:
             QMessageBox.critical(self, "错误", f"打开PKM数据库设置出错: {str(e)}")
-            
-    def _add_pkm_folder(self, folders_list, db_manager):
-        """添加PKM监控文件夹"""
-        try:
-            # 获取当前已有的文件夹列表
-            current_folders = [folders_list.item(i).text() for i in range(folders_list.count())]
-            
-            # 打开文件夹选择对话框
-            start_dir = current_folders[0] if current_folders else ""
-            folder = QFileDialog.getExistingDirectory(
-                self, "选择PKM文件夹", start_dir,
-                QFileDialog.Option.ShowDirsOnly | QFileDialog.Option.DontResolveSymlinks
-            )
-            
-            # 如果用户选择了文件夹，并且不在当前列表中，添加到列表
-            if folder and folder not in current_folders:
-                folders_list.addItem(folder)
-                # 添加成功后提示用户点击"保存设置"按钮
-                QMessageBox.information(self, "提示", "文件夹已添加到列表，请点击'保存设置'按钮保存更改")
-            elif folder in current_folders:
-                QMessageBox.information(self, "提示", "该文件夹已在监控列表中")
-                    
-        except Exception as e:
-            QMessageBox.critical(self, "错误", f"添加PKM文件夹出错: {str(e)}")
+            import traceback
+            traceback.print_exc()
     
-    def _remove_pkm_folder(self, folders_list, db_manager):
-        """移除PKM监控文件夹"""
+    def _refresh_file_stats(self, table, db_manager):
+        """刷新文件统计表格数据"""
         try:
-            # 获取当前选中的项
-            selected_items = folders_list.selectedItems()
-            if not selected_items:
-                QMessageBox.information(self, "提示", "请先选择要移除的文件夹")
+            # 导入必要的模块
+            from PyQt6.QtCore import Qt
+            import sqlite3
+            
+            # 清空表格
+            table.setRowCount(0)
+            
+            # 设置表格列宽
+            table.setColumnWidth(0, 300)  # 文件夹列宽度限制
+            table.setColumnWidth(1, 100)  # 文件类型宽度
+            table.setColumnWidth(2, 100)  # 文件系统数量
+            table.setColumnWidth(3, 100)  # 数据库数量
+            
+            # 检查是否有文件夹
+            if not db_manager.pkm_folders:
+                return
+            
+            # 获取每个文件夹中的文件统计
+            row_index = 0
+            total_fs_files = {}
+            total_db_files = {}
+            
+            # 获取数据库中的文件统计
+            db_stats = self._get_db_file_stats(db_manager)
+            
+            # 设置背景颜色 - 使用浅色方案
+            header_bg = Qt.GlobalColor.lightGray  # 文件夹头行背景
+            alternate_bg = Qt.GlobalColor.white   # 普通行背景
+            normal_bg = Qt.GlobalColor.white      # 普通行背景
+            total_bg = Qt.GlobalColor.lightGray   # 总计行背景
+            
+            # 统计文件系统中的文件
+            for folder in db_manager.pkm_folders:
+                if not os.path.exists(folder):
+                    continue
+                
+                # 获取文件夹中各类型文件的数量
+                fs_stats = self._count_files_in_folder(folder, db_manager)
+                
+                # 添加文件夹统计行
+                table.insertRow(row_index)
+                folder_item = QTableWidgetItem(folder)
+                folder_item.setToolTip(folder)  # 添加工具提示，显示完整路径
+                table.setItem(row_index, 0, folder_item)
+                table.setItem(row_index, 1, QTableWidgetItem("总计"))
+                
+                # 计算此文件夹的总文件数
+                folder_fs_total = sum(fs_stats.values())
+                folder_db_total = 0
+                for format_name in fs_stats:
+                    # 累加数据库中该文件夹对应格式的文件数
+                    if folder in db_stats and format_name in db_stats[folder]:
+                        folder_db_total += db_stats[folder][format_name]
+                
+                table.setItem(row_index, 2, QTableWidgetItem(str(folder_fs_total)))
+                table.setItem(row_index, 3, QTableWidgetItem(str(folder_db_total)))
+                
+                # 设置文件夹行背景色和字体（粗体）
+                for col in range(4):
+                    item = table.item(row_index, col)
+                    if item:
+                        item.setBackground(header_bg)
+                        font = item.font()
+                        font.setBold(True)
+                        item.setFont(font)
+                
+                row_index += 1
+                
+                # 为每种文件类型添加行
+                for format_name, count in fs_stats.items():
+                    # 更新总计
+                    if format_name not in total_fs_files:
+                        total_fs_files[format_name] = 0
+                    total_fs_files[format_name] += count
+                    
+                    # 获取数据库中对应的数量
+                    db_count = 0
+                    if folder in db_stats and format_name in db_stats[folder]:
+                        db_count = db_stats[folder][format_name]
+                        # 更新总计
+                        if format_name not in total_db_files:
+                            total_db_files[format_name] = 0
+                        total_db_files[format_name] += db_count
+                    
+                    # 添加行
+                    table.insertRow(row_index)
+                    table.setItem(row_index, 0, QTableWidgetItem(""))  # 留空，不重复显示文件夹
+                    table.setItem(row_index, 1, QTableWidgetItem(format_name))
+                    
+                    fs_item = QTableWidgetItem(str(count))
+                    db_item = QTableWidgetItem(str(db_count))
+                    
+                    # 如果有差异，使用红色前景色
+                    if count != db_count:
+                        fs_item.setForeground(Qt.GlobalColor.red)
+                        db_item.setForeground(Qt.GlobalColor.red)
+                    
+                    table.setItem(row_index, 2, fs_item)
+                    table.setItem(row_index, 3, db_item)
+                    
+                    # 设置交替行背景色 - 使用统一浅色
+                    row_bg = alternate_bg if row_index % 2 == 0 else normal_bg
+                    for col in range(4):
+                        item = table.item(row_index, col)
+                        if item:
+                            item.setBackground(row_bg)
+                    
+                    row_index += 1
+            
+            # 添加总计行
+            table.insertRow(row_index)
+            total_item = QTableWidgetItem("所有文件夹")
+            total_item.setFont(table.font())
+            total_item.setBackground(total_bg)
+            total_item.setForeground(Qt.GlobalColor.black)
+            table.setItem(row_index, 0, total_item)
+            
+            total_label = QTableWidgetItem("总计")
+            total_label.setBackground(total_bg)
+            total_label.setForeground(Qt.GlobalColor.black)
+            font = total_label.font()
+            font.setBold(True)
+            total_label.setFont(font)
+            table.setItem(row_index, 1, total_label)
+            
+            # 总文件系统文件数
+            total_fs = sum(total_fs_files.values())
+            total_fs_item = QTableWidgetItem(str(total_fs))
+            total_fs_item.setBackground(total_bg)
+            total_fs_item.setForeground(Qt.GlobalColor.black)
+            total_fs_item.setFont(font)
+            table.setItem(row_index, 2, total_fs_item)
+            
+            # 总数据库文件数
+            total_db = sum(total_db_files.values())
+            total_db_item = QTableWidgetItem(str(total_db))
+            total_db_item.setBackground(total_bg)
+            total_db_item.setForeground(Qt.GlobalColor.black)
+            total_db_item.setFont(font)
+            table.setItem(row_index, 3, total_db_item)
+            
+            # 如果总数有差异，标记为红色
+            if total_fs != total_db:
+                total_fs_item.setForeground(Qt.GlobalColor.red)
+                total_db_item.setForeground(Qt.GlobalColor.red)
+            
+            # 调整行高以提高可读性
+            for i in range(table.rowCount()):
+                table.setRowHeight(i, 22)  # 稍微减小行高
+            
+        except Exception as e:
+            print(f"刷新文件统计出错: {e}")
+            import traceback
+            traceback.print_exc()
+    
+    def _count_files_in_folder(self, folder, db_manager):
+        """统计文件夹中各种类型文件的数量"""
+        result = {}
+        
+        try:
+            # 获取所有启用的文件格式
+            for format_name, format_config in db_manager.supported_file_formats.items():
+                # 初始化计数
+                result[format_name] = 0
+                
+                # 如果格式未启用，跳过
+                if not format_config['enabled']:
+                    continue
+                
+                # 获取此格式的扩展名
+                extensions = format_config['extensions']
+                
+                # 遍历文件夹寻找匹配的文件
+                for root, _, files in os.walk(folder):
+                    for file in files:
+                        # 获取文件扩展名
+                        _, ext = os.path.splitext(file.lower())
+                        if ext in extensions:
+                            result[format_name] += 1
+        except Exception as e:
+            print(f"统计文件夹文件出错 ({folder}): {e}")
+        
+        return result
+    
+    def _get_db_file_stats(self, db_manager):
+        """获取数据库中各文件夹各类型文件的统计信息"""
+        result = {}
+        
+        try:
+            if not db_manager.conn:
+                return result
+                
+            cursor = db_manager.conn.cursor()
+            
+            # 获取所有文件记录
+            cursor.execute("SELECT file_path, file_format FROM pkm_files")
+            rows = cursor.fetchall()
+            
+            # 按文件夹和格式分组统计
+            for row in rows:
+                # 确保row是一个字典，避免索引错误
+                if isinstance(row, sqlite3.Row):
+                    row_dict = dict(row)
+                else:
+                    row_dict = row
+                
+                file_path = row_dict.get('file_path', '')
+                if not file_path:
+                    continue
+                    
+                # 使用db_manager的标准化路径函数
+                if hasattr(db_manager, '_normalize_path'):
+                    file_path = db_manager._normalize_path(file_path)
+                
+                # 获取文件格式
+                file_format = row_dict.get('file_format', '')
+                if not file_format or file_format == 'unknown':
+                    # 如果数据库中没有格式信息，从文件扩展名判断
+                    file_format = db_manager.get_format_for_extension(file_path) or "unknown"
+                
+                # 确定文件所属的文件夹
+                parent_folder = None
+                for folder in db_manager.pkm_folders:
+                    normalized_folder = folder
+                    if hasattr(db_manager, '_normalize_path'):
+                        normalized_folder = db_manager._normalize_path(folder)
+                    
+                    if file_path.startswith(normalized_folder):
+                        parent_folder = normalized_folder
+                        break
+                
+                # 如果找不到父文件夹，可能是孤立文件或路径格式不一致
+                if not parent_folder:
+                    # 尝试直接在字符串层面判断
+                    for folder in db_manager.pkm_folders:
+                        if folder.replace('\\', '/') in file_path.replace('\\', '/'):
+                            parent_folder = folder
+                            break
+                
+                if not parent_folder:
+                    # 尝试再次使用os.path.dirname递归查找
+                    test_path = file_path
+                    while test_path and test_path != '/':
+                        if test_path in db_manager.pkm_folders:
+                            parent_folder = test_path
+                            break
+                        test_path = os.path.dirname(test_path)
+                
+                # 如果仍然找不到，添加到"其他"分类
+                if not parent_folder:
+                    parent_folder = "其他"
+                
+                # 更新统计
+                if parent_folder not in result:
+                    result[parent_folder] = {}
+                
+                if file_format not in result[parent_folder]:
+                    result[parent_folder][file_format] = 0
+                
+                result[parent_folder][file_format] += 1
+                
+            # 输出统计结果日志
+            print(f"数据库文件统计: {result}")
+                
+        except Exception as e:
+            print(f"获取数据库文件统计出错: {e}")
+            import traceback
+            traceback.print_exc()
+        
+        return result
+    
+    def _handle_file_change(self, file_path, change_type, status_text, update_callback=None):
+        """处理文件变更，并根据需要更新统计"""
+        try:
+            status_text.append(f"文件{change_type}: {os.path.basename(file_path)}")
+            
+            # 如果需要更新统计
+            if update_callback:
+                # 使用QTimer延迟更新，避免频繁刷新
+                QTimer.singleShot(500, update_callback)
+                
+        except Exception as e:
+            print(f"处理文件变更出错: {e}")
+    
+    def _handle_scan_result(self, result, status_text, progress_bar, scan_button, update_callback=None):
+        """处理扫描结果，更新后刷新文件统计"""
+        try:
+            # 先执行原来的处理逻辑
+            self._handle_original_scan_result(result, status_text, progress_bar, scan_button)
+            
+            # 更新文件统计
+            if update_callback:
+                update_callback()
+                
+        except Exception as e:
+            print(f"处理扫描结果出错: {e}")
+    
+    def _handle_original_scan_result(self, result, status_text, progress_bar, scan_button):
+        """原始的扫描结果处理逻辑"""
+        try:
+            # 检查UI组件是否仍然有效
+            if not progress_bar or not progress_bar.isVisible() or not status_text or not scan_button:
+                print("UI组件已关闭，无法显示结果")
                 return
                 
-            # 从列表中移除选中的文件夹
-            for item in selected_items:
-                row = folders_list.row(item)
-                folders_list.takeItem(row)
+            # 恢复进度条状态
+            progress_bar.setRange(0, 100)
+            progress_bar.setValue(100)
             
-            # 移除成功后提示用户点击"保存设置"按钮
-            QMessageBox.information(self, "提示", "文件夹已从列表移除，请点击'保存设置'按钮保存更改")
+            # 显示扫描结果
+            if 'error' in result and result['error']:
+                status_text.append(f"扫描失败: {result['error']}")
+            else:
+                # 获取按文件格式分类的结果（如果有的话）
+                format_stats = result.get('format_stats', {})
                 
+                status_text.append("扫描完成:")
+                status_text.append(f"- 添加了 {result['added']} 个文件")
+                status_text.append(f"- 更新了 {result['updated']} 个文件")
+                status_text.append(f"- 删除了 {result.get('deleted', 0)} 个文件")
+                status_text.append(f"- 未变更 {result.get('unchanged', 0)} 个文件")
+                status_text.append(f"- 跳过 {result.get('skipped', 0)} 个文件")
+                
+                # 显示按格式统计的结果
+                if format_stats:
+                    status_text.append("\n按格式统计:")
+                    for format_name, count in format_stats.items():
+                        status_text.append(f"- {format_name}: {count} 个文件")
+                
+            # 重新启用扫描按钮
+            scan_button.setEnabled(True)
         except Exception as e:
-            QMessageBox.critical(self, "错误", f"移除PKM文件夹出错: {str(e)}")
+            print(f"处理原始扫描结果出错: {e}")
+            scan_button.setEnabled(True)
     
-    def _select_pkm_folder(self, folder_path_field, db_manager):
-        """选择PKM文件夹 (旧版本兼容方法)"""
-        try:
-            # 获取当前设置的文件夹（如果有）
-            start_dir = db_manager.pkm_folder if db_manager.pkm_folder else ""
-            
-            # 打开文件夹选择对话框
-            folder = QFileDialog.getExistingDirectory(
-                self, "选择PKM文件夹", start_dir,
-                QFileDialog.Option.ShowDirsOnly | QFileDialog.Option.DontResolveSymlinks
-            )
-            
-            # 如果用户选择了文件夹，更新设置
-            if folder:
-                # 保存设置
-                if db_manager.save_pkm_settings([folder]):
-                    folder_path_field.setText(folder)
-                    QMessageBox.information(self, "成功", "PKM文件夹设置已保存")
-                else:
-                    QMessageBox.warning(self, "警告", "无法保存PKM文件夹设置")
-                    
-        except Exception as e:
-            QMessageBox.critical(self, "错误", f"选择PKM文件夹出错: {str(e)}")
-    
-    def _scan_pkm_folder(self, db_manager, status_text, progress_bar, scan_button):
-        """扫描PKM文件夹，更新数据库"""
+    def _scan_pkm_folder(self, db_manager, status_text, progress_bar, scan_button, update_callback=None):
+        """扫描PKM文件夹，更新数据库，完成后更新文件统计"""
         try:
             # 检查是否已设置文件夹
             if not db_manager.pkm_folders:
@@ -1152,7 +1476,7 @@ class FileExplorer(QWidget):
             
             # 连接完成信号
             self.scan_thread.scan_complete.connect(
-                lambda result: self._handle_scan_result(result, status_text, progress_bar, scan_button)
+                lambda result: self._handle_scan_result(result, status_text, progress_bar, scan_button, update_callback)
             )
             
             # 设置进度条初始值
@@ -1168,7 +1492,7 @@ class FileExplorer(QWidget):
             progress_bar.setValue(0)
             status_text.append(f"扫描出错: {str(e)}")
             QMessageBox.critical(self, "错误", f"扫描PKM文件夹出错: {str(e)}")
-            
+    
     def _update_scan_progress(self, current, total, progress_bar, status_text):
         """更新扫描进度"""
         try:
@@ -1198,46 +1522,6 @@ class FileExplorer(QWidget):
                 
         except Exception as e:
             print(f"更新进度条出错: {e}")
-    
-    def _handle_scan_result(self, result, status_text, progress_bar, scan_button):
-        """处理扫描结果"""
-        try:
-            # 检查UI组件是否仍然有效
-            if not progress_bar or not progress_bar.isVisible() or not status_text or not scan_button:
-                print("UI组件已关闭，无法显示结果")
-                return
-                
-            # 恢复进度条状态
-            progress_bar.setRange(0, 100)
-            progress_bar.setValue(100)
-            
-            # 显示扫描结果
-            if 'error' in result and result['error']:
-                status_text.append(f"扫描失败: {result['error']}")
-            else:
-                # 获取按文件格式分类的结果（如果有的话）
-                format_stats = result.get('format_stats', {})
-                
-                status_text.append("扫描完成:")
-                status_text.append(f"- 添加了 {result['added']} 个文件")
-                status_text.append(f"- 更新了 {result['updated']} 个文件")
-                status_text.append(f"- 删除了 {result.get('deleted', 0)} 个文件")
-                status_text.append(f"- 未变更 {result.get('unchanged', 0)} 个文件")
-                status_text.append(f"- 跳过 {result.get('skipped', 0)} 个文件")
-                
-                # 显示按格式统计的结果
-                if format_stats:
-                    status_text.append("\n按格式统计:")
-                    for format_name, count in format_stats.items():
-                        status_text.append(f"- {format_name}: {count} 个文件")
-                
-            # 重新启用扫描按钮
-            scan_button.setEnabled(True)
-        except RuntimeError:
-            # 捕获C++对象已删除错误
-            print("UI组件已被销毁，无法更新界面")
-        except Exception as e:
-            print(f"处理扫描结果出错: {e}")
     
     def _toggle_file_monitoring(self, state, db_manager, status_text):
         """切换文件监控状态"""
@@ -1419,4 +1703,76 @@ class FileExplorer(QWidget):
             
         except Exception as e:
             QMessageBox.critical(self, "错误", f"测试文件监控出错: {str(e)}")
+    
+    def _add_pkm_folder(self, folders_list, db_manager):
+        """添加PKM文件夹"""
+        try:
+            # 打开文件夹选择对话框
+            folder_path = QFileDialog.getExistingDirectory(self, "选择PKM文件夹")
+            
+            if not folder_path:
+                return  # 用户取消了选择
+                
+            # 检查文件夹是否已存在
+            for i in range(folders_list.count()):
+                if folders_list.item(i).text() == folder_path:
+                    QMessageBox.information(self, "提示", "该文件夹已在监控列表中")
+                    return
+                    
+            # 添加文件夹到列表
+            folders_list.addItem(folder_path)
+            
+            # 更新列表高度
+            self._update_folders_list_height(folders_list)
+            
+            # 临时添加到db_manager.pkm_folders中，方便后续操作
+            if not hasattr(db_manager, 'pkm_folders') or db_manager.pkm_folders is None:
+                db_manager.pkm_folders = []
+                
+            if folder_path not in db_manager.pkm_folders:
+                db_manager.pkm_folders.append(folder_path)
+                
+        except Exception as e:
+            QMessageBox.critical(self, "错误", f"添加文件夹失败: {str(e)}")
+    
+    def _remove_pkm_folder(self, folders_list, db_manager):
+        """移除PKM文件夹"""
+        try:
+            # 获取当前选中的项
+            current_item = folders_list.currentItem()
+            if not current_item:
+                QMessageBox.information(self, "提示", "请先选择要移除的文件夹")
+                return
+                
+            # 获取文件夹路径
+            folder_path = current_item.text()
+            
+            # 确认对话框
+            reply = QMessageBox.question(
+                self, "确认删除", 
+                f"确定要从监控列表中移除此文件夹吗?\n{folder_path}",
+                QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
+            )
+            
+            if reply == QMessageBox.StandardButton.Yes:
+                # 从列表中移除
+                row = folders_list.row(current_item)
+                folders_list.takeItem(row)
+                
+                # 更新列表高度
+                self._update_folders_list_height(folders_list)
+                
+                # 从db_manager.pkm_folders中移除
+                if hasattr(db_manager, 'pkm_folders') and folder_path in db_manager.pkm_folders:
+                    db_manager.pkm_folders.remove(folder_path)
+                    
+        except Exception as e:
+            QMessageBox.critical(self, "错误", f"移除文件夹失败: {str(e)}")
+    
+    def _update_folders_list_height(self, folders_list):
+        """动态更新文件夹列表高度"""
+        # 计算理想高度 - 每行25像素，最小高度80，最大高度150
+        folder_count = folders_list.count() or 1  # 至少1行的高度
+        ideal_height = min(max(folder_count * 25 + 10, 80), 150)
+        folders_list.setFixedHeight(ideal_height)
             
