@@ -6,15 +6,29 @@ import sys
 import shutil
 import subprocess
 import platform
+import argparse
 from pathlib import Path
 
+def parse_arguments():
+    """解析命令行参数"""
+    parser = argparse.ArgumentParser(description='构建AiSparkHub桌面应用')
+    parser.add_argument('app_name', nargs='?', default="AiSparkHub", help='应用名称')
+    parser.add_argument('app_version', nargs='?', default="1.0.0", help='应用版本号')
+    parser.add_argument('--skip-clean', action='store_true', help='跳过清理构建文件夹')
+    parser.add_argument('--skip-installer', action='store_true', help='跳过生成安装包')
+    parser.add_argument('--icon', help='自定义图标路径')
+    return parser.parse_args()
+
+# 解析命令行参数
+args = parse_arguments()
+
 # 应用程序信息
-APP_NAME = "AiSparkHub"
-APP_VERSION = "1.0.0"
+APP_NAME = args.app_name
+APP_VERSION = args.app_version
 APP_PUBLISHER = "AiSparkHub Team"
 APP_URL = "https://github.com/your-username/AiSparkHub-Desktop"
-APP_EXE_NAME = "AiSparkHub.exe"
-APP_ICON = "app/resources/icon.ico" if os.path.exists("app/resources/icon.ico") else ""
+APP_EXE_NAME = f"{APP_NAME}.exe"
+APP_ICON = args.icon if args.icon else "app/resources/icon.ico" if os.path.exists("app/resources/icon.ico") else ""
 APP_ID = "com.aisparkhub.desktop"
 
 # 目录配置
@@ -25,15 +39,66 @@ INSTALLER_DIR = "installer"
 
 def clean_build_folders():
     """清理构建文件夹"""
+    if args.skip_clean:
+        print("跳过清理构建文件夹...")
+        return
+        
     folders_to_clean = [BUILD_DIR, DIST_DIR]
     for folder in folders_to_clean:
         if os.path.exists(folder):
             print(f"清理 {folder} 文件夹...")
-            shutil.rmtree(folder)
+            try:
+                shutil.rmtree(folder)
+            except PermissionError as e:
+                print(f"无法删除 {folder}，可能有文件被占用: {e}")
+                print("请关闭所有可能使用这些文件的程序，如编辑器或文件浏览器")
+                sys.exit(1)
+            except Exception as e:
+                print(f"清理 {folder} 时发生错误: {e}")
+                sys.exit(1)
     
     # 确保安装包输出目录存在
     if not os.path.exists(INSTALLER_DIR):
-        os.makedirs(INSTALLER_DIR)
+        try:
+            os.makedirs(INSTALLER_DIR)
+        except Exception as e:
+            print(f"创建 {INSTALLER_DIR} 目录失败: {e}")
+            sys.exit(1)
+
+def check_environment():
+    """检查构建环境"""
+    print("检查构建环境...")
+    
+    # 检查必要的模块
+    required_modules = ["PyQt6", "qtawesome", "PyInstaller", "pynput"]
+    missing_modules = []
+    
+    for module in required_modules:
+        try:
+            __import__(module)
+        except ImportError:
+            missing_modules.append(module)
+    
+    if missing_modules:
+        print(f"错误: 缺少以下必要模块: {', '.join(missing_modules)}")
+        print(f"请使用以下命令安装: pip install {' '.join(missing_modules)}")
+        sys.exit(1)
+    
+    # 检查pathlib冲突
+    try:
+        try:
+            # 如果能导入pathlib中的abc，说明是标准库的pathlib
+            from pathlib import abc
+        except ImportError:
+            import pathlib
+            if not hasattr(pathlib, "__file__") or "site-packages" in pathlib.__file__:
+                print("警告: 检测到可能与PyInstaller不兼容的pathlib包")
+                print("如果打包失败，请尝试: conda remove pathlib")
+    except ImportError:
+        # 没有安装pathlib包，没有潜在冲突
+        pass
+    
+    print("环境检查完成")
 
 def run_pyinstaller():
     """运行PyInstaller打包应用"""
@@ -68,7 +133,13 @@ def run_pyinstaller():
         "--hidden-import", "qtawesome",
         "--hidden-import", "qtpy",
         "--hidden-import", "sqlite3",
+        "--hidden-import", "pynput",
+        "--hidden-import", "pynput.keyboard",
+        "--hidden-import", "pynput.keyboard._win32",
+        "--hidden-import", "pynput.mouse",
+        "--hidden-import", "pynput.mouse._win32",
         "--collect-all", "qtawesome",
+        "--collect-all", "pynput",
         # 添加主脚本
         "main.py"
     ]
@@ -96,8 +167,12 @@ def run_pyinstaller():
     # 确保数据库目录存在
     db_dir = os.path.join(OUTPUT_DIR, "database")
     if not os.path.exists(db_dir):
-        os.makedirs(db_dir)
-        print(f"创建数据库目录: {db_dir}")
+        try:
+            os.makedirs(db_dir)
+            print(f"创建数据库目录: {db_dir}")
+        except Exception as e:
+            print(f"创建数据库目录失败: {e}")
+            return False
     
     # 复制额外的文件和配置
     try:
@@ -215,14 +290,25 @@ end;
     
     # 写入脚本文件
     inno_script_path = "installer_script.iss"
-    with open(inno_script_path, "w", encoding="utf-8") as f:
-        f.write(script_content)
-    
-    print(f"Inno Setup脚本已创建: {inno_script_path}")
-    return inno_script_path
+    try:
+        with open(inno_script_path, "w", encoding="utf-8") as f:
+            f.write(script_content)
+        print(f"Inno Setup脚本已创建: {inno_script_path}")
+        return inno_script_path
+    except Exception as e:
+        print(f"创建Inno Setup脚本失败: {e}")
+        return None
 
 def compile_installer(script_path):
     """编译Inno Setup安装包"""
+    if args.skip_installer:
+        print("跳过生成安装包...")
+        return True
+        
+    if not script_path:
+        print("错误: 无法找到Inno Setup脚本文件")
+        return False
+        
     print("使用Inno Setup编译安装包...")
     
     # 检查Inno Setup是否安装
@@ -259,7 +345,7 @@ def compile_installer(script_path):
     
     try:
         # 使用subprocess.check_call捕获更多错误信息
-        result = subprocess.check_call(cmd)
+        subprocess.check_call(cmd)
         print(f"安装包已成功编译，保存在 {INSTALLER_DIR} 文件夹中")
         return True
     except subprocess.CalledProcessError as e:
@@ -273,19 +359,40 @@ def compile_installer(script_path):
 
 def main():
     """主函数"""
+    print(f"开始构建 {APP_NAME} v{APP_VERSION}")
+    
+    # 检查环境
+    check_environment()
+    
     # 清理之前的构建
     clean_build_folders()
     
     # 使用PyInstaller打包应用
     if not run_pyinstaller():
         print("打包失败，终止后续操作")
-        return
+        sys.exit(1)
     
     # 创建Inno Setup脚本
     inno_script = create_inno_setup_script()
     
     # 编译安装包
-    compile_installer(inno_script)
+    if not compile_installer(inno_script) and not args.skip_installer:
+        print("安装包生成失败")
+        sys.exit(1)
+        
+    print(f"{APP_NAME} v{APP_VERSION} 构建完成!")
+    print(f"可执行文件位于: {OUTPUT_DIR}")
+    if not args.skip_installer:
+        print(f"安装包位于: {INSTALLER_DIR}")
 
 if __name__ == "__main__":
-    main() 
+    try:
+        main()
+    except KeyboardInterrupt:
+        print("\n构建过程被用户中断")
+        sys.exit(1)
+    except Exception as e:
+        print(f"构建过程中发生未预期的错误: {e}")
+        import traceback
+        traceback.print_exc()
+        sys.exit(1) 

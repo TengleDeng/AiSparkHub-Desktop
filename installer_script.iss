@@ -1,6 +1,6 @@
 
 #define MyAppName "AiSparkHub"
-#define MyAppVersion "1.0.0"
+#define MyAppVersion "0.25"
 #define MyAppPublisher "AiSparkHub Team"
 #define MyAppURL "https://github.com/your-username/AiSparkHub-Desktop"
 #define MyAppExeName "AiSparkHub.exe"
@@ -27,7 +27,7 @@ WizardStyle=modern
 ; 需要管理员权限安装
 PrivilegesRequiredOverridesAllowed=dialog
 OutputDir=installer
-OutputBaseFilename=AiSparkHub_Setup_v1.0.0
+OutputBaseFilename=AiSparkHub_Setup_v0.25
 ; 创建应用程序目录
 DisableDirPage=no
 DisableProgramGroupPage=no
