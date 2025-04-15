@@ -862,22 +862,6 @@ class FileExplorer(QWidget):
             
             operation_layout.addLayout(scan_layout)
             
-            # 添加搜索功能
-            search_layout = QHBoxLayout()
-            search_layout.addWidget(QLabel("搜索:"))
-            
-            search_input = QLineEdit()
-            search_input.setPlaceholderText("输入搜索内容...")
-            search_layout.addWidget(search_input, 1)
-            
-            search_button = QPushButton("搜索")
-            search_button.clicked.connect(
-                lambda: self._search_pkm_files(db_manager, search_input.text(), status_text)
-            )
-            search_layout.addWidget(search_button)
-            
-            operation_layout.addLayout(search_layout)
-            
             operation_group.setLayout(operation_layout)
             layout.addWidget(operation_group)
             
@@ -1437,72 +1421,6 @@ class FileExplorer(QWidget):
                 status_text.append("已禁用文件监控")
         except Exception as e:
             status_text.append(f"切换监控状态出错: {str(e)}")
-    
-    def _search_pkm_files(self, db_manager, query, status_text):
-        """搜索PKM文件"""
-        try:
-            if not query:
-                status_text.append("请输入搜索关键词")
-                return
-                
-            status_text.clear()
-            status_text.append(f"正在搜索: {query}")
-            
-            # 检查是否有启用的文件格式
-            enabled_formats = [format_name for format_name, config in db_manager.supported_file_formats.items() 
-                              if config.get('enabled', False)]
-            if enabled_formats:
-                status_text.append(f"搜索范围: {', '.join(enabled_formats)}")
-            
-            # 执行搜索
-            results = db_manager.search_pkm_files(query)
-            
-            if not results:
-                status_text.append("未找到匹配的文件")
-                return
-                
-            # 按文件格式分组结果
-            format_results = {}
-            for result in results:
-                # 安全地获取文件路径
-                file_path = result.get('file_path', '')
-                if not file_path:
-                    continue
-                
-                # 尝试从结果中获取文件格式，如果没有则从文件扩展名判断
-                format_name = None
-                if 'file_format' in result:
-                    format_name = result.get('file_format')
-                if not format_name:
-                    format_name = db_manager.get_format_for_extension(file_path) or "其他"
-                
-                if format_name not in format_results:
-                    format_results[format_name] = []
-                format_results[format_name].append(result)
-            
-            # 显示总结果数
-            status_text.append(f"找到 {len(results)} 个匹配文件:")
-            
-            # 按文件格式显示结果
-            for format_name, files in format_results.items():
-                status_text.append(f"\n{format_name} ({len(files)}个):")
-                for result in files:
-                    # 安全地获取标题和文件名
-                    title = result.get('title') or result.get('file_name') or '未知标题'
-                    file_name = os.path.basename(result.get('file_path', ''))
-                    last_modified = result.get('last_modified', 0)
-                    
-                    if last_modified > 0:
-                        import datetime
-                        modified_date = datetime.datetime.fromtimestamp(last_modified).strftime('%Y-%m-%d %H:%M')
-                        status_text.append(f"- {title} ({file_name}) [修改于: {modified_date}]")
-                    else:
-                        status_text.append(f"- {title} ({file_name})")
-                
-        except Exception as e:
-            status_text.append(f"搜索出错: {str(e)}")
-            import traceback
-            traceback.print_exc()
     
     def _save_pkm_settings(self, folders_list, format_checkboxes, db_manager, dialog):
         """保存PKM设置，包括文件夹和文件格式设置"""
