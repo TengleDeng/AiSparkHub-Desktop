@@ -282,6 +282,14 @@ class WindowManager(QObject):
         else:
             self.set_dual_screen_mode()
     
+    def cycle_display_mode(self):
+        """循环切换不同的显示模式"""
+        # 当前只有双屏模式和单屏模式，所以与toggle_display_mode相同
+        self.toggle_display_mode()
+        
+        # 如果将来添加更多显示模式，可以在这里实现循环切换的逻辑
+        # 例如：MODE_DUAL_SCREEN -> MODE_SINGLE_SCREEN -> MODE_FULLSCREEN -> MODE_DUAL_SCREEN
+    
     def show_main_window(self):
         """显示主窗口，响应辅助窗口的请求"""
         print("收到打开主窗口请求")

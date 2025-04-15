@@ -17,6 +17,7 @@ import socketserver
 import threading
 import re
 from app.controllers.theme_manager import ThemeManager # 导入ThemeManager
+from app.components.shortcut_settings_dialog import ShortcutSettingsDialog
 
 # 添加全局变量用于存储auxiliary_window引用
 GLOBAL_AUXILIARY_WINDOW = None
@@ -197,6 +198,16 @@ class AuxiliaryWindow(QMainWindow):
         # 添加"打开主窗口"按钮
         self.open_main_window_action = self.ribbon.addAction(qta.icon('fa5s.window-maximize'), "打开主窗口")
         self.open_main_window_action.triggered.connect(self.on_open_main_window)
+        
+        # 添加显示模式切换按钮
+        self.display_mode_action = self.ribbon.addAction(qta.icon('fa5s.desktop'), "显示模式切换")
+        self.display_mode_action.triggered.connect(self.toggle_display_mode)
+        self.display_mode_action.setToolTip("在不同显示模式之间切换")
+
+        # 添加快捷键设置按钮
+        self.shortcut_settings_action = self.ribbon.addAction(qta.icon('fa5s.keyboard'), "快捷键设置")
+        self.shortcut_settings_action.triggered.connect(self.open_shortcut_settings)
+        self.shortcut_settings_action.setToolTip("自定义全局快捷键")
         
         # 内容区域垂直布局容器
         content_container = QWidget()
@@ -1567,3 +1578,41 @@ class AuxiliaryWindow(QMainWindow):
             settings = QSettings("AiSparkHub", "AiSparkHub-Desktop")
             settings.setValue("auxiliary_window/splitter_sizes", sizes)
             print(f"已保存分割器位置: {sizes}") 
+
+    def open_shortcut_settings(self):
+        """打开快捷键设置对话框"""
+        try:
+            # 创建对话框
+            dialog = ShortcutSettingsDialog(self)
+            
+            # 连接快捷键更改信号
+            dialog.shortcuts_changed.connect(self.on_shortcuts_changed)
+            
+            # 显示对话框
+            dialog.exec()
+        except Exception as e:
+            print(f"打开快捷键设置对话框出错: {e}")
+            import traceback
+            traceback.print_exc()
+
+    def on_shortcuts_changed(self, shortcuts):
+        """快捷键更改时的处理函数"""
+        print(f"快捷键已更改: {shortcuts}")
+        # 通知用户需要重启应用才能应用新的快捷键
+        # 此处无需做其他操作，因为快捷键已保存到QSettings中，并在下次启动时生效
+        
+    def toggle_display_mode(self):
+        """切换显示模式（全屏/窗口/双屏）"""
+        try:
+            # 检查是否有window_manager
+            if not hasattr(self, 'window_manager') or not self.window_manager:
+                print("无法切换显示模式：window_manager未初始化")
+                return
+                
+            # 调用window_manager的循环显示模式方法
+            self.window_manager.cycle_display_mode()
+            print("已切换显示模式")
+        except Exception as e:
+            print(f"切换显示模式时出错: {e}")
+            import traceback
+            traceback.print_exc()

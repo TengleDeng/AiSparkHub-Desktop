@@ -4,19 +4,27 @@
 import sys
 import os
 from pathlib import Path
-from PyQt6.QtWidgets import QApplication, QSystemTrayIcon, QMenu
-from PyQt6.QtCore import Qt, QTimer
-from PyQt6.QtGui import QIcon, QAction
+from PyQt6.QtWidgets import QApplication, QSystemTrayIcon, QMenu, QSplashScreen, QMessageBox, QStyleFactory
+from PyQt6.QtCore import Qt, QTimer, QDir, QCoreApplication, QThread, QTranslator, QSettings
+from PyQt6.QtGui import QIcon, QAction, QPixmap, QFontDatabase
 import qtawesome as qta
-from pynput import keyboard  # 导入pynput库
 
 from app.components.main_window import MainWindow
 from app.components.auxiliary_window import AuxiliaryWindow
+from app.components.shortcut_settings_dialog import ShortcutSettingsDialog
 from app.controllers.window_manager import WindowManager
 from app.controllers.theme_manager import ThemeManager
 from app.controllers.web_profile_manager import WebProfileManager
 from app.controllers.settings_manager import SettingsManager
 from app.models.database import DatabaseManager
+from app.utils.logger import setup_logger
+
+# pynput 用于全局快捷键
+try:
+    from pynput import keyboard
+except ImportError:
+    keyboard = None
+    print("无法导入pynput库，全局快捷键功能将不可用")
 
 def ensure_app_directories():
     """确保应用所需的所有目录都已创建"""
@@ -118,6 +126,38 @@ def setup_global_shortcuts(app, main_window, auxiliary_window):
     """使用pynput设置全局快捷键"""
     # 记录按键状态
     alt_pressed = False
+    ctrl_pressed = False
+    shift_pressed = False
+    meta_pressed = False
+    
+    # 从设置读取自定义快捷键
+    settings = QSettings("AiSparkHub", "GlobalShortcuts")
+    
+    # 默认快捷键配置
+    default_shortcuts = {
+        "main_window": "Alt+X",
+        "auxiliary_window": "Alt+C"
+    }
+    
+    # 加载自定义快捷键
+    shortcuts = {}
+    for name, default_value in default_shortcuts.items():
+        shortcuts[name] = settings.value(name, default_value)
+    
+    print(f"已加载全局快捷键配置: {shortcuts}")
+    
+    # 解析快捷键配置
+    parsed_shortcuts = {}
+    for name, shortcut in shortcuts.items():
+        # 分解快捷键字符串为组合键列表
+        key_parts = shortcut.split("+")
+        modifiers = [part.lower() for part in key_parts[:-1]]  # 修饰键部分
+        key = key_parts[-1].lower() if key_parts else ""       # 主键部分
+        
+        parsed_shortcuts[name] = {
+            "modifiers": modifiers,
+            "key": key
+        }
     
     # 窗口显示状态强制切换函数
     def force_toggle_window(window):
@@ -156,8 +196,8 @@ def setup_global_shortcuts(app, main_window, auxiliary_window):
     
     # 保持一个对窗口的强引用和处理函数的引用
     window_actions = {
-        'x': lambda: force_toggle_window(main_window),
-        'c': lambda: force_toggle_window(auxiliary_window)
+        'main_window': lambda: force_toggle_window(main_window),
+        'auxiliary_window': lambda: force_toggle_window(auxiliary_window)
     }
     
     # 创建用于消息传递的事件处理器
@@ -188,16 +228,19 @@ def setup_global_shortcuts(app, main_window, auxiliary_window):
     
     def on_press(key):
         """按键按下事件处理"""
-        nonlocal alt_pressed
+        nonlocal alt_pressed, ctrl_pressed, shift_pressed, meta_pressed
         
         try:
-            # 检测Alt键
+            # 检测修饰键
             if key == keyboard.Key.alt or key == keyboard.Key.alt_l or key == keyboard.Key.alt_r:
                 alt_pressed = True
-                return
-                
-            # 当Alt被按下时，检测X或C键
-            if alt_pressed:
+            elif key == keyboard.Key.ctrl or key == keyboard.Key.ctrl_l or key == keyboard.Key.ctrl_r:
+                ctrl_pressed = True
+            elif key == keyboard.Key.shift or key == keyboard.Key.shift_l or key == keyboard.Key.shift_r:
+                shift_pressed = True
+            elif key == keyboard.Key.cmd:
+                meta_pressed = True
+            else:
                 # 获取按键字符
                 key_char = None
                 if hasattr(key, 'char'):
@@ -209,13 +252,33 @@ def setup_global_shortcuts(app, main_window, auxiliary_window):
                 if key_char:
                     key_char = key_char.lower()
                     
-                    # 根据按键触发相应的信号
-                    if key_char == 'x':
-                        print("触发快捷键: Alt+x (主窗口)")
-                        handler.toggle_main_window.emit()
-                    elif key_char == 'c':
-                        print("触发快捷键: Alt+c (辅助窗口)")
-                        handler.toggle_aux_window.emit()
+                    # 检查当前按键组合是否匹配任何配置的快捷键
+                    current_modifiers = []
+                    if alt_pressed:
+                        current_modifiers.append("alt")
+                    if ctrl_pressed:
+                        current_modifiers.append("ctrl") 
+                    if shift_pressed:
+                        current_modifiers.append("shift")
+                    if meta_pressed:
+                        current_modifiers.append("meta")
+                    
+                    # 检查每个配置的快捷键
+                    for name, shortcut_info in parsed_shortcuts.items():
+                        shortcut_modifiers = set(shortcut_info["modifiers"])
+                        shortcut_key = shortcut_info["key"].lower()
+                        
+                        # 检查主键和修饰键是否都匹配
+                        if (key_char == shortcut_key.lower() and 
+                            set(current_modifiers) == shortcut_modifiers):
+                            
+                            print(f"触发自定义快捷键: {'+'.join(current_modifiers)}+{key_char} ({name})")
+                            
+                            # 触发相应的动作
+                            if name == "main_window":
+                                handler.toggle_main_window.emit()
+                            elif name == "auxiliary_window":
+                                handler.toggle_aux_window.emit()
         except Exception as e:
             print(f"快捷键处理出错: {e}")
             import traceback
@@ -223,12 +286,18 @@ def setup_global_shortcuts(app, main_window, auxiliary_window):
     
     def on_release(key):
         """按键释放事件处理"""
-        nonlocal alt_pressed
+        nonlocal alt_pressed, ctrl_pressed, shift_pressed, meta_pressed
         
         try:
-            # 检测Alt键释放
+            # 检测修饰键释放
             if key == keyboard.Key.alt or key == keyboard.Key.alt_l or key == keyboard.Key.alt_r:
                 alt_pressed = False
+            elif key == keyboard.Key.ctrl or key == keyboard.Key.ctrl_l or key == keyboard.Key.ctrl_r:
+                ctrl_pressed = False
+            elif key == keyboard.Key.shift or key == keyboard.Key.shift_l or key == keyboard.Key.shift_r:
+                shift_pressed = False
+            elif key == keyboard.Key.cmd:
+                meta_pressed = False
         except Exception as e:
             print(f"按键释放处理出错: {e}")
     
