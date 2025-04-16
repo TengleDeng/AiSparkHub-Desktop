@@ -1653,13 +1653,18 @@ class DatabaseManager:
             print(f"获取PKM文件内容出错: {e}")
             return None
     
-    def search_combined(self, query, scope='all', limit=50):
-        """组合搜索提示词和PKM文件
+    def search_combined(self, query, scope='all', limit=50, search_params=None):
+        """组合搜索提示词和PKM文件，支持高级搜索语法
         
         Args:
             query (str): 搜索查询
             scope (str): 搜索范围 ('prompts', 'pkm', 'all')
             limit (int): 返回结果数量限制
+            search_params (dict, optional): 高级搜索参数，包含以下字段:
+                - terms (list): 普通搜索词列表
+                - exact (list): 精确匹配词列表
+                - excluded (list): 排除词列表
+                - mode (str): 搜索模式，包含 "全部包含(AND)"、"任一包含(OR)" 或 "精确匹配"
             
         Returns:
             list: 匹配的记录列表，每个记录包含'type'字段 ('prompt'或'pkm')
@@ -1670,19 +1675,67 @@ class DatabaseManager:
             
         results = []
         
+        # 如果没有提供高级搜索参数，使用简单搜索模式
+        if not search_params:
+            try:
+                # 搜索提示词
+                if scope in ['prompts', 'all']:
+                    prompt_results = self.search_prompt_details(query, limit=limit)
+                    for res in prompt_results:
+                        res['type'] = 'prompt' # 添加类型标识
+                        results.append(res)
+                        
+                # 搜索PKM文件
+                if scope in ['pkm', 'all']:
+                    pkm_results = self.search_pkm_files(query, limit=limit)
+                    for res in pkm_results:
+                        res['type'] = 'pkm' # 添加类型标识
+                        results.append(res)
+                
+                # 如果是搜索全部，根据时间戳/更新时间排序 (降序)
+                if scope == 'all':
+                    results.sort(key=lambda x: x.get('timestamp', x.get('updated_at', 0)), reverse=True)
+                    # 限制最终结果数量
+                    results = results[:limit]
+                    
+                return results
+                
+            except Exception as e:
+                print(f"组合搜索出错: {e}")
+                return []
+        
+        # 高级搜索模式
         try:
+            # 获取搜索模式
+            search_mode = search_params.get('mode', '').split(':')[-1].strip()
+            terms = search_params.get('terms', [])
+            exact_matches = search_params.get('exact', [])
+            excluded_terms = search_params.get('excluded', [])
+            
             # 搜索提示词
             if scope in ['prompts', 'all']:
-                prompt_results = self.search_prompt_details(query, limit=limit)
+                prompt_results = self.search_prompt_details_advanced(
+                    terms=terms,
+                    exact_matches=exact_matches,
+                    excluded_terms=excluded_terms,
+                    search_mode=search_mode,
+                    limit=limit
+                )
                 for res in prompt_results:
-                    res['type'] = 'prompt' # 添加类型标识
+                    res['type'] = 'prompt'
                     results.append(res)
                     
             # 搜索PKM文件
             if scope in ['pkm', 'all']:
-                pkm_results = self.search_pkm_files(query, limit=limit)
+                pkm_results = self.search_pkm_files_advanced(
+                    terms=terms,
+                    exact_matches=exact_matches,
+                    excluded_terms=excluded_terms,
+                    search_mode=search_mode,
+                    limit=limit
+                )
                 for res in pkm_results:
-                    res['type'] = 'pkm' # 添加类型标识
+                    res['type'] = 'pkm'
                     results.append(res)
             
             # 如果是搜索全部，根据时间戳/更新时间排序 (降序)
@@ -1692,10 +1745,13 @@ class DatabaseManager:
                 results = results[:limit]
                 
             return results
-            
+                
         except Exception as e:
-            print(f"组合搜索出错: {e}")
-            return []
+            print(f"高级组合搜索出错: {e}")
+            import traceback
+            traceback.print_exc()
+            # 如果高级搜索失败，回退到简单搜索
+            return self.search_combined(query, scope, limit)
     
     def is_format_enabled(self, format_name):
         """检查指定的文件格式是否已启用
@@ -1742,4 +1798,263 @@ class DatabaseManager:
             if ext in format_config["extensions"]:
                 return format_name
         
-        return None 
+        return None
+    
+    def search_prompt_details_advanced(self, terms=None, exact_matches=None, excluded_terms=None, search_mode="全部包含(AND)", limit=50):
+        """使用高级搜索语法搜索提示词和AI回复详细信息
+        
+        Args:
+            terms (list): 普通搜索词列表
+            exact_matches (list): 精确匹配词列表
+            excluded_terms (list): 排除词列表
+            search_mode (str): 搜索模式，"全部包含(AND)"、"任一包含(OR)"或"精确匹配"
+            limit (int): 最大记录数
+            
+        Returns:
+            list: 匹配的提示词详细信息列表
+        """
+        if not self.conn:
+            print("数据库未连接")
+            return []
+            
+        try:
+            cursor = self.conn.cursor()
+            
+            # 首先获取所有提示词详情
+            cursor.execute(
+                """SELECT * FROM prompt_details 
+                ORDER BY timestamp DESC LIMIT ?""",
+                (limit * 3,)  # 获取更多记录进行过滤
+            )
+            
+            all_results = []
+            for row in cursor.fetchall():
+                result = {
+                    'id': row['id'],
+                    'prompt': row['prompt'],
+                    'timestamp': row['timestamp'],
+                    'favorite': bool(row['favorite']),
+                    'webviews': []
+                }
+                
+                # 构建webviews列表
+                replies_text = ""  # 合并所有回复文本以便搜索
+                for i in range(1, 7):
+                    url_key = f"ai{i}_url"
+                    reply_key = f"ai{i}_reply"
+                    
+                    if url_key in row and row[url_key]:
+                        reply = row[reply_key] if reply_key in row else ''
+                        result['webviews'].append({
+                            'url': row[url_key],
+                            'reply': reply
+                        })
+                        replies_text += " " + reply
+                
+                # 创建一个组合文本用于搜索
+                searchable_text = (result['prompt'] + " " + replies_text).lower()
+                result['_searchable_text'] = searchable_text
+                
+                all_results.append(result)
+            
+            # 筛选结果
+            filtered_results = []
+            
+            for result in all_results:
+                searchable_text = result['_searchable_text']
+                include_result = True
+                
+                # 检查排除词
+                if excluded_terms:
+                    for term in excluded_terms:
+                        if term.lower() in searchable_text:
+                            include_result = False
+                            break
+                
+                if not include_result:
+                    continue
+                
+                # 检查精确匹配词
+                if exact_matches:
+                    for phrase in exact_matches:
+                        if phrase.lower() not in searchable_text:
+                            include_result = False
+                            break
+                
+                if not include_result:
+                    continue
+                
+                # 检查普通搜索词
+                if terms:
+                    if search_mode == "全部包含(AND)":
+                        for term in terms:
+                            if term.lower() not in searchable_text:
+                                include_result = False
+                                break
+                    elif search_mode == "任一包含(OR)":
+                        # 如果没有任何词匹配，则不包含
+                        if not any(term.lower() in searchable_text for term in terms):
+                            include_result = False
+                    else:  # 精确匹配
+                        # 构建完整短语
+                        phrase = " ".join(terms).lower()
+                        if phrase not in searchable_text:
+                            include_result = False
+                
+                if include_result:
+                    # 移除临时搜索文本字段
+                    del result['_searchable_text']
+                    filtered_results.append(result)
+                    
+                    # 达到限制数量后停止
+                    if len(filtered_results) >= limit:
+                        break
+            
+            return filtered_results
+            
+        except Exception as e:
+            print(f"高级搜索提示词出错: {e}")
+            import traceback
+            traceback.print_exc()
+            return []
+    
+    def search_pkm_files_advanced(self, terms=None, exact_matches=None, excluded_terms=None, search_mode="全部包含(AND)", limit=50):
+        """使用高级搜索语法搜索PKM文件
+        
+        Args:
+            terms (list): 普通搜索词列表
+            exact_matches (list): 精确匹配词列表
+            excluded_terms (list): 排除词列表
+            search_mode (str): 搜索模式，"全部包含(AND)"、"任一包含(OR)"或"精确匹配"
+            limit (int): 最大记录数
+            
+        Returns:
+            list: 匹配的PKM文件列表
+        """
+        if not self.conn:
+            print("数据库未连接")
+            return []
+            
+        try:
+            cursor = self.conn.cursor()
+            
+            # 检查file_format列是否存在
+            cursor.execute("PRAGMA table_info(pkm_files)")
+            columns = cursor.fetchall()
+            has_file_format = any(column['name'] == 'file_format' for column in columns)
+            
+            # 准备查询字段
+            fields = "id, file_path, file_name, title, content, tags, updated_at, last_modified"
+            if has_file_format:
+                fields += ", file_format"
+            
+            # 首先获取所有PKM文件 (使用更多的限制以便后续筛选)
+            cursor.execute(f"""
+                SELECT {fields}
+                FROM pkm_files
+                ORDER BY updated_at DESC
+                LIMIT ?
+            """, (limit * 3,))
+            
+            all_results = []
+            for row in cursor.fetchall():
+                # 将sqlite3.Row对象转换为普通字典
+                row_dict = dict(row)
+                
+                # 创建基本结果字典
+                result = {
+                    'id': row_dict.get('id', ''),
+                    'file_path': row_dict.get('file_path', ''),
+                    'file_name': row_dict.get('file_name', ''),
+                    'title': row_dict.get('title') or row_dict.get('file_name', ''),
+                    'content': row_dict.get('content', ''),
+                    'tags': row_dict.get('tags', ''),
+                    'updated_at': row_dict.get('updated_at', 0),
+                    'last_modified': row_dict.get('last_modified', 0)
+                }
+                
+                # 添加文件格式信息
+                if has_file_format and 'file_format' in row_dict:
+                    result['file_format'] = row_dict.get('file_format')
+                else:
+                    # 如果数据库中没有file_format字段，从文件扩展名判断
+                    ext = os.path.splitext(result['file_path'])[1].lower()
+                    for format_name, format_config in self.supported_file_formats.items():
+                        if ext in format_config['extensions']:
+                            result['file_format'] = format_name
+                            break
+                
+                # 创建一个组合文本用于搜索 (标题、内容和标签)
+                searchable_text = (
+                    result['title'] + " " + 
+                    result['content'] + " " + 
+                    result['tags'] + " " + 
+                    result['file_name']
+                ).lower()
+                
+                result['_searchable_text'] = searchable_text
+                all_results.append(result)
+            
+            # 筛选结果
+            filtered_results = []
+            
+            for result in all_results:
+                searchable_text = result['_searchable_text']
+                include_result = True
+                
+                # 检查排除词
+                if excluded_terms:
+                    for term in excluded_terms:
+                        if term.lower() in searchable_text:
+                            include_result = False
+                            break
+                
+                if not include_result:
+                    continue
+                
+                # 检查精确匹配词
+                if exact_matches:
+                    for phrase in exact_matches:
+                        if phrase.lower() not in searchable_text:
+                            include_result = False
+                            break
+                
+                if not include_result:
+                    continue
+                
+                # 检查普通搜索词
+                if terms:
+                    if search_mode == "全部包含(AND)":
+                        for term in terms:
+                            if term.lower() not in searchable_text:
+                                include_result = False
+                                break
+                    elif search_mode == "任一包含(OR)":
+                        # 如果没有任何词匹配，则不包含
+                        if not any(term.lower() in searchable_text for term in terms):
+                            include_result = False
+                    else:  # 精确匹配
+                        # 构建完整短语
+                        phrase = " ".join(terms).lower()
+                        if phrase not in searchable_text:
+                            include_result = False
+                
+                if include_result:
+                    # 移除临时搜索文本字段和敏感内容字段，减少数据传输量
+                    del result['_searchable_text']
+                    if 'content' in result:
+                        del result['content']  # 在前端展示时不需要完整内容
+                    
+                    filtered_results.append(result)
+                    
+                    # 达到限制数量后停止
+                    if len(filtered_results) >= limit:
+                        break
+            
+            return filtered_results
+            
+        except Exception as e:
+            print(f"高级搜索PKM文件出错: {e}")
+            import traceback
+            traceback.print_exc()
+            return [] 
