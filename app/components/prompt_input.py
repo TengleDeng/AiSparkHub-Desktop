@@ -72,10 +72,7 @@ class PromptInput(MarkdownEditor):
         self.send_button.clicked.connect(self.submit_prompt)
         search_layout.addWidget(self.send_button)
         
-        # 将搜索布局插入到主布局中，放在编辑器下方，底部按钮上方
-        self.layout.insertLayout(self.layout.count()-1, search_layout)
-        
-        # 添加搜索结果列表
+        # 创建搜索结果列表
         self.search_results = QListWidget()
         self.search_results.setMaximumHeight(300)  # 增加最大高度
         self.search_results.setMinimumHeight(200)  # 设置最小高度
@@ -98,8 +95,20 @@ class PromptInput(MarkdownEditor):
                 color: #ECEFF4;
             }
         """)
-        # 将搜索结果列表插入到主布局中
-        self.layout.insertWidget(self.layout.count()-1, self.search_results)
+        
+        # 创建一个垂直布局用于组织底部元素
+        bottom_container = QVBoxLayout()
+        bottom_container.setContentsMargins(0, 0, 0, 0)
+        bottom_container.setSpacing(5)
+        
+        # 添加搜索框布局到底部容器
+        bottom_container.addLayout(search_layout)
+        
+        # 添加搜索结果到底部容器
+        bottom_container.addWidget(self.search_results)
+        
+        # 将底部容器添加到主布局的底部
+        self.layout.addLayout(bottom_container)
         
         # 更新图标
         self._update_icons()
