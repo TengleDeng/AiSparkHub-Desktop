@@ -66,6 +66,12 @@ class PromptInput(MarkdownEditor):
         self.search_button.clicked.connect(self.search_prompts)
         search_layout.addWidget(self.search_button)
         
+        # 添加发送按钮到搜索布局中
+        self.send_button = QPushButton("发送")
+        self.send_button.setToolTip("发送提示词")
+        self.send_button.clicked.connect(self.submit_prompt)
+        search_layout.addWidget(self.send_button)
+        
         # 将搜索布局插入到主布局中，放在编辑器下方，底部按钮上方
         self.layout.insertLayout(self.layout.count()-1, search_layout)
         
@@ -502,4 +508,11 @@ class PromptInput(MarkdownEditor):
             try:
                 self.search_button.setIcon(qta.icon("fa5s.search", color=icon_color))
             except Exception as e:
-                print(f"更新搜索按钮图标出错: {e}") 
+                print(f"更新搜索按钮图标出错: {e}")
+                
+        # 更新发送按钮图标
+        if hasattr(self, 'send_button'):
+            try:
+                self.send_button.setIcon(qta.icon("fa5s.paper-plane", color=icon_color))
+            except Exception as e:
+                print(f"更新发送按钮图标出错: {e}") 
