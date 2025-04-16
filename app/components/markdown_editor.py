@@ -595,13 +595,45 @@ class MarkdownEditor(QWidget):
         
         # 发送提示词信号
         self.prompt_submitted.emit(text)
+        # 不再清空输入框
+    
+    def submit_current_paragraph(self):
+        """提交当前段落的提示词"""
+        cursor = self.text_edit.textCursor()
+        
+        # 获取当前位置
+        current_position = cursor.position()
+        text = self.text_edit.toPlainText()
+        
+        if not text:
+            return
+            
+        # 找到当前段落的开始和结束
+        # 向前查找段落开始（上一个换行符之后）
+        start = current_position
+        while start > 0 and text[start-1] != '\n':
+            start -= 1
+            
+        # 向后查找段落结束（下一个换行符之前）
+        end = current_position
+        while end < len(text) and text[end] != '\n':
+            end += 1
+            
+        # 提取当前段落文本
+        paragraph_text = text[start:end].strip()
+        
+        if not paragraph_text:
+            return
+            
+        # 发送当前段落文本
+        self.prompt_submitted.emit(paragraph_text)
     
     def eventFilter(self, obj, event):
         """事件过滤器，处理快捷键"""
         if obj == self.text_edit and event.type() == event.Type.KeyPress:
-            # Ctrl+Enter 发送提示词
+            # Ctrl+Enter 发送当前段落提示词
             if event.key() == Qt.Key.Key_Return and event.modifiers() == Qt.KeyboardModifier.ControlModifier:
-                self.submit_prompt()
+                self.submit_current_paragraph()
                 return True
                 
             # Ctrl+B 粗体

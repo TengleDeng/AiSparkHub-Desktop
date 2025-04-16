@@ -633,9 +633,13 @@ class AuxiliaryWindow(QMainWindow):
         print(f"正在加载本地搜索页面: http://localhost:{self.port}/index.html")
 
     def on_prompt_submitted(self, prompt_text):
-        """处理提示词提交事件"""
-        if not prompt_text or not prompt_text.strip():
-            print("提示词为空，不执行发送操作")
+        """处理提示词提交
+        
+        Args:
+            prompt_text (str): 提示词文本
+        """
+        # 检查提示词是否为空
+        if not prompt_text or prompt_text.strip() == "":
             return
             
         print(f"发送提示词: {prompt_text[:30]}...")
@@ -647,8 +651,8 @@ class AuxiliaryWindow(QMainWindow):
         # 刷新历史记录
         self.prompt_history.refresh_history()
         
-        # 清空输入框
-        self.prompt_input.clear()
+        # 不再清空输入框
+        # self.prompt_input.clear()
     
     def on_open_main_window(self):
         """处理打开主窗口的请求"""

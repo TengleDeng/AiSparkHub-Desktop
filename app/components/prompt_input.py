@@ -465,7 +465,7 @@ class PromptInput(MarkdownEditor):
                 # 如果出错，仍然发送原始提示词
                 self.prompt_submitted.emit(text)
         else:
-            # 搜索框为空，直接发送提示词
+            # 没有搜索内容，直接发送提示词
             self.prompt_submitted.emit(text)
     
     def on_search_result_selected(self, item):
