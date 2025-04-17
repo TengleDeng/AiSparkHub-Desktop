@@ -434,16 +434,6 @@ class DatabaseManager:
         try:
             cursor = self.conn.cursor()
             
-            # 创建提示词表
-            cursor.execute('''
-            CREATE TABLE IF NOT EXISTS prompts (
-                id TEXT PRIMARY KEY,
-                prompt TEXT,
-                timestamp INTEGER,
-                ai_targets TEXT
-            )
-            ''')
-            
             # 创建提示词详情表
             cursor.execute('''
             CREATE TABLE IF NOT EXISTS prompt_details (
@@ -1995,39 +1985,33 @@ class DatabaseManager:
         return None
     
     def search_prompt_details_advanced(self, terms=None, exact_matches=None, excluded_terms=None, search_mode='AND', limit=50):
-        """高级搜索提示词
+        """高级搜索提示词，支持多条件
         
         Args:
-            terms (list): 普通搜索词列表 (已经分词处理)
-            exact_matches (list): 精确匹配词列表 (不需要分词)
-            excluded_terms (list): 排除词列表 (不需要分词)
-            search_mode (str): 搜索模式，'AND'表示全部包含，'OR'表示任一包含
-            limit (int): 结果数量限制
+            terms (list): 普通搜索词列表（分词后）
+            exact_matches (list): 精确匹配词列表
+            excluded_terms (list): 排除词列表
+            search_mode (str): 匹配模式 ('AND' 或 'OR')
+            limit (int): 返回结果数量限制
             
         Returns:
-            list: 匹配的提示词记录列表
+            list: 匹配的记录列表
         """
         if not self.conn:
             print("数据库未连接")
             return []
             
-        # 防止None值
-        terms = terms or []
-        exact_matches = exact_matches or []
-        excluded_terms = excluded_terms or []
-        
         try:
             cursor = self.conn.cursor()
             
             # 提示词搜索不使用FTS5，使用传统方法
-            # 获取所有提示词及其详情
+            # 获取所有提示词详情
             cursor.execute("""
                 SELECT p.id, p.prompt as title, '' as prompt_type, '' as category, '' as tags, 
                        p.timestamp as created_at, p.timestamp as updated_at,
-                       d.id as detail_id, d.prompt as content, '' as model, '' as parameters, 
-                       0 as version, 0 as is_default, d.timestamp, '' as notes
-                FROM prompts p
-                LEFT JOIN prompt_details d ON p.id = d.id
+                       p.id as detail_id, p.prompt as content, '' as model, '' as parameters, 
+                       0 as version, 0 as is_default, p.timestamp, '' as notes
+                FROM prompt_details p
                 ORDER BY p.timestamp DESC
             """)
             
@@ -2103,49 +2087,14 @@ class DatabaseManager:
                 
                 # 只有当满足所有条件时，才添加到结果中
                 if terms_match and exact_match and not excluded_match:
-                    # 获取所有详情版本
-                    cursor.execute("""
-                        SELECT id, content, model, parameters, version, is_default, timestamp, notes
-                        FROM prompt_details
-                        WHERE prompt_id = ?
-                        ORDER BY version DESC
-                    """, (prompt['id'],))
+                    # 直接使用prompt_details中的数据，不再查询多个版本
+                    # 添加到结果中并记录ID
+                    results.append(prompt)
+                    prompt_ids_added.add(prompt['id'])
                     
-                    detail_rows = cursor.fetchall()
-                    if detail_rows:
-                        # 构建详情列表
-                        details = []
-                        for detail_row in detail_rows:
-                            detail = {
-                                'id': detail_row[0],
-                                'content': detail_row[1],
-                                'model': detail_row[2],
-                                'parameters': detail_row[3],
-                                'version': detail_row[4],
-                                'is_default': bool(detail_row[5]),
-                                'timestamp': detail_row[6],
-                                'notes': detail_row[7]
-                            }
-                            
-                            # 尝试解析parameters
-                            try:
-                                if detail['parameters']:
-                                    detail['parameters'] = json.loads(detail['parameters'])
-                            except:
-                                detail['parameters'] = {}
-                                
-                            details.append(detail)
-                        
-                        # 用所有详情版本替换单一详情
-                        prompt['details'] = details
-                        
-                        # 添加到结果中并记录ID
-                        results.append(prompt)
-                        prompt_ids_added.add(prompt['id'])
-                        
-                        # 如果达到限制数量，提前结束
-                        if len(results) >= limit:
-                            break
+                    # 如果达到限制数量，提前结束
+                    if len(results) >= limit:
+                        break
             
             return results
             
