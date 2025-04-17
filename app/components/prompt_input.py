@@ -23,6 +23,7 @@ class PromptInput(MarkdownEditor):
     def __init__(self, parent=None, db_manager=None):
         super().__init__(parent, db_manager)
         self.setup_search_ui()
+        self.setup_tools_toolbar()  # 添加新的工具栏
         
         # 获取 ThemeManager 并连接信号
         self.theme_manager = None
@@ -112,6 +113,31 @@ class PromptInput(MarkdownEditor):
         
         # 更新图标
         self._update_icons()
+    
+    def setup_tools_toolbar(self):
+        """设置工具工具栏，添加特殊功能按钮"""
+        # 创建工具栏容器
+        tools_layout = QHBoxLayout()
+        tools_layout.setContentsMargins(0, 5, 0, 5)
+        tools_layout.setSpacing(8)
+        
+        # 添加"每日内参"按钮
+        self.daily_briefing_button = QPushButton("生成每日内参")
+        self.daily_briefing_button.setToolTip("生成当天更新文章的内参日报")
+        self.daily_briefing_button.clicked.connect(lambda: self.generate_briefing(0))  # 0表示当天
+        tools_layout.addWidget(self.daily_briefing_button)
+        
+        # 添加"昨日内参"按钮
+        self.yesterday_briefing_button = QPushButton("生成昨日内参")
+        self.yesterday_briefing_button.setToolTip("生成昨天更新文章的内参日报")
+        self.yesterday_briefing_button.clicked.connect(lambda: self.generate_briefing(1))  # 1表示昨天
+        tools_layout.addWidget(self.yesterday_briefing_button)
+        
+        # 添加弹性空间
+        tools_layout.addStretch(1)
+        
+        # 将工具栏添加到主布局中，位于编辑器的上方、搜索栏的下方
+        self.layout.insertLayout(1, tools_layout)
     
     def process_search_query(self, query):
         """处理搜索查询，支持高级搜索语法
@@ -533,6 +559,111 @@ class PromptInput(MarkdownEditor):
             self.search_input.clear()
             self.text_edit.setFocus()
     
+    def generate_briefing(self, days_ago=0):
+        """
+        生成内参日报
+        
+        Args:
+            days_ago (int): 0表示今天，1表示昨天，以此类推
+        """
+        if not self.db_manager:
+            print("错误：数据库管理器未初始化，无法生成内参")
+            return
+            
+        try:
+            import time
+            from datetime import datetime, timedelta
+            
+            # 计算目标日期的时间戳范围
+            today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+            target_date = today - timedelta(days=days_ago)
+            start_timestamp = int(target_date.timestamp())
+            end_timestamp = int((target_date + timedelta(days=1)).timestamp()) - 1
+            
+            date_str = target_date.strftime('%Y年%m月%d日')
+            
+            # 查询数据库获取该日期范围内的文章
+            cursor = self.db_manager.conn.cursor()
+            
+            # 查询当天更新或创建的PKM文件
+            cursor.execute("""
+                SELECT id, file_path, file_name, title, content, updated_at, created_at
+                FROM pkm_files
+                WHERE (updated_at BETWEEN ? AND ?) OR (created_at BETWEEN ? AND ?)
+                ORDER BY 
+                    CASE WHEN created_at BETWEEN ? AND ? THEN 0 ELSE 1 END,  -- 优先显示新创建的文章
+                    updated_at DESC  -- 其次按更新时间降序
+            """, (
+                start_timestamp, end_timestamp,  # updated_at范围
+                start_timestamp, end_timestamp,  # created_at范围
+                start_timestamp, end_timestamp   # 用于CASE判断的范围
+            ))
+            
+            articles = cursor.fetchall()
+            
+            if not articles:
+                print(f"未找到{date_str}更新或创建的文章")
+                # 在输入框中提示用户
+                self.set_text(f"未找到{date_str}更新或创建的文章，请尝试查询其他日期。")
+                return
+                
+            # 构建提示词
+            prompt = f"# {date_str}内参日报\n\n"
+            prompt += "请对以下今日更新和创建的文章内容进行综合分析和总结，生成一份内参日报。内参日报应包含：\n"
+            prompt += "1. 今日重要内容概述\n"
+            prompt += "2. 各文章的核心观点和主要信息\n"
+            prompt += "3. 对这些信息的见解和分析\n"
+            prompt += "4. 可能的行动建议或应用价值\n\n"
+            prompt += "以下是今日文章内容：\n\n"
+            
+            # 添加文章内容
+            article_count = 0
+            for i, article in enumerate(articles):
+                article_id, file_path, file_name, title, content, updated_at, created_at = article
+                
+                # 使用文件名作为标题（如果title为空）
+                article_title = title or file_name
+                
+                # 文章是新创建的还是更新的
+                status = "新创建" if created_at >= start_timestamp and created_at <= end_timestamp else "更新"
+                
+                # 格式化时间戳
+                update_time = datetime.fromtimestamp(updated_at).strftime('%H:%M:%S')
+                
+                # 截取内容（限制每篇文章的长度，避免整体提示词过长）
+                max_content_length = 5000  # 每篇文章最多5000字符
+                if content and len(content) > max_content_length:
+                    content = content[:max_content_length] + "...(内容过长已截断)"
+                
+                # 只有当内容不为空时才添加文章
+                if content:
+                    prompt += f"## 文章{i+1}: {article_title} ({status}于{update_time})\n\n"
+                    prompt += f"{content}\n\n"
+                    prompt += "---\n\n"
+                    article_count += 1
+                
+                # 限制文章数量，避免提示词过长
+                if article_count >= 10:
+                    prompt += f"(共有{len(articles)}篇文章，由于长度限制只显示前10篇)\n\n"
+                    break
+            
+            # 最终指示
+            prompt += f"\n请根据以上{article_count}篇文章，生成一份全面、深入且有见解的{date_str}内参日报。内容应该是高度概括的，突出重点信息和价值观点。"
+            
+            # 填充到编辑器
+            self.set_text(prompt)
+            
+            # 自动发送到AI平台
+            self.prompt_submitted.emit(prompt)
+            
+            print(f"已生成{date_str}内参日报，共包含{article_count}篇文章")
+            
+        except Exception as e:
+            import traceback
+            print(f"生成内参日报时出错: {e}")
+            traceback.print_exc()
+            self.set_text(f"生成内参日报时出错: {str(e)}")
+    
     def _update_icons(self):
         """更新图标颜色"""
         # 调用父类方法更新编辑器图标
@@ -558,6 +689,19 @@ class PromptInput(MarkdownEditor):
                 self.send_button.setIcon(qta.icon("fa5s.paper-plane", color=icon_color))
             except Exception as e:
                 print(f"更新发送按钮图标出错: {e}")
+                
+        # 更新内参按钮图标
+        if hasattr(self, 'daily_briefing_button'):
+            try:
+                self.daily_briefing_button.setIcon(qta.icon("fa5s.newspaper", color=icon_color))
+            except Exception as e:
+                print(f"更新每日内参按钮图标出错: {e}")
+                
+        if hasattr(self, 'yesterday_briefing_button'):
+            try:
+                self.yesterday_briefing_button.setIcon(qta.icon("fa5s.history", color=icon_color))
+            except Exception as e:
+                print(f"更新昨日内参按钮图标出错: {e}")
     
     def submit_current_paragraph_with_search(self):
         """
