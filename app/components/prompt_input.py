@@ -215,6 +215,15 @@ class PromptInput(MarkdownEditor):
         # 解析搜索查询
         search_params = self.process_search_query(search_text)
         
+        # 输出处理后的搜索参数
+        print("\n======== 搜索参数处理结果 ========")
+        print(f"原始搜索文本: '{search_text}'")
+        print(f"普通搜索词: {search_params['terms']}")
+        print(f"精确匹配词: {search_params['exact']}")
+        print(f"排除词: {search_params['excluded']}")
+        print(f"搜索模式: {search_params['mode']}")
+        print("==================================\n")
+        
         # 获取选择的搜索范围
         scope_text = self.search_scope_combo.currentText()
         if scope_text == "搜索: 提示词":
@@ -224,9 +233,20 @@ class PromptInput(MarkdownEditor):
         else: # 默认为全部
             scope = 'all'
             
+        print(f"搜索范围: {scope_text} ({scope})")
+        print(f"即将调用: db_manager.search_combined(search_text='{search_text}', scope='{scope}', search_params=<处理后的参数>)")
+        
         # 执行组合搜索，传递高级搜索参数
         try:
+            # 开始计时
+            import time
+            start_time = time.time()
+            
             results = self.db_manager.search_combined(search_text, scope=scope, search_params=search_params)
+            
+            # 计算搜索耗时
+            search_time = time.time() - start_time
+            print(f"\n搜索完成，耗时: {search_time:.3f}秒，找到 {len(results)} 条结果")
             
             # 清空并填充结果列表
             self.search_results.clear()
@@ -266,8 +286,16 @@ class PromptInput(MarkdownEditor):
             self.search_results.addItem(count_item)
             
             if results:
+                print("\n搜索结果预览:")
+                preview_count = min(3, len(results))
+                
                 for i, result in enumerate(results):
                     item = QListWidgetItem()
+                    
+                    # 输出前3条结果预览
+                    if i < preview_count:
+                        result_type = result.get('type', 'unknown')
+                        print(f"结果 #{i+1} [{result_type}]: {str(result)[:100]}...")
                     
                     # 设置项目样式 - 根据主题设置交替背景色
                     if i % 2 == 0:
@@ -332,6 +360,7 @@ class PromptInput(MarkdownEditor):
                 
                 self.search_results.setVisible(True)
             else:
+                print("\n没有找到匹配的结果")
                 # 添加"无结果"提示
                 item = QListWidgetItem("没有找到匹配的结果")
                 item.setFlags(Qt.ItemFlag.NoItemFlags)  # 使项目不可选
@@ -340,9 +369,13 @@ class PromptInput(MarkdownEditor):
                 item.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
                 self.search_results.addItem(item)
                 self.search_results.setVisible(True)
+            
+            print("==================================\n")
                 
         except Exception as e:
             print(f"搜索出错: {e}")
+            import traceback
+            traceback.print_exc()
             # 添加错误提示
             self.search_results.clear()
             item = QListWidgetItem(f"搜索时出错: {str(e)}")
@@ -524,4 +557,145 @@ class PromptInput(MarkdownEditor):
             try:
                 self.send_button.setIcon(qta.icon("fa5s.paper-plane", color=icon_color))
             except Exception as e:
-                print(f"更新发送按钮图标出错: {e}") 
+                print(f"更新发送按钮图标出错: {e}")
+    
+    def submit_current_paragraph_with_search(self):
+        """
+        提交当前段落的提示词，如果搜索框有内容则先执行搜索再组合结果后发送
+        """
+        # 获取当前段落文本
+        cursor = self.text_edit.textCursor()
+        
+        # 获取当前位置
+        current_position = cursor.position()
+        text = self.text_edit.toPlainText()
+        
+        if not text:
+            return
+            
+        # 找到当前段落的开始和结束
+        # 向前查找段落开始（上一个换行符之后）
+        start = current_position
+        while start > 0 and text[start-1] != '\n':
+            start -= 1
+            
+        # 向后查找段落结束（下一个换行符之前）
+        end = current_position
+        while end < len(text) and text[end] != '\n':
+            end += 1
+            
+        # 提取当前段落文本
+        paragraph_text = text[start:end].strip()
+        
+        if not paragraph_text:
+            return
+        
+        # 获取搜索框内容
+        search_query = self.search_input.text().strip()
+        
+        if search_query:
+            # 搜索框有内容，整合搜索结果与提示词
+            try:
+                # 获取选择的搜索范围
+                scope_text = self.search_scope_combo.currentText()
+                if scope_text == "搜索: 提示词":
+                    scope = 'prompts'
+                elif scope_text == "搜索: PKM":
+                    scope = 'pkm'
+                else:  # 默认为全部
+                    scope = 'all'
+                
+                # 解析搜索查询
+                search_params = self.process_search_query(search_query)
+                
+                # 获取搜索结果(10条)，传递高级搜索参数
+                search_results = self.db_manager.search_combined(search_query, scope=scope, limit=10, search_params=search_params)
+                
+                # 首先构建问题部分
+                final_prompt = f"{paragraph_text}\n\n"
+                final_prompt += f"以下是与问题相关的本地知识库资料(关键词:{search_query})，请参考这些资料回答上述问题。如果资料与问题无关，请使用你自己的知识回答。\n\n"
+                
+                # 构建搜索结果部分(不限单个文档长度，但总长度限制)
+                search_content = ""
+                for i, result in enumerate(search_results, 1):
+                    result_type = result.get('type', 'unknown')
+                    
+                    if result_type == 'pkm':
+                        # 获取PKM文件内容
+                        file_id = result.get('id')
+                        if file_id:
+                            pkm_data = self.db_manager.get_pkm_file_content(file_id)
+                            if pkm_data and 'content' in pkm_data:
+                                title = pkm_data.get('title', pkm_data.get('file_name', '未命名文档'))
+                                content = pkm_data.get('content', '')
+                                # 移除多余空行
+                                content = "\n".join([line for line in content.split("\n") if line.strip()])
+                                
+                                # 高亮展示匹配内容
+                                highlighted_parts = []
+                                for term in (search_params['terms'] + search_params['exact']):
+                                    highlight = self.highlight_match(content, term, context_chars=100)
+                                    if highlight:
+                                        highlighted_parts.append(f"{highlight['before']}{highlight['match']}{highlight['after']}")
+                                
+                                search_content += f"【参考资料{i}】{title}\n"
+                                
+                                # 如果有高亮内容，优先展示，否则显示全文
+                                if highlighted_parts:
+                                    search_content += "\n".join(highlighted_parts[:3]) + "\n\n"  # 最多显示3个高亮片段
+                                else:
+                                    search_content += content + "\n\n"
+                    
+                    elif result_type == 'prompt':
+                        # 添加提示词和AI回复
+                        prompt = result.get('prompt', '')
+                        # 移除多余空行
+                        prompt = "\n".join([line for line in prompt.split("\n") if line.strip()])
+                        search_content += f"【历史问题{i}】{prompt}\n"
+                        
+                        # 添加AI回复
+                        replies = []
+                        for webview in result.get('webviews', []):
+                            reply = webview.get('reply', '')
+                            if reply:
+                                # 高亮展示匹配内容
+                                highlighted_parts = []
+                                for term in (search_params['terms'] + search_params['exact']):
+                                    highlight = self.highlight_match(reply, term, context_chars=100)
+                                    if highlight:
+                                        highlighted_parts.append(f"{highlight['before']}{highlight['match']}{highlight['after']}")
+                                
+                                # 如果有高亮内容，优先展示，否则显示全文
+                                if highlighted_parts:
+                                    replies.append("\n".join(highlighted_parts[:2]))  # 最多显示2个高亮片段
+                                else:
+                                    # 移除多余空行
+                                    reply = "\n".join([line for line in reply.split("\n") if line.strip()])
+                                    replies.append(reply)
+                        
+                        if replies:
+                            search_content += f"【历史回答】{''.join(replies)}\n\n"
+                
+                # 计算总长度并限制在18000字符以内
+                max_chars = 18000
+                current_length = len(final_prompt)
+                remaining_chars = max_chars - current_length
+                
+                if len(search_content) > remaining_chars:
+                    # 如果搜索内容超过剩余字符数，则截断
+                    search_content = search_content[:remaining_chars-100] + "\n\n...(由于内容过长，部分资料已省略)"
+                
+                # 合并最终提示词
+                final_prompt += search_content
+                
+                # 发送整合后的提示词
+                print(f"发送当前段落 + 搜索结果: {len(final_prompt)}字符")
+                self.prompt_submitted.emit(final_prompt)
+                
+            except Exception as e:
+                print(f"整合搜索结果时出错: {e}")
+                # 如果出错，仍然发送原始段落文本
+                self.prompt_submitted.emit(paragraph_text)
+        else:
+            # 没有搜索内容，直接发送当前段落文本
+            self.prompt_submitted.emit(paragraph_text) 

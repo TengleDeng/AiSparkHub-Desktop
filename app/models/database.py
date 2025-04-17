@@ -16,6 +16,9 @@ from urllib.parse import urlparse
 import hashlib
 from PyQt6.QtCore import QObject, QFileSystemWatcher, pyqtSignal
 from watchdog.observers import Observer
+import jieba  # 添加jieba分词库
+import re
+import uuid
 
 class PKMFileWatcher(QObject):
     """PKM文件监控类，监控所有支持的文件格式变化"""
@@ -426,71 +429,149 @@ class DatabaseManager:
             return data_dir
         
     def init_database(self):
-        """初始化数据库表结构"""
-        cursor = self.conn.cursor()
-        
-        # 提示词详细记录表
-        cursor.execute('''
-        CREATE TABLE IF NOT EXISTS prompt_details (
-            id TEXT PRIMARY KEY,
-            prompt TEXT NOT NULL,
-            timestamp INTEGER NOT NULL,
-            ai1_url TEXT DEFAULT '',
-            ai1_reply TEXT DEFAULT '',
-            ai2_url TEXT DEFAULT '',
-            ai2_reply TEXT DEFAULT '',
-            ai3_url TEXT DEFAULT '',
-            ai3_reply TEXT DEFAULT '',
-            ai4_url TEXT DEFAULT '',
-            ai4_reply TEXT DEFAULT '',
-            ai5_url TEXT DEFAULT '',
-            ai5_reply TEXT DEFAULT '',
-            ai6_url TEXT DEFAULT '',
-            ai6_reply TEXT DEFAULT '',
-            favorite BOOLEAN DEFAULT 0
-        )
-        ''')
-        
-        # 创建PKM表，用于存储Markdown文件内容
-        cursor.execute('''
-        CREATE TABLE IF NOT EXISTS pkm_files (
-            id TEXT PRIMARY KEY,
-            file_path TEXT NOT NULL,
-            file_name TEXT NOT NULL,
-            content TEXT NOT NULL,
-            title TEXT,
-            hash TEXT NOT NULL,
-            last_modified INTEGER NOT NULL,
-            created_at INTEGER NOT NULL,
-            updated_at INTEGER NOT NULL,
-            tags TEXT DEFAULT '',
-            file_format TEXT DEFAULT 'unknown'
-        )
-        ''')
-        
-        # 创建PKM文件夹表，用于存储多个监控文件夹
-        cursor.execute('''
-        CREATE TABLE IF NOT EXISTS pkm_folders (
-            id TEXT PRIMARY KEY,
-            folder_path TEXT NOT NULL,
-            added_at INTEGER NOT NULL
-        )
-        ''')
-        
-        # 创建索引以加快搜索
-        cursor.execute('''
-        CREATE INDEX IF NOT EXISTS idx_pkm_content ON pkm_files(content);
-        ''')
-        
-        cursor.execute('''
-        CREATE INDEX IF NOT EXISTS idx_pkm_title ON pkm_files(title);
-        ''')
-        
-        cursor.execute('''
-        CREATE INDEX IF NOT EXISTS idx_pkm_tags ON pkm_files(tags);
-        ''')
-        
-        self.conn.commit()
+        """初始化数据库，创建必要的表"""
+        try:
+            cursor = self.conn.cursor()
+            
+            # 创建提示词表
+            cursor.execute('''
+            CREATE TABLE IF NOT EXISTS prompts (
+                id TEXT PRIMARY KEY,
+                prompt TEXT,
+                timestamp INTEGER,
+                ai_targets TEXT
+            )
+            ''')
+            
+            # 创建提示词详情表
+            cursor.execute('''
+            CREATE TABLE IF NOT EXISTS prompt_details (
+                id TEXT PRIMARY KEY,
+                prompt TEXT,
+                timestamp INTEGER,
+                favorite INTEGER DEFAULT 0,
+                ai1_url TEXT,
+                ai1_reply TEXT,
+                ai2_url TEXT,
+                ai2_reply TEXT,
+                ai3_url TEXT,
+                ai3_reply TEXT,
+                ai4_url TEXT,
+                ai4_reply TEXT,
+                ai5_url TEXT,
+                ai5_reply TEXT,
+                ai6_url TEXT,
+                ai6_reply TEXT
+            )
+            ''')
+            
+            # 创建PKM文件夹表
+            cursor.execute('''
+            CREATE TABLE IF NOT EXISTS pkm_folders (
+                id TEXT PRIMARY KEY,
+                folder_path TEXT UNIQUE,
+                enabled INTEGER DEFAULT 1,
+                created_at INTEGER
+            )
+            ''')
+            
+            # 创建PKM文件表
+            cursor.execute('''
+            CREATE TABLE IF NOT EXISTS pkm_files (
+                id TEXT PRIMARY KEY,
+                file_path TEXT UNIQUE,
+                file_name TEXT,
+                title TEXT,
+                content TEXT,
+                tags TEXT,
+                hash TEXT,
+                file_format TEXT,
+                created_at INTEGER,
+                updated_at INTEGER,
+                last_modified INTEGER
+            )
+            ''')
+            
+            # 创建PKM文件全文检索表 (FTS5)
+            # 注意：这是一个虚拟表，仅用于索引和搜索
+            cursor.execute('''
+            CREATE VIRTUAL TABLE IF NOT EXISTS pkm_fts USING fts5(
+                id UNINDEXED,  -- ID字段不进行索引
+                title,         -- 标题
+                content,       -- 内容
+                tags,          -- 标签
+                file_name      -- 文件名
+            )
+            ''')
+            
+            # 添加索引以提高搜索性能
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_pkm_title ON pkm_files(title)')
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_pkm_tags ON pkm_files(tags)')
+            
+            self.conn.commit()
+            print("数据库初始化成功")
+        except Exception as e:
+            print(f"初始化数据库出错: {e}")
+            if self.conn:
+                self.conn.rollback()
+            raise e
+            
+        # 检查是否需要为现有PKM文件填充FTS表
+        self._populate_fts_for_existing_files()
+    
+    def _populate_fts_for_existing_files(self):
+        """检查FTS表是否为空，如果是，则用现有PKM文件填充"""
+        if not self.conn:
+            print("数据库未连接")
+            return
+            
+        try:
+            cursor = self.conn.cursor()
+            
+            # 检查pkm_fts表是否为空
+            cursor.execute("SELECT COUNT(*) FROM pkm_fts")
+            count = cursor.fetchone()[0]
+            
+            if count == 0:
+                print("FTS表为空，正在填充现有文件...")
+                
+                # 查询所有PKM文件记录
+                cursor.execute("""
+                    SELECT id, title, file_path, file_name, content, tags, created_at, updated_at, file_format, hash
+                    FROM pkm_files
+                """)
+                files = cursor.fetchall()
+                
+                # 开始事务
+                self.conn.execute("BEGIN TRANSACTION")
+                
+                # 为每个文件创建FTS条目
+                insert_cursor = self.conn.cursor()
+                for file in files:
+                    id, title, file_path, file_name, content, tags, created_at, updated_at, file_format, hash = file
+                    
+                    # 处理内容进行FTS索引
+                    processed_title = self.process_text_for_fts(title) if title else ""
+                    processed_content = self.process_text_for_fts(content) if content else ""
+                    processed_tags = self.process_text_for_fts(tags) if tags else ""
+                    
+                    # 插入FTS表
+                    insert_cursor.execute("""
+                        INSERT INTO pkm_fts (id, title, content, tags, file_name)
+                        VALUES (?, ?, ?, ?, ?)
+                    """, (id, processed_title, processed_content, processed_tags, file_name))
+                
+                # 提交事务
+                self.conn.execute("COMMIT")
+                print(f"成功将 {len(files)} 个文件添加到FTS索引")
+                
+        except Exception as e:
+            # 回滚事务
+            if self.conn:
+                self.conn.execute("ROLLBACK")
+            print(f"填充FTS索引时出错: {e}")
+            import traceback
+            traceback.print_exc()
     
     def add_prompt(self, prompt_text, ai_targets):
         """添加提示词记录到数据库 (兼容旧版本，直接转为添加到prompt_details表)
@@ -1023,7 +1104,7 @@ class DatabaseManager:
                 for folder in self.pkm_folders:
                     folder_id = hashlib.md5(folder.encode('utf-8')).hexdigest()
                     cursor.execute(
-                        "INSERT INTO pkm_folders (id, folder_path, added_at) VALUES (?, ?, ?)",
+                        "INSERT INTO pkm_folders (id, folder_path, created_at) VALUES (?, ?, ?)",
                         (folder_id, folder, current_time)
                     )
                 self.conn.commit()
@@ -1079,153 +1160,152 @@ class DatabaseManager:
         """添加或更新PKM文件到数据库
         
         Args:
-            file_path (str): 文件的完整路径
+            file_path (str): 文件路径
             
         Returns:
-            dict: 操作状态字典，包含状态和消息
+            str: 文件ID
         """
         if not self.conn:
             print("数据库未连接")
-            return {'status': 'error', 'message': '数据库未连接'}
+            return None
             
-        # 确认文件格式是否受支持
-        if not self.is_supported_extension(file_path):
-            format_name = self.get_format_for_extension(file_path)
-            if format_name:
-                print(f"{format_name}文件格式未启用，跳过: {file_path}")
-                return {'status': 'skipped', 'message': f'{format_name}文件格式未启用'}
-            else:
-                print(f"不支持的文件格式，跳过: {file_path}")
-                return {'status': 'skipped', 'message': '不支持的文件格式'}
-            
+        if not os.path.exists(file_path):
+            print(f"文件不存在: {file_path}")
+            return None
+        
+        # 规范化路径
+        file_path = self._normalize_path(file_path)
+        
         try:
-            # 确认文件存在
-            if not os.path.exists(file_path):
-                print(f"文件不存在: {file_path}")
-                return {'status': 'error', 'message': '文件不存在'}
+            # 计算文件哈希值
+            file_hash = self.compute_file_hash(file_path)
+            # 获取文件名
+            file_name = os.path.basename(file_path)
+            # 获取上次修改时间
+            last_modified = int(os.path.getmtime(file_path))
+            # 当前时间戳
+            now = int(time.time())
             
-            # 标准化文件路径
-            file_path = self._normalize_path(file_path)
+            # 获取文件格式
+            file_format = self.get_format_for_extension(file_path)
+            if not file_format:
+                file_format = "unknown"
+                
+            cursor = self.conn.cursor()
             
+            # 检查文件是否已存在
+            cursor.execute("SELECT id, hash FROM pkm_files WHERE file_path = ?", (file_path,))
+            row = cursor.fetchone()
+            
+            # 提取文件内容
             content = ""
-            title = os.path.splitext(os.path.basename(file_path))[0]  # 默认使用文件名
+            title = ""
+            tags = ""
             
-            # 使用格式转换器提取文件内容
-            try:
-                from app.models.converters import ConverterFactory
-                
-                # 获取对应格式的转换器
-                converter = ConverterFactory.get_converter(file_path)
-                
-                # 提取内容和标题
+            # 根据文件格式决定如何处理内容
+            if file_format == "markdown":
                 try:
-                    original_content, title = converter.extract_content(file_path)
+                    # 读取Markdown文件内容
+                    with open(file_path, 'r', encoding='utf-8') as f:
+                        content = f.read()
                     
-                    # 转换为Markdown格式
-                    content = converter.convert_to_markdown(original_content)
+                    # 提取标题（从文件内容的第一行或文件名）
+                    title = self.extract_title_from_md(content) or file_name
                     
-                    if not content or content.strip() == "":
-                        # 如果提取的内容为空，尝试直接读取文件
-                        print(f"警告: 通过转换器提取的内容为空，尝试直接读取: {file_path}")
-                        with open(file_path, 'r', encoding='utf-8') as f:
-                            content = f.read()
+                    # 从文件内容中提取标签（可以自定义规则）
+                    # 例如 #tag1 #tag2 格式
+                    tag_pattern = r'#(\w+)'
+                    tags = ' '.join(re.findall(tag_pattern, content))
                     
-                    print(f"已提取并转换文件: {file_path}")
                 except Exception as e:
-                    # 如果转换失败，尝试直接读取文件
-                    print(f"转换内容失败: {e}，尝试直接读取文件: {file_path}")
-                    try:
-                        with open(file_path, 'r', encoding='utf-8') as f:
-                            content = f.read()
-                    except UnicodeDecodeError:
-                        # 对于无法以UTF-8解码的文件，尝试其他编码
-                        try:
-                            with open(file_path, 'r', encoding='latin1') as f:
-                                content = f.read()
-                        except Exception as e2:
-                            print(f"读取文件失败: {e2}")
-                            return {'status': 'error', 'message': f'无法读取文件内容: {str(e2)}'}
-            except ImportError as e:
-                # 转换器模块不可用，回退到原始方法
-                print(f"警告: 转换器模块不可用，使用原始方法提取内容: {e}")
+                    print(f"读取Markdown文件出错: {e}")
+            elif file_format == "text":
+                try:
+                    # 普通文本文件
+                    with open(file_path, 'r', encoding='utf-8') as f:
+                        content = f.read()
+                    
+                    # 使用文件名作为标题
+                    title = file_name
+                    
+                except Exception as e:
+                    print(f"读取文本文件出错: {e}")
+            # 可以添加其他文件格式的处理...
+            else:
+                # 对于未知格式，可以尝试以文本方式读取
                 try:
                     with open(file_path, 'r', encoding='utf-8') as f:
                         content = f.read()
-                except UnicodeDecodeError:
-                    # 对于无法以UTF-8解码的文件，尝试其他编码
-                    try:
-                        with open(file_path, 'r', encoding='latin1') as f:
-                            content = f.read()
-                    except Exception as e2:
-                        print(f"读取文件失败: {e2}")
-                        return {'status': 'error', 'message': f'无法读取文件内容: {str(e2)}'}
+                except:
+                    content = f"无法读取文件内容，格式: {file_format}"
+                
+                title = file_name
+            
+            # 为FTS预处理分词
+            processed_title = self.process_text_for_fts(title)
+            processed_content = self.process_text_for_fts(content)
+            processed_tags = self.process_text_for_fts(tags)
+            processed_file_name = self.process_text_for_fts(file_name)
+            
+            if row:
+                # 文件已存在，检查哈希值是否变化
+                file_id, old_hash = row
+                
+                if file_hash != old_hash:
+                    # 更新文件内容
+                    cursor.execute("""
+                        UPDATE pkm_files SET 
+                        content = ?, title = ?, hash = ?, last_modified = ?, updated_at = ?, tags = ?, file_format = ?
+                        WHERE id = ?
+                    """, (content, title, file_hash, last_modified, now, tags, file_format, file_id))
                     
-                # 提取标题
-                format_name = self.get_format_for_extension(file_path)
-                if format_name == "markdown":
-                    title = self.extract_title_from_md(content)
+                    # 更新FTS表内容
+                    cursor.execute("""
+                        UPDATE pkm_fts SET
+                        title = ?, content = ?, tags = ?, file_name = ?
+                        WHERE id = ?
+                    """, (processed_title, processed_content, processed_tags, processed_file_name, file_id))
+                    
+                    print(f"已更新文件: {file_path}")
                 else:
-                    # 对于其他格式，暂时使用文件名作为标题
-                    title = os.path.splitext(os.path.basename(file_path))[0]
+                    # 文件未变化，仅更新最后修改时间
+                    cursor.execute("""
+                        UPDATE pkm_files SET last_modified = ?, updated_at = ? WHERE id = ?
+                    """, (last_modified, now, file_id))
+                    
+                    print(f"文件未变化: {file_path}")
                 
-            # 计算文件hash
-            file_hash = self.compute_file_hash(file_path)
-            if not file_hash:
-                return {'status': 'error', 'message': '计算文件哈希失败'}
+                self.conn.commit()
+                return file_id
                 
-            # 获取文件名和时间信息
-            file_name = os.path.basename(file_path)
-            last_modified = int(os.path.getmtime(file_path))
-            created_at = int(os.path.getctime(file_path))
-            current_time = int(time.time())
-            
-            # 生成文件ID（使用文件路径的hash值）
-            file_id = hashlib.md5(file_path.encode('utf-8')).hexdigest()
-            
-            # 记录文件格式
-            file_format = self.get_format_for_extension(file_path) or "unknown"
-            
-            # 检查文件是否已存在于数据库中
-            cursor = self.conn.cursor()
-            cursor.execute("SELECT hash FROM pkm_files WHERE id = ?", (file_id,))
-            row = cursor.fetchone()
-            
-            # 如果文件已存在且hash值相同，不需要更新
-            if row and row['hash'] == file_hash:
-                print(f"文件未变更，无需更新: {file_path}")
-                return {'status': 'unchanged', 'message': '文件未变更'}
+            else:
+                # 新文件，添加到数据库
+                file_id = str(uuid.uuid4())
                 
-            # 增加一个文件类型字段
-            cursor.execute("PRAGMA table_info(pkm_files)")
-            columns = cursor.fetchall()
-            has_file_format = any(column['name'] == 'file_format' for column in columns)
-            
-            if not has_file_format:
-                # 添加file_format列
-                try:
-                    cursor.execute("ALTER TABLE pkm_files ADD COLUMN file_format TEXT DEFAULT 'unknown'")
-                    self.conn.commit()
-                    print("已添加file_format列到pkm_files表")
-                except Exception as e:
-                    print(f"添加file_format列失败: {e}")
-            
-            # 添加或更新文件
-            cursor.execute("""
-                REPLACE INTO pkm_files 
-                (id, file_path, file_name, content, title, hash, last_modified, created_at, updated_at, tags, file_format) 
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (
-                file_id, file_path, file_name, content, title, file_hash, 
-                last_modified, created_at, current_time, '', file_format
-            ))
-            
-            self.conn.commit()
-            print(f"已{'更新' if row else '添加'}文件到PKM数据库: {file_path}")
-            return {'status': 'updated' if row else 'added', 'message': f"已{'更新' if row else '添加'}文件"}
-            
+                cursor.execute("""
+                    INSERT INTO pkm_files 
+                    (id, file_path, file_name, content, title, hash, last_modified, 
+                    created_at, updated_at, tags, file_format)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (file_id, file_path, file_name, content, title, file_hash, 
+                     last_modified, now, now, tags, file_format))
+                
+                # 添加到FTS表
+                cursor.execute("""
+                    INSERT INTO pkm_fts
+                    (id, title, content, tags, file_name)
+                    VALUES (?, ?, ?, ?, ?)
+                """, (file_id, processed_title, processed_content, processed_tags, processed_file_name))
+                
+                self.conn.commit()
+                print(f"已添加新文件: {file_path}")
+                return file_id
+                
         except Exception as e:
-            print(f"添加或更新PKM文件出错: {e}")
-            return {'status': 'error', 'message': str(e)}
+            print(f"添加或更新PKM文件出错: {file_path}, {str(e)}")
+            if self.conn:
+                self.conn.rollback()
+            return None
     
     def _normalize_path(self, path):
         """标准化文件路径，确保路径格式一致
@@ -1284,61 +1364,45 @@ class DatabaseManager:
         """从数据库中删除PKM文件
         
         Args:
-            file_path (str): 文件的完整路径
+            file_path (str): 文件路径
             
         Returns:
-            bool: 操作是否成功
+            bool: 是否成功删除
         """
         if not self.conn:
             print("数据库未连接")
             return False
-            
+        
+        # 规范化路径
+        file_path = self._normalize_path(file_path)
+        
         try:
-            # 标准化路径
-            normalized_path = self._normalize_path(file_path)
-            
-            # 直接使用标准化的文件路径查询和删除
             cursor = self.conn.cursor()
-            cursor.execute("DELETE FROM pkm_files WHERE file_path = ?", (normalized_path,))
             
-            if cursor.rowcount > 0:
+            # 先查询文件ID
+            cursor.execute("SELECT id FROM pkm_files WHERE file_path = ?", (file_path,))
+            row = cursor.fetchone()
+            
+            if row:
+                file_id = row[0]
+                
+                # 删除主表记录
+                cursor.execute("DELETE FROM pkm_files WHERE id = ?", (file_id,))
+                
+                # 同步删除FTS表记录
+                cursor.execute("DELETE FROM pkm_fts WHERE id = ?", (file_id,))
+                
                 self.conn.commit()
-                print(f"已从PKM数据库删除文件: {normalized_path}")
+                print(f"已从数据库删除文件: {file_path}")
                 return True
             else:
-                # 如果直接通过路径无法删除，尝试通过生成ID删除
-                file_id = None
-                
-                # 尝试使用所有配置的文件夹计算相对路径
-                if hasattr(self, 'pkm_folders') and self.pkm_folders:
-                    for folder in self.pkm_folders:
-                        try:
-                            rel_path = os.path.relpath(normalized_path, folder)
-                            # 检查rel_path是否以..开头，这表示文件不在此文件夹内
-                            if not rel_path.startswith('..'):
-                                file_id = hashlib.md5(rel_path.encode('utf-8')).hexdigest()
-                                # 使用生成的ID尝试删除
-                                cursor.execute("DELETE FROM pkm_files WHERE id = ?", (file_id,))
-                                if cursor.rowcount > 0:
-                                    self.conn.commit()
-                                    print(f"通过ID删除文件: {normalized_path}, ID: {file_id}")
-                                    return True
-                        except ValueError:
-                            continue
-                
-                # 如果使用相对路径都不成功，尝试使用绝对路径生成ID
-                file_id = hashlib.md5(normalized_path.encode('utf-8')).hexdigest()
-                cursor.execute("DELETE FROM pkm_files WHERE id = ?", (file_id,))
-                if cursor.rowcount > 0:
-                    self.conn.commit()
-                    print(f"通过绝对路径ID删除文件: {normalized_path}")
-                    return True
-                else:
-                    print(f"文件不在PKM数据库中: {normalized_path}")
-                    return False
+                print(f"文件不在数据库中: {file_path}")
+                return False
                 
         except Exception as e:
             print(f"删除PKM文件出错: {e}")
+            if self.conn:
+                self.conn.rollback()
             return False
     
     def search_pkm_files(self, query, limit=50):
@@ -1675,40 +1739,86 @@ class DatabaseManager:
             
         results = []
         
-        # 如果没有提供高级搜索参数，使用简单搜索模式
-        if not search_params:
+        print(f"执行组合搜索，查询: '{query}', 范围: {scope}, 限制: {limit}")
+        
+        # 如果没有提供高级搜索参数，但提供了查询字符串，解析为高级搜索参数
+        if query and not search_params:
+            # 分词处理查询字符串，然后用作普通搜索词
+            segmented_term = self.process_text_for_fts(query)
+            search_params = {
+                'terms': [segmented_term],
+                'exact': [],
+                'excluded': [],
+                'mode': '任一包含(OR)' 
+            }
+            
+            # 尝试使用高级搜索
             try:
+                # 打印高级搜索参数
+                print(f"转换为高级搜索参数: {search_params}")
+                
+                # 获取搜索模式和条件
+                search_mode = self._convert_search_mode(search_params.get('mode', ''))
+                terms = search_params.get('terms', [])
+                exact_matches = search_params.get('exact', [])
+                excluded_terms = search_params.get('excluded', [])
+                
                 # 搜索提示词
                 if scope in ['prompts', 'all']:
-                    prompt_results = self.search_prompt_details(query, limit=limit)
+                    prompt_results = self.search_prompt_details_advanced(
+                        terms=terms,
+                        exact_matches=exact_matches,
+                        excluded_terms=excluded_terms,
+                        search_mode=search_mode,
+                        limit=limit
+                    )
                     for res in prompt_results:
-                        res['type'] = 'prompt' # 添加类型标识
+                        res['type'] = 'prompt'
                         results.append(res)
                         
                 # 搜索PKM文件
                 if scope in ['pkm', 'all']:
-                    pkm_results = self.search_pkm_files(query, limit=limit)
+                    pkm_results = self.search_pkm_files_advanced(
+                        terms=terms,
+                        exact_matches=exact_matches,
+                        excluded_terms=excluded_terms,
+                        search_mode=search_mode,
+                        limit=limit
+                    )
                     for res in pkm_results:
-                        res['type'] = 'pkm' # 添加类型标识
+                        res['type'] = 'pkm'
                         results.append(res)
                 
                 # 如果是搜索全部，根据时间戳/更新时间排序 (降序)
                 if scope == 'all':
-                    results.sort(key=lambda x: x.get('timestamp', x.get('updated_at', 0)), reverse=True)
+                    results.sort(key=lambda x: x.get('timestamp', x.get('updated_at', x.get('created_at', 0))), reverse=True)
                     # 限制最终结果数量
                     results = results[:limit]
                     
+                print(f"简单查询转高级搜索完成，找到 {len(results)} 条结果")
                 return results
                 
             except Exception as e:
-                print(f"组合搜索出错: {e}")
-                return []
+                print(f"简单查询转高级搜索出错: {e}")
+                # 如果转换搜索失败，回退到传统搜索方法
+                return self._traditional_search(query, scope, limit)
         
-        # 高级搜索模式
+        # 如果没有提供查询或高级搜索参数，使用简单搜索模式
+        elif not search_params:
+            return self._traditional_search(query, scope, limit)
+        
+        # 使用已提供的高级搜索参数
         try:
-            # 获取搜索模式
-            search_mode = search_params.get('mode', '').split(':')[-1].strip()
-            terms = search_params.get('terms', [])
+            # 打印高级搜索参数
+            print(f"使用提供的高级搜索参数: {search_params}")
+            
+            # 获取搜索模式和条件并进行分词处理
+            search_mode = self._convert_search_mode(search_params.get('mode', ''))
+            
+            # 对普通搜索词进行分词处理
+            terms = [self.process_text_for_fts(term) for term in search_params.get('terms', [])]
+            
+            # 对精确匹配词和排除词不做分词处理，保持原样
             exact_matches = search_params.get('exact', [])
             excluded_terms = search_params.get('excluded', [])
             
@@ -1740,10 +1850,11 @@ class DatabaseManager:
             
             # 如果是搜索全部，根据时间戳/更新时间排序 (降序)
             if scope == 'all':
-                results.sort(key=lambda x: x.get('timestamp', x.get('updated_at', 0)), reverse=True)
+                results.sort(key=lambda x: x.get('timestamp', x.get('updated_at', x.get('created_at', 0))), reverse=True)
                 # 限制最终结果数量
                 results = results[:limit]
                 
+            print(f"高级组合搜索完成，找到 {len(results)} 条结果")
             return results
                 
         except Exception as e:
@@ -1751,7 +1862,54 @@ class DatabaseManager:
             import traceback
             traceback.print_exc()
             # 如果高级搜索失败，回退到简单搜索
-            return self.search_combined(query, scope, limit)
+            return self._traditional_search(query, scope, limit)
+    
+    def _convert_search_mode(self, mode_str):
+        """转换界面搜索模式为后端搜索模式
+        
+        Args:
+            mode_str (str): 界面搜索模式字符串，如 "全部包含(AND)"
+            
+        Returns:
+            str: 内部搜索模式 ('AND' 或 'OR')
+        """
+        mode_str = mode_str.strip()
+        if "全部包含" in mode_str or "AND" in mode_str.upper():
+            return 'AND'
+        elif "任一包含" in mode_str or "OR" in mode_str.upper():
+            return 'OR'
+        else:  # 默认为OR
+            return 'OR'
+    
+    def _traditional_search(self, query, scope='all', limit=50):
+        """传统搜索方法，作为回退选项"""
+        results = []
+        try:
+            # 搜索提示词
+            if scope in ['prompts', 'all']:
+                prompt_results = self.search_prompt_details(query, limit=limit)
+                for res in prompt_results:
+                    res['type'] = 'prompt' # 添加类型标识
+                    results.append(res)
+                    
+            # 搜索PKM文件
+            if scope in ['pkm', 'all']:
+                pkm_results = self.search_pkm_files(query, limit=limit)
+                for res in pkm_results:
+                    res['type'] = 'pkm' # 添加类型标识
+                    results.append(res)
+            
+            # 如果是搜索全部，根据时间戳/更新时间排序 (降序)
+            if scope == 'all':
+                results.sort(key=lambda x: x.get('timestamp', x.get('updated_at', x.get('created_at', 0))), reverse=True)
+                # 限制最终结果数量
+                results = results[:limit]
+                
+            return results
+            
+        except Exception as e:
+            print(f"传统搜索出错: {e}")
+            return []
     
     def is_format_enabled(self, format_name):
         """检查指定的文件格式是否已启用
@@ -1800,117 +1958,160 @@ class DatabaseManager:
         
         return None
     
-    def search_prompt_details_advanced(self, terms=None, exact_matches=None, excluded_terms=None, search_mode="全部包含(AND)", limit=50):
-        """使用高级搜索语法搜索提示词和AI回复详细信息
+    def search_prompt_details_advanced(self, terms=None, exact_matches=None, excluded_terms=None, search_mode='AND', limit=50):
+        """高级搜索提示词
         
         Args:
-            terms (list): 普通搜索词列表
-            exact_matches (list): 精确匹配词列表
-            excluded_terms (list): 排除词列表
-            search_mode (str): 搜索模式，"全部包含(AND)"、"任一包含(OR)"或"精确匹配"
-            limit (int): 最大记录数
+            terms (list): 普通搜索词列表 (已经分词处理)
+            exact_matches (list): 精确匹配词列表 (不需要分词)
+            excluded_terms (list): 排除词列表 (不需要分词)
+            search_mode (str): 搜索模式，'AND'表示全部包含，'OR'表示任一包含
+            limit (int): 结果数量限制
             
         Returns:
-            list: 匹配的提示词详细信息列表
+            list: 匹配的提示词记录列表
         """
         if not self.conn:
             print("数据库未连接")
             return []
             
+        # 防止None值
+        terms = terms or []
+        exact_matches = exact_matches or []
+        excluded_terms = excluded_terms or []
+        
         try:
             cursor = self.conn.cursor()
             
-            # 首先获取所有提示词详情
-            cursor.execute(
-                """SELECT * FROM prompt_details 
-                ORDER BY timestamp DESC LIMIT ?""",
-                (limit * 3,)  # 获取更多记录进行过滤
-            )
+            # 提示词搜索不使用FTS5，使用传统方法
+            # 获取所有提示词及其详情
+            cursor.execute("""
+                SELECT p.id, p.prompt as title, '' as prompt_type, '' as category, '' as tags, 
+                       p.timestamp as created_at, p.timestamp as updated_at,
+                       d.id as detail_id, d.prompt as content, '' as model, '' as parameters, 
+                       0 as version, 0 as is_default, d.timestamp, '' as notes
+                FROM prompts p
+                LEFT JOIN prompt_details d ON p.id = d.id
+                ORDER BY p.timestamp DESC
+            """)
             
-            all_results = []
-            for row in cursor.fetchall():
-                result = {
-                    'id': row['id'],
-                    'prompt': row['prompt'],
-                    'timestamp': row['timestamp'],
-                    'favorite': bool(row['favorite']),
-                    'webviews': []
+            all_prompts = cursor.fetchall()
+            
+            # 根据搜索条件过滤结果
+            results = []
+            prompt_ids_added = set()  # 用于跟踪已添加的提示词ID
+            
+            for row in all_prompts:
+                # 提取记录字段
+                prompt = {
+                    'id': row[0],
+                    'title': row[1],
+                    'prompt_type': row[2],
+                    'category': row[3],
+                    'tags': row[4],
+                    'created_at': row[5],
+                    'updated_at': row[6],
+                    'details': {
+                        'id': row[7],
+                        'content': row[8],
+                        'model': row[9],
+                        'parameters': row[10],
+                        'version': row[11],
+                        'is_default': bool(row[12]),
+                        'timestamp': row[13],
+                        'notes': row[14]
+                    }
                 }
                 
-                # 构建webviews列表
-                replies_text = ""  # 合并所有回复文本以便搜索
-                for i in range(1, 7):
-                    url_key = f"ai{i}_url"
-                    reply_key = f"ai{i}_reply"
+                # 如果已经添加过这个ID，则跳过
+                if prompt['id'] in prompt_ids_added:
+                    continue
+                
+                # 执行搜索条件匹配
+                title = (prompt['title'] or '').lower()
+                content = (prompt['details']['content'] or '').lower()
+                tags = (prompt['tags'] or '').lower()
+                notes = (prompt['details']['notes'] or '').lower()
+                
+                # 检查是否匹配普通搜索词
+                terms_match = True
+                if terms:
+                    term_matches = []
+                    for term in terms:
+                        term = term.lower()
+                        term_match = (term in content or term in title or term in tags or term in notes)
+                        term_matches.append(term_match)
                     
-                    if url_key in row and row[url_key]:
-                        reply = row[reply_key] if reply_key in row else ''
-                        result['webviews'].append({
-                            'url': row[url_key],
-                            'reply': reply
-                        })
-                        replies_text += " " + reply
+                    if search_mode == 'AND':
+                        terms_match = all(term_matches)
+                    else:  # OR
+                        terms_match = any(term_matches)
                 
-                # 创建一个组合文本用于搜索
-                searchable_text = (result['prompt'] + " " + replies_text).lower()
-                result['_searchable_text'] = searchable_text
+                # 检查是否匹配精确匹配词
+                exact_match = True
+                if exact_matches:
+                    for term in exact_matches:
+                        term = term.lower()
+                        if term not in content and term not in title and term not in tags and term not in notes:
+                            exact_match = False
+                            break
                 
-                all_results.append(result)
-            
-            # 筛选结果
-            filtered_results = []
-            
-            for result in all_results:
-                searchable_text = result['_searchable_text']
-                include_result = True
-                
-                # 检查排除词
+                # 检查是否包含排除词
+                excluded_match = False
                 if excluded_terms:
                     for term in excluded_terms:
-                        if term.lower() in searchable_text:
-                            include_result = False
+                        term = term.lower()
+                        if term in content or term in title or term in tags or term in notes:
+                            excluded_match = True
                             break
                 
-                if not include_result:
-                    continue
-                
-                # 检查精确匹配词
-                if exact_matches:
-                    for phrase in exact_matches:
-                        if phrase.lower() not in searchable_text:
-                            include_result = False
-                            break
-                
-                if not include_result:
-                    continue
-                
-                # 检查普通搜索词
-                if terms:
-                    if search_mode == "全部包含(AND)":
-                        for term in terms:
-                            if term.lower() not in searchable_text:
-                                include_result = False
-                                break
-                    elif search_mode == "任一包含(OR)":
-                        # 如果没有任何词匹配，则不包含
-                        if not any(term.lower() in searchable_text for term in terms):
-                            include_result = False
-                    else:  # 精确匹配
-                        # 构建完整短语
-                        phrase = " ".join(terms).lower()
-                        if phrase not in searchable_text:
-                            include_result = False
-                
-                if include_result:
-                    # 移除临时搜索文本字段
-                    del result['_searchable_text']
-                    filtered_results.append(result)
+                # 只有当满足所有条件时，才添加到结果中
+                if terms_match and exact_match and not excluded_match:
+                    # 获取所有详情版本
+                    cursor.execute("""
+                        SELECT id, content, model, parameters, version, is_default, timestamp, notes
+                        FROM prompt_details
+                        WHERE prompt_id = ?
+                        ORDER BY version DESC
+                    """, (prompt['id'],))
                     
-                    # 达到限制数量后停止
-                    if len(filtered_results) >= limit:
-                        break
+                    detail_rows = cursor.fetchall()
+                    if detail_rows:
+                        # 构建详情列表
+                        details = []
+                        for detail_row in detail_rows:
+                            detail = {
+                                'id': detail_row[0],
+                                'content': detail_row[1],
+                                'model': detail_row[2],
+                                'parameters': detail_row[3],
+                                'version': detail_row[4],
+                                'is_default': bool(detail_row[5]),
+                                'timestamp': detail_row[6],
+                                'notes': detail_row[7]
+                            }
+                            
+                            # 尝试解析parameters
+                            try:
+                                if detail['parameters']:
+                                    detail['parameters'] = json.loads(detail['parameters'])
+                            except:
+                                detail['parameters'] = {}
+                                
+                            details.append(detail)
+                        
+                        # 用所有详情版本替换单一详情
+                        prompt['details'] = details
+                        
+                        # 添加到结果中并记录ID
+                        results.append(prompt)
+                        prompt_ids_added.add(prompt['id'])
+                        
+                        # 如果达到限制数量，提前结束
+                        if len(results) >= limit:
+                            break
             
-            return filtered_results
+            return results
             
         except Exception as e:
             print(f"高级搜索提示词出错: {e}")
@@ -1918,143 +2119,267 @@ class DatabaseManager:
             traceback.print_exc()
             return []
     
-    def search_pkm_files_advanced(self, terms=None, exact_matches=None, excluded_terms=None, search_mode="全部包含(AND)", limit=50):
-        """使用高级搜索语法搜索PKM文件
+    def search_pkm_files_advanced(self, terms=None, exact_matches=None, excluded_terms=None, search_mode="OR", limit=100):
+        """
+        使用FTS5搜索PKM文件
         
         Args:
-            terms (list): 普通搜索词列表
-            exact_matches (list): 精确匹配词列表
-            excluded_terms (list): 排除词列表
-            search_mode (str): 搜索模式，"全部包含(AND)"、"任一包含(OR)"或"精确匹配"
-            limit (int): 最大记录数
+            terms (list): 要搜索的术语列表
+            exact_matches (list): 要精确匹配的术语列表
+            excluded_terms (list): 要排除的术语列表
+            search_mode (str): 搜索模式，可以是"AND"或"OR"
+            limit (int): 返回结果的最大数量
             
         Returns:
-            list: 匹配的PKM文件列表
+            list: 包含匹配文件信息的字典列表
         """
         if not self.conn:
             print("数据库未连接")
             return []
             
         try:
+            # 构建FTS查询
+            fts_query = self._build_fts_query(terms, exact_matches, excluded_terms, search_mode)
+            
+            # 执行FTS搜索
             cursor = self.conn.cursor()
-            
-            # 检查file_format列是否存在
-            cursor.execute("PRAGMA table_info(pkm_files)")
-            columns = cursor.fetchall()
-            has_file_format = any(column['name'] == 'file_format' for column in columns)
-            
-            # 准备查询字段
-            fields = "id, file_path, file_name, title, content, tags, updated_at, last_modified"
-            if has_file_format:
-                fields += ", file_format"
-            
-            # 首先获取所有PKM文件 (使用更多的限制以便后续筛选)
             cursor.execute(f"""
-                SELECT {fields}
-                FROM pkm_files
-                ORDER BY updated_at DESC
+                SELECT f.id, highlight(pkm_fts, 1, '<mark>', '</mark>') as highlighted_title, 
+                       f.file_path, f.file_name, f.title, f.tags, 
+                       f.created_at, f.updated_at, f.file_format, f.hash, f.content,
+                       f.last_modified
+                FROM pkm_fts 
+                JOIN pkm_files f ON pkm_fts.id = f.id
+                WHERE pkm_fts MATCH ?
+                ORDER BY rank
                 LIMIT ?
-            """, (limit * 3,))
+            """, (fts_query, limit))
             
-            all_results = []
+            results = []
             for row in cursor.fetchall():
-                # 将sqlite3.Row对象转换为普通字典
-                row_dict = dict(row)
+                file_id, highlighted_title, file_path, file_name, title, tags, created_at, updated_at, file_format, hash, content, last_modified = row
                 
-                # 创建基本结果字典
-                result = {
-                    'id': row_dict.get('id', ''),
-                    'file_path': row_dict.get('file_path', ''),
-                    'file_name': row_dict.get('file_name', ''),
-                    'title': row_dict.get('title') or row_dict.get('file_name', ''),
-                    'content': row_dict.get('content', ''),
-                    'tags': row_dict.get('tags', ''),
-                    'updated_at': row_dict.get('updated_at', 0),
-                    'last_modified': row_dict.get('last_modified', 0)
+                # 构建结果字典
+                file_info = {
+                    "id": file_id,
+                    "file_path": file_path,
+                    "file_name": file_name,
+                    "title": title,
+                    "tags": tags,
+                    "created_at": created_at,
+                    "updated_at": updated_at,
+                    "file_format": file_format,
+                    "hash": hash,
+                    "content": content,
+                    "last_modified": last_modified
                 }
                 
-                # 添加文件格式信息
-                if has_file_format and 'file_format' in row_dict:
-                    result['file_format'] = row_dict.get('file_format')
-                else:
-                    # 如果数据库中没有file_format字段，从文件扩展名判断
-                    ext = os.path.splitext(result['file_path'])[1].lower()
-                    for format_name, format_config in self.supported_file_formats.items():
-                        if ext in format_config['extensions']:
-                            result['file_format'] = format_name
-                            break
-                
-                # 创建一个组合文本用于搜索 (标题、内容和标签)
-                searchable_text = (
-                    result['title'] + " " + 
-                    result['content'] + " " + 
-                    result['tags'] + " " + 
-                    result['file_name']
-                ).lower()
-                
-                result['_searchable_text'] = searchable_text
-                all_results.append(result)
-            
-            # 筛选结果
-            filtered_results = []
-            
-            for result in all_results:
-                searchable_text = result['_searchable_text']
-                include_result = True
-                
-                # 检查排除词
-                if excluded_terms:
-                    for term in excluded_terms:
-                        if term.lower() in searchable_text:
-                            include_result = False
-                            break
-                
-                if not include_result:
-                    continue
-                
-                # 检查精确匹配词
-                if exact_matches:
-                    for phrase in exact_matches:
-                        if phrase.lower() not in searchable_text:
-                            include_result = False
-                            break
-                
-                if not include_result:
-                    continue
-                
-                # 检查普通搜索词
-                if terms:
-                    if search_mode == "全部包含(AND)":
-                        for term in terms:
-                            if term.lower() not in searchable_text:
-                                include_result = False
-                                break
-                    elif search_mode == "任一包含(OR)":
-                        # 如果没有任何词匹配，则不包含
-                        if not any(term.lower() in searchable_text for term in terms):
-                            include_result = False
-                    else:  # 精确匹配
-                        # 构建完整短语
-                        phrase = " ".join(terms).lower()
-                        if phrase not in searchable_text:
-                            include_result = False
-                
-                if include_result:
-                    # 移除临时搜索文本字段和敏感内容字段，减少数据传输量
-                    del result['_searchable_text']
-                    if 'content' in result:
-                        del result['content']  # 在前端展示时不需要完整内容
+                # 如果有高亮标题，添加到结果中
+                if highlighted_title and highlighted_title != title:
+                    file_info["highlighted_title"] = highlighted_title
                     
-                    filtered_results.append(result)
-                    
-                    # 达到限制数量后停止
-                    if len(filtered_results) >= limit:
-                        break
-            
-            return filtered_results
-            
+                results.append(file_info)
+                
+            return results
+                
         except Exception as e:
-            print(f"高级搜索PKM文件出错: {e}")
+            print(f"FTS搜索出错: {e}")
+            print("回退到传统搜索方法")
             import traceback
             traceback.print_exc()
-            return [] 
+            
+            # 回退到传统搜索方法
+            return self._search_pkm_files_advanced_traditional(terms, exact_matches, excluded_terms, search_mode, limit)
+    
+    def _build_fts_query(self, terms, exact_matches, excluded_terms, search_mode):
+        """构建FTS5查询字符串
+        
+        Args:
+            terms (list): 已分词的普通搜索词列表
+            exact_matches (list): 精确匹配词列表
+            excluded_terms (list): 排除词列表
+            search_mode (str): 搜索模式，'AND'或'OR'
+            
+        Returns:
+            str: FTS5查询字符串
+        """
+        query_parts = []
+        
+        # 处理普通搜索词
+        if terms:
+            terms_str = []
+            for term in terms:
+                # 由于已经通过process_text_for_fts进行了分词，这里不需要再额外处理
+                if term and term.strip():
+                    terms_str.append(term)
+            
+            if terms_str:
+                if search_mode == 'AND':
+                    query_parts.append(" AND ".join(terms_str))
+                else:  # OR mode
+                    query_parts.append(" OR ".join(terms_str))
+        
+        # 处理精确匹配词（使用引号包围）
+        if exact_matches:
+            for term in exact_matches:
+                if term and term.strip():
+                    # 对精确匹配词使用双引号
+                    query_parts.append(f'"{term}"')
+        
+        # 合并所有正向查询（默认使用OR连接）
+        combined_query = ""
+        if query_parts:
+            combined_query = " OR ".join(query_parts)
+        
+        # 添加排除词 (使用NOT操作符)
+        if excluded_terms and combined_query:
+            for term in excluded_terms:
+                if term and term.strip():
+                    combined_query += f' NOT {term}'
+        
+        return combined_query
+    
+    def process_text_for_fts(self, text):
+        """对文本进行预处理，用于FTS全文搜索
+        
+        Args:
+            text (str): 原始文本
+            
+        Returns:
+            str: 分词后的文本，使用空格分隔
+        """
+        if not text:
+            return ""
+            
+        # 使用jieba的搜索引擎模式进行分词
+        # 搜索引擎模式适合检索场景，粒度更细，召回率更高
+        words = jieba.cut_for_search(text)
+        
+        # 将分词结果用空格连接成字符串
+        return " ".join(words)
+    
+    def _search_pkm_files_advanced_traditional(self, terms=None, exact_matches=None, excluded_terms=None, search_mode="OR", limit=100):
+        """
+        使用传统方法在不使用FTS的情况下进行PKM文件的高级搜索
+        
+        Args:
+            terms (list): 要搜索的术语列表
+            exact_matches (list): 要精确匹配的术语列表
+            excluded_terms (list): 要排除的术语列表
+            search_mode (str): 搜索模式，可以是"AND"或"OR"
+            limit (int): 返回结果的最大数量
+            
+        Returns:
+            list: 包含匹配文件信息的字典列表
+        """
+        if not self.conn:
+            print("数据库未连接")
+            return []
+            
+        # 防止None值
+        terms = terms or []
+        exact_matches = exact_matches or []
+        excluded_terms = excluded_terms or []
+        
+        try:
+            cursor = self.conn.cursor()
+            
+            # 获取所有PKM文件
+            cursor.execute("""
+                SELECT id, file_path, file_name, title, content, tags, 
+                       created_at, updated_at, file_format, hash, last_modified
+                FROM pkm_files
+            """)
+            
+            all_files = cursor.fetchall()
+            results = []
+            
+            for row in all_files:
+                file_id, file_path, file_name, title, content, tags, created_at, updated_at, file_format, hash, last_modified = row
+                
+                # 构建文件信息字典
+                file_info = {
+                    "id": file_id,
+                    "file_path": file_path,
+                    "file_name": file_name,
+                    "title": title, 
+                    "content": content,
+                    "tags": tags,
+                    "created_at": created_at,
+                    "updated_at": updated_at,
+                    "file_format": file_format,
+                    "hash": hash,
+                    "last_modified": last_modified
+                }
+                
+                # 如果没有搜索条件，添加所有文件
+                if not terms and not exact_matches and not excluded_terms:
+                    results.append(file_info)
+                    continue
+                
+                # 创建用于搜索的组合文本 (标题+内容+标签)
+                search_text = " ".join(filter(None, [
+                    title or "", 
+                    content or "", 
+                    tags or ""
+                ])).lower()
+                
+                # 应用搜索逻辑
+                matches_all = True
+                matches_any = False
+                
+                # 检查普通搜索词
+                for term in terms:
+                    term_lower = term.lower()
+                    term_match = term_lower in search_text
+                    if not term_match and search_mode == "AND":
+                        matches_all = False
+                        break
+                    if term_match and search_mode == "OR":
+                        matches_any = True
+                
+                # 如果是AND模式且已经不匹配，跳过其他检查
+                if search_mode == "AND" and not matches_all:
+                    continue
+                
+                # 检查精确匹配
+                for exact_term in exact_matches:
+                    exact_term_lower = exact_term.lower()
+                    exact_match = exact_term_lower in search_text
+                    if not exact_match and search_mode == "AND":
+                        matches_all = False
+                        break
+                    if exact_match and search_mode == "OR":
+                        matches_any = True
+                
+                # 如果是AND模式且已经不匹配，跳过其他检查
+                if search_mode == "AND" and not matches_all:
+                    continue
+                
+                # 检查排除词
+                should_exclude = False
+                for excluded_term in excluded_terms:
+                    excluded_term_lower = excluded_term.lower()
+                    if excluded_term_lower in search_text:
+                        should_exclude = True
+                        break
+                
+                # 如果应该排除，跳过
+                if should_exclude:
+                    continue
+                
+                # 最终决定是否添加到结果
+                if (search_mode == "AND" and matches_all) or (search_mode == "OR" and matches_any) or (not terms and not exact_matches):
+                    results.append(file_info)
+                    
+                    # 如果达到限制，停止添加
+                    if len(results) >= limit:
+                        break
+            
+            return results[:limit]  # 返回结果，确保不超过限制
+            
+        except Exception as e:
+            print(f"传统搜索出错: {e}")
+            import traceback
+            traceback.print_exc()
+            return []

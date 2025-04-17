@@ -633,7 +633,13 @@ class MarkdownEditor(QWidget):
         if obj == self.text_edit and event.type() == event.Type.KeyPress:
             # Ctrl+Enter 发送当前段落提示词
             if event.key() == Qt.Key.Key_Return and event.modifiers() == Qt.KeyboardModifier.ControlModifier:
-                self.submit_current_paragraph()
+                # 如果是PromptInput类型的实例，调用search_and_submit_paragraph方法
+                if hasattr(self, 'submit_current_paragraph_with_search'):
+                    # 使用新增的方法（会先执行搜索再发送）
+                    self.submit_current_paragraph_with_search()
+                else:
+                    # 使用原有的方法（直接发送当前段落）
+                    self.submit_current_paragraph()
                 return True
                 
             # Ctrl+B 粗体
