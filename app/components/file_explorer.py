@@ -1306,6 +1306,9 @@ class FileExplorer(QWidget):
             progress_bar.setRange(0, 100)
             progress_bar.setValue(100)
             
+            # 清空状态文本，避免显示重复内容
+            status_text.clear()
+            
             # 显示扫描结果
             if isinstance(result, dict) and ('error' in result or result.get('status') == 'error'):
                 error_msg = result.get('error') or result.get('message', '未知错误')
@@ -1314,12 +1317,16 @@ class FileExplorer(QWidget):
                 # 获取按文件格式分类的结果
                 format_stats = result.get('format_stats', {})
                 
-                status_text.append("扫描完成:")
-                status_text.append(f"- 添加了 {result.get('added_files', 0)} 个文件")
-                status_text.append(f"- 更新了 {result.get('updated_files', 0)} 个文件")
-                status_text.append(f"- 删除了 {result.get('deleted_files', 0)} 个文件")
-                status_text.append(f"- 未变更 {result.get('unchanged_files', 0)} 个文件")
-                status_text.append(f"- 跳过 {result.get('skipped_files', 0)} 个文件")
+                # 如果有扫描摘要，首先显示它
+                if 'summary' in result:
+                    status_text.append(f"{result['summary']}")
+                else:
+                    status_text.append("扫描完成:")
+                    status_text.append(f"- 添加了 {result.get('added_files', 0)} 个文件")
+                    status_text.append(f"- 更新了 {result.get('updated_files', 0)} 个文件")
+                    status_text.append(f"- 删除了 {result.get('deleted_files', 0)} 个文件")
+                    status_text.append(f"- 未变更 {result.get('unchanged_files', 0)} 个文件")
+                    status_text.append(f"- 跳过 {result.get('skipped_files', 0)} 个文件")
                 
                 # 显示按格式统计的结果
                 if format_stats:
@@ -1327,9 +1334,8 @@ class FileExplorer(QWidget):
                     for format_name, count in format_stats.items():
                         status_text.append(f"- {format_name}: {count} 个文件")
                 
-                # 如果有扫描摘要，显示它
-                if 'summary' in result:
-                    status_text.append(f"\n{result['summary']}")
+                # 显示文件变更详情
+                self._show_file_changes(result, status_text)
                 
             # 重新启用扫描按钮
             scan_button.setEnabled(True)
@@ -1338,6 +1344,65 @@ class FileExplorer(QWidget):
             import traceback
             traceback.print_exc()
             scan_button.setEnabled(True)
+    
+    def _show_file_changes(self, result, status_text):
+        """显示文件变更的详情"""
+        try:
+            # 添加文件变更详情，最多显示20个文件，避免界面过长
+            max_files_to_show = 20
+            
+            # 显示新增的文件
+            added_paths = result.get('added_paths', [])
+            if added_paths:
+                count = len(added_paths)
+                display_count = min(count, max_files_to_show)
+                
+                status_text.append(f"\n新增的文件({count}个):")
+                for i, path in enumerate(added_paths[:display_count]):
+                    status_text.append(f"  + {os.path.basename(path)}")
+                if count > max_files_to_show:
+                    status_text.append(f"  ... 以及其他 {count - max_files_to_show} 个文件")
+            
+            # 显示更新的文件
+            updated_paths = result.get('updated_paths', [])
+            if updated_paths:
+                count = len(updated_paths)
+                display_count = min(count, max_files_to_show)
+                
+                status_text.append(f"\n更新的文件({count}个):")
+                for i, path in enumerate(updated_paths[:display_count]):
+                    status_text.append(f"  ~ {os.path.basename(path)}")
+                if count > max_files_to_show:
+                    status_text.append(f"  ... 以及其他 {count - max_files_to_show} 个文件")
+            
+            # 显示删除的文件
+            deleted_paths = result.get('deleted_paths', [])
+            if deleted_paths:
+                count = len(deleted_paths)
+                display_count = min(count, max_files_to_show)
+                
+                status_text.append(f"\n删除的文件({count}个):")
+                for i, path in enumerate(deleted_paths[:display_count]):
+                    status_text.append(f"  - {os.path.basename(path)}")
+                if count > max_files_to_show:
+                    status_text.append(f"  ... 以及其他 {count - max_files_to_show} 个文件")
+            
+            # 显示失败的文件
+            failed_paths = result.get('failed_paths', [])
+            if failed_paths:
+                count = len(failed_paths)
+                display_count = min(count, max_files_to_show)
+                
+                status_text.append(f"\n处理失败的文件({count}个):")
+                for i, path in enumerate(failed_paths[:display_count]):
+                    status_text.append(f"  ! {os.path.basename(path)}")
+                if count > max_files_to_show:
+                    status_text.append(f"  ... 以及其他 {count - max_files_to_show} 个文件")
+                    
+        except Exception as e:
+            print(f"显示文件变更详情出错: {e}")
+            import traceback
+            traceback.print_exc()
     
     def _scan_pkm_folder(self, db_manager, status_text, progress_bar, scan_button, update_callback=None):
         """扫描PKM文件夹，更新数据库，完成后更新文件统计"""

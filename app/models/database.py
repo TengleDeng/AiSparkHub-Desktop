@@ -19,6 +19,7 @@ from watchdog.observers import Observer
 import jieba  # 添加jieba分词库
 import re
 import uuid
+from typing import Union
 
 class PKMFileWatcher(QObject):
     """PKM文件监控类，监控所有支持的文件格式变化"""
@@ -1163,15 +1164,15 @@ class DatabaseManager:
             file_path (str): 文件路径
             
         Returns:
-            str: 文件ID
+            Union[str, dict, None]: 文件ID (成功), 状态字典 (包含状态信息), 或 None (错误)
         """
         if not self.conn:
             print("数据库未连接")
-            return None
+            return {'status': 'error', 'message': '数据库未连接'}
             
         if not os.path.exists(file_path):
             print(f"文件不存在: {file_path}")
-            return None
+            return {'status': 'error', 'message': '文件不存在'}
         
         # 规范化路径
         file_path = self._normalize_path(file_path)
@@ -1197,49 +1198,34 @@ class DatabaseManager:
             cursor.execute("SELECT id, hash FROM pkm_files WHERE file_path = ?", (file_path,))
             row = cursor.fetchone()
             
-            # 提取文件内容
-            content = ""
-            title = ""
-            tags = ""
-            
-            # 根据文件格式决定如何处理内容
-            if file_format == "markdown":
-                try:
-                    # 读取Markdown文件内容
-                    with open(file_path, 'r', encoding='utf-8') as f:
-                        content = f.read()
-                    
-                    # 提取标题（从文件内容的第一行或文件名）
-                    title = self.extract_title_from_md(content) or file_name
-                    
-                    # 从文件内容中提取标签（可以自定义规则）
+            # 使用转换器读取文件内容
+            try:
+                from app.models.converters import ConverterFactory
+                
+                # 获取对应格式的转换器
+                converter = ConverterFactory.get_converter(file_path)
+                
+                # 使用转换器提取内容和标题
+                extracted_content, extracted_title = converter.extract_content(file_path)
+                
+                # 将内容转换为Markdown格式便于统一存储
+                content = converter.convert_to_markdown(extracted_content)
+                title = extracted_title or file_name
+                
+                # 从Markdown内容中提取标签
+                tags = ""
+                if file_format == "markdown" or content:
                     # 例如 #tag1 #tag2 格式
                     tag_pattern = r'#(\w+)'
                     tags = ' '.join(re.findall(tag_pattern, content))
-                    
-                except Exception as e:
-                    print(f"读取Markdown文件出错: {e}")
-            elif file_format == "text":
-                try:
-                    # 普通文本文件
-                    with open(file_path, 'r', encoding='utf-8') as f:
-                        content = f.read()
-                    
-                    # 使用文件名作为标题
-                    title = file_name
-                    
-                except Exception as e:
-                    print(f"读取文本文件出错: {e}")
-            # 可以添加其他文件格式的处理...
-            else:
-                # 对于未知格式，可以尝试以文本方式读取
-                try:
-                    with open(file_path, 'r', encoding='utf-8') as f:
-                        content = f.read()
-                except:
-                    content = f"无法读取文件内容，格式: {file_format}"
                 
-                title = file_name
+            except Exception as e:
+                # 如果转换器失败，直接返回失败状态，不进行回退处理
+                error_msg = f"使用转换器读取文件出错: {file_path}, {str(e)}"
+                print(error_msg)
+                import traceback
+                traceback.print_exc()
+                return {'status': 'failed', 'message': error_msg, 'file_path': file_path}
             
             # 为FTS预处理分词
             processed_title = self.process_text_for_fts(title)
@@ -1267,6 +1253,8 @@ class DatabaseManager:
                     """, (processed_title, processed_content, processed_tags, processed_file_name, file_id))
                     
                     print(f"已更新文件: {file_path}")
+                    self.conn.commit()
+                    return {'status': 'updated', 'file_id': file_id, 'message': '文件内容已更新'}
                 else:
                     # 文件未变化，仅更新最后修改时间
                     cursor.execute("""
@@ -1274,9 +1262,8 @@ class DatabaseManager:
                     """, (last_modified, now, file_id))
                     
                     print(f"文件未变化: {file_path}")
-                
-                self.conn.commit()
-                return file_id
+                    self.conn.commit()
+                    return {'status': 'unchanged', 'file_id': file_id, 'message': '文件内容未变化'}
                 
             else:
                 # 新文件，添加到数据库
@@ -1299,13 +1286,14 @@ class DatabaseManager:
                 
                 self.conn.commit()
                 print(f"已添加新文件: {file_path}")
-                return file_id
+                return {'status': 'added', 'file_id': file_id, 'message': '新文件已添加'}
                 
         except Exception as e:
-            print(f"添加或更新PKM文件出错: {file_path}, {str(e)}")
+            error_msg = f"添加或更新PKM文件出错: {file_path}, {str(e)}"
+            print(error_msg)
             if self.conn:
                 self.conn.rollback()
-            return None
+            return {'status': 'error', 'message': error_msg, 'file_path': file_path}
     
     def _normalize_path(self, path):
         """标准化文件路径，确保路径格式一致
@@ -1499,9 +1487,13 @@ class DatabaseManager:
             'unchanged_files': 0,        # 未变更的文件数
             'skipped_files': 0,          # 跳过的文件数（不支持的格式）
             'failed_files': 0,           # 处理失败的文件数
-            'deleted_files': 0,        # 从数据库中删除的文件数
+            'deleted_files': 0,          # 从数据库中删除的文件数
             'format_stats': {},          # 每种文件格式的数量统计
-            'progress': 0                # 当前进度（0-100）
+            'progress': 0,               # 当前进度（0-100）
+            'failed_paths': [],          # 处理失败的文件路径列表
+            'added_paths': [],           # 新增的文件路径列表
+            'updated_paths': [],         # 更新的文件路径列表
+            'deleted_paths': []          # 删除的文件路径列表
         }
         
         # 如果没有指定文件夹，使用配置的文件夹
@@ -1580,6 +1572,7 @@ class DatabaseManager:
                     
                     if status == 'added':
                         total_stats['added_files'] += 1
+                        total_stats['added_paths'].append(file_path)
                         print(f"文件添加成功: {file_path} - {message}")
                         # 更新格式统计
                         if format_name not in total_stats['format_stats']:
@@ -1587,6 +1580,7 @@ class DatabaseManager:
                         total_stats['format_stats'][format_name] += 1
                     elif status == 'updated':
                         total_stats['updated_files'] += 1
+                        total_stats['updated_paths'].append(file_path)
                         print(f"文件更新成功: {file_path} - {message}")
                         # 更新格式统计
                         if format_name not in total_stats['format_stats']:
@@ -1602,20 +1596,33 @@ class DatabaseManager:
                     elif status == 'skipped':
                         total_stats['skipped_files'] += 1
                         print(f"文件已跳过: {file_path} - {message}")
-                    else:
-                        # 处理其他状态（如error）
+                    elif status == 'failed' or status == 'error':
+                        # 处理失败情况
                         total_stats['failed_files'] += 1
+                        # 记录失败的文件路径
+                        if 'file_path' in result:
+                            failed_path = result['file_path']
+                        else:
+                            failed_path = file_path
+                        total_stats['failed_paths'].append(failed_path)
                         print(f"文件处理失败: {file_path} - {status}: {message}")
+                    else:
+                        # 处理其他状态（未知状态当作失败处理）
+                        total_stats['failed_files'] += 1
+                        total_stats['failed_paths'].append(file_path)
+                        print(f"文件处理出现未知状态: {file_path} - {status}: {message}")
                 else:
                     # 兼容旧版逻辑，处理字符串返回值
                     if result == "added":
                         total_stats['added_files'] += 1
+                        total_stats['added_paths'].append(file_path)
                         # 更新格式统计
                         if format_name not in total_stats['format_stats']:
                             total_stats['format_stats'][format_name] = 0
                         total_stats['format_stats'][format_name] += 1
                     elif result == "updated":
                         total_stats['updated_files'] += 1
+                        total_stats['updated_paths'].append(file_path)
                         # 更新格式统计
                         if format_name not in total_stats['format_stats']:
                             total_stats['format_stats'][format_name] = 0
@@ -1627,11 +1634,15 @@ class DatabaseManager:
                             total_stats['format_stats'][format_name] = 0
                         total_stats['format_stats'][format_name] += 1
                     else:
+                        # 处理失败或结果为None
                         total_stats['failed_files'] += 1
+                        total_stats['failed_paths'].append(file_path)
+                        print(f"文件处理失败(旧版返回值): {file_path}")
                     
             except Exception as e:
                 print(f"处理文件出错 {file_path}: {str(e)}")
                 total_stats['failed_files'] += 1
+                total_stats['failed_paths'].append(file_path)
                 
             # 更新进度
             processed_count += 1
@@ -1648,6 +1659,7 @@ class DatabaseManager:
                 # 从数据库中删除文件
                 if self.delete_pkm_file(file_path):
                     total_stats['deleted_files'] += 1
+                    total_stats['deleted_paths'].append(file_path)
                     print(f"已从数据库删除不存在的文件: {file_path}")
                     
                     # 文件格式统计调整
@@ -1672,6 +1684,30 @@ class DatabaseManager:
             f"删除: {total_stats['deleted_files']}"
         )
         print(summary)
+        
+        # 输出详细信息：新增的文件
+        if total_stats['added_paths']:
+            print(f"\n新增的文件({total_stats['added_files']}个):")
+            for path in total_stats['added_paths']:
+                print(f"  + {os.path.basename(path)}")
+        
+        # 输出详细信息：更新的文件
+        if total_stats['updated_paths']:
+            print(f"\n更新的文件({total_stats['updated_files']}个):")
+            for path in total_stats['updated_paths']:
+                print(f"  ~ {os.path.basename(path)}")
+        
+        # 输出详细信息：删除的文件
+        if total_stats['deleted_paths']:
+            print(f"\n删除的文件({total_stats['deleted_files']}个):")
+            for path in total_stats['deleted_paths']:
+                print(f"  - {os.path.basename(path)}")
+        
+        # 输出失败的文件路径列表
+        if total_stats['failed_paths']:
+            print(f"\n处理失败的文件({total_stats['failed_files']}个):")
+            for path in total_stats['failed_paths']:
+                print(f"  ! {os.path.basename(path)}")
         
         # 最终结果回调
         if callback:
