@@ -585,31 +585,32 @@ class PromptInput(MarkdownEditor):
             # 查询数据库获取该日期范围内的文章
             cursor = self.db_manager.conn.cursor()
             
-            # 查询当天更新或创建的PKM文件
+            # 查询当天创建或修改的PKM文件
+            # 优先使用原始文件的创建时间(created_at)和修改时间(last_modified)，不使用数据库更新时间(updated_at)
             cursor.execute("""
-                SELECT id, file_path, file_name, title, content, updated_at, created_at
+                SELECT id, file_path, file_name, title, content, last_modified, created_at
                 FROM pkm_files
-                WHERE (updated_at BETWEEN ? AND ?) OR (created_at BETWEEN ? AND ?)
+                WHERE (created_at BETWEEN ? AND ?) OR (last_modified BETWEEN ? AND ?)
                 ORDER BY 
                     CASE WHEN created_at BETWEEN ? AND ? THEN 0 ELSE 1 END,  -- 优先显示新创建的文章
-                    updated_at DESC  -- 其次按更新时间降序
+                    last_modified DESC  -- 其次按文件修改时间降序
             """, (
-                start_timestamp, end_timestamp,  # updated_at范围
                 start_timestamp, end_timestamp,  # created_at范围
+                start_timestamp, end_timestamp,  # last_modified范围
                 start_timestamp, end_timestamp   # 用于CASE判断的范围
             ))
             
             articles = cursor.fetchall()
             
             if not articles:
-                print(f"未找到{date_str}更新或创建的文章")
+                print(f"未找到{date_str}创建或修改的文章")
                 # 在输入框中提示用户
-                self.set_text(f"未找到{date_str}更新或创建的文章，请尝试查询其他日期。")
+                self.set_text(f"未找到{date_str}创建或修改的文章，请尝试查询其他日期。")
                 return
                 
             # 构建提示词
             prompt = f"# {date_str}内参日报\n\n"
-            prompt += "请对以下今日更新和创建的文章内容进行综合分析和总结，生成一份内参日报。内参日报应包含：\n"
+            prompt += "请对以下今日创建和修改的文章内容进行综合分析和总结，生成一份内参日报。内参日报应包含：\n"
             prompt += "1. 今日重要内容概述\n"
             prompt += "2. 各文章的核心观点和主要信息\n"
             prompt += "3. 对这些信息的见解和分析\n"
@@ -619,16 +620,16 @@ class PromptInput(MarkdownEditor):
             # 添加文章内容
             article_count = 0
             for i, article in enumerate(articles):
-                article_id, file_path, file_name, title, content, updated_at, created_at = article
+                article_id, file_path, file_name, title, content, last_modified, created_at = article
                 
                 # 使用文件名作为标题（如果title为空）
                 article_title = title or file_name
                 
-                # 文章是新创建的还是更新的
-                status = "新创建" if created_at >= start_timestamp and created_at <= end_timestamp else "更新"
+                # 文章是新创建的还是修改的
+                status = "新创建" if created_at >= start_timestamp and created_at <= end_timestamp else "修改"
                 
-                # 格式化时间戳
-                update_time = datetime.fromtimestamp(updated_at).strftime('%H:%M:%S')
+                # 格式化时间戳 - 使用last_modified而不是updated_at
+                modify_time = datetime.fromtimestamp(last_modified).strftime('%H:%M:%S')
                 
                 # 截取内容（限制每篇文章的长度，避免整体提示词过长）
                 max_content_length = 5000  # 每篇文章最多5000字符
@@ -637,7 +638,7 @@ class PromptInput(MarkdownEditor):
                 
                 # 只有当内容不为空时才添加文章
                 if content:
-                    prompt += f"## 文章{i+1}: {article_title} ({status}于{update_time})\n\n"
+                    prompt += f"## 文章{i+1}: {article_title} ({status}于{modify_time})\n\n"
                     prompt += f"{content}\n\n"
                     prompt += "---\n\n"
                     article_count += 1
