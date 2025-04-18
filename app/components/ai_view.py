@@ -1048,3 +1048,27 @@ class AIView(QWidget):
             if hasattr(container, 'close_btn'):
                 container.close_btn.setIcon(qta.icon("fa5s.times", color=icon_color))
             self.logger.debug(f"AIView: 容器 {i} 图标更新完成。") 
+            
+    def get_visual_order_of_views(self):
+        """
+        获取视觉上从左到右的视图顺序，返回按视觉顺序排列的ai_key列表
+        """
+        visual_order = []
+        
+        # 确保有分割器且包含视图
+        if not hasattr(self, 'splitter') or self.splitter is None:
+            self.logger.warning("无法获取视觉顺序：splitter不存在")
+            return list(self.ai_web_views.keys())  # 回退到字典顺序
+            
+        # 遍历分割器中的所有小部件（从左到右的顺序）
+        for i in range(self.splitter.count()):
+            container = self.splitter.widget(i)
+            # 检查容器是否有ai_key属性
+            if hasattr(container, 'ai_key'):
+                visual_order.append(container.ai_key)
+                self.logger.debug(f"找到视图 {container.ai_key} 位于位置 {i}")
+            else:
+                self.logger.debug(f"在位置 {i} 的容器没有ai_key属性")
+                
+        self.logger.info(f"视觉顺序：{visual_order}")
+        return visual_order 
