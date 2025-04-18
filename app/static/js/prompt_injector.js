@@ -34,7 +34,7 @@ const PLATFORM_SELECTORS = {
     perplexity: {
         input: 'textarea.overflow-auto',
         button: 'button[aria-label="Submit"]',
-        responseSelector: "#response-textarea"
+        responseSelector: '[id^="markdown-content-"]'
     },
     // N
     n: {
@@ -88,7 +88,7 @@ const PLATFORM_SELECTORS = {
     deepseek: {
         input: '#chat-input',
         button: '[role="button"][aria-disabled="false"]',
-        responseSelector: '.conversation-content'
+        responseSelector: '.ds-markdown'
     }
 };
 
