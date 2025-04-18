@@ -1,8 +1,23 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
+"""
+AiSparkHub 桌面应用主入口模块
+
+功能:
+1. 初始化应用目录结构和日志系统
+2. 设置系统托盘图标和全局快捷键
+3. 管理主窗口(AI窗口)和辅助窗口(提示词窗口)
+4. 处理多屏幕环境下的窗口布局
+5. 应用主题和用户设置管理
+
+作者: Tengle
+日期: 2025-04-18
+"""
 
 import sys
 import os
+import logging
+from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from PyQt6.QtWidgets import QApplication, QSystemTrayIcon, QMenu, QSplashScreen, QMessageBox, QStyleFactory
 from PyQt6.QtCore import Qt, QTimer, QDir, QCoreApplication, QThread, QTranslator, QSettings
@@ -19,12 +34,54 @@ from app.controllers.settings_manager import SettingsManager
 from app.models.database import DatabaseManager
 from app.utils.logger import setup_logger
 
+# 全局logger对象
+logger = None
+
 # pynput 用于全局快捷键
 try:
     from pynput import keyboard
 except ImportError:
     keyboard = None
     print("无法导入pynput库，全局快捷键功能将不可用")
+
+def configure_logging(data_dir):
+    """配置应用程序日志系统"""
+    global logger
+    
+    # 创建logger
+    logger = logging.getLogger("AiSparkHub")
+    logger.setLevel(logging.DEBUG)
+    
+    # 防止重复配置
+    if logger.handlers:
+        return logger
+        
+    # 设置日志格式
+    formatter = logging.Formatter(
+        '%(asctime)s - %(levelname)s - %(name)s - %(filename)s:%(lineno)d - %(message)s'
+    )
+    
+    # 控制台处理器
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(logging.INFO)  # 控制台只显示INFO及以上
+    console_formatter = logging.Formatter('%(message)s')  # 简化控制台输出格式
+    console_handler.setFormatter(console_formatter)
+    
+    # 文件处理器
+    log_file = os.path.join(data_dir, "logs", "app.log")
+    file_handler = RotatingFileHandler(
+        log_file, maxBytes=5*1024*1024, backupCount=3, encoding='utf-8'
+    )
+    file_handler.setLevel(logging.DEBUG)
+    file_handler.setFormatter(formatter)
+    
+    # 添加处理器
+    logger.addHandler(console_handler)
+    logger.addHandler(file_handler)
+    
+    logger.info("日志系统初始化完成")
+    logger.info(f"日志文件保存在: {log_file}")
+    return logger
 
 def ensure_app_directories():
     """确保应用所需的所有目录都已创建"""
@@ -50,14 +107,14 @@ def ensure_app_directories():
     
     # 创建主数据目录
     os.makedirs(data_dir, exist_ok=True)
-    print(f"确保主数据目录存在: {data_dir}")
+    print(f"确保主数据目录存在: {data_dir}")  # 保留这个print，因为logger尚未初始化
     
     # 创建各种子目录
     subdirs = ["database", "cache", "webdata", "temp", "logs"]
     for subdir in subdirs:
         subdir_path = os.path.join(data_dir, subdir)
         os.makedirs(subdir_path, exist_ok=True)
-        print(f"确保子目录存在: {subdir_path}")
+        print(f"确保子目录存在: {subdir_path}")  # 保留这个print，因为logger尚未初始化
     
     return data_dir
 
@@ -96,6 +153,7 @@ def setup_tray_icon(app, main_window, auxiliary_window):
     # 显示托盘图标
     tray_icon.show()
     
+    logger.info("系统托盘图标已设置")
     return tray_icon
 
 def toggle_window_visibility(window):
@@ -107,15 +165,15 @@ def toggle_window_visibility(window):
         is_active = window.isActiveWindow()
         is_minimized = bool(window_state & Qt.WindowState.WindowMinimized)
         
-        print(f"窗口详细状态: 可见={is_visible}, 激活={is_active}, 最小化={is_minimized}, 标题={window.windowTitle()}")
+        logger.debug(f"窗口详细状态: 可见={is_visible}, 激活={is_active}, 最小化={is_minimized}, 标题={window.windowTitle()}")
         
         if is_visible and not is_minimized:
             # 如果窗口可见且未最小化,则隐藏
-            print(f"执行隐藏窗口: {window.windowTitle()}")
+            logger.info(f"执行隐藏窗口: {window.windowTitle()}")
             window.hide()
         else:
             # 否则显示并激活窗口
-            print(f"执行显示窗口: {window.windowTitle()}")
+            logger.info(f"执行显示窗口: {window.windowTitle()}")
             # 先恢复窗口状态(如果最小化)
             if is_minimized:
                 window.setWindowState(window_state & ~Qt.WindowState.WindowMinimized)
@@ -127,11 +185,9 @@ def toggle_window_visibility(window):
             window.setFocus(Qt.FocusReason.OtherFocusReason)
         
         # 验证操作结果
-        print(f"操作后窗口状态 - 可见: {window.isVisible()}, 激活: {window.isActiveWindow()}, 标题: {window.windowTitle()}")
+        logger.debug(f"操作后窗口状态 - 可见: {window.isVisible()}, 激活: {window.isActiveWindow()}, 标题: {window.windowTitle()}")
     except Exception as e:
-        print(f"切换窗口可见性时出错: {e}")
-        import traceback
-        traceback.print_exc()
+        logger.error(f"切换窗口可见性时出错: {e}", exc_info=True)
 
 def tray_icon_activated(reason, window, tray_icon):
     """处理托盘图标点击事件"""
@@ -160,7 +216,7 @@ def setup_global_shortcuts(app, main_window, auxiliary_window):
     for name, default_value in default_shortcuts.items():
         shortcuts[name] = settings.value(name, default_value)
     
-    print(f"已加载全局快捷键配置: {shortcuts}")
+    logger.info(f"已加载全局快捷键配置: {shortcuts}")
     
     # 解析快捷键配置
     parsed_shortcuts = {}
@@ -182,18 +238,18 @@ def setup_global_shortcuts(app, main_window, auxiliary_window):
             is_visible = window.isVisible()
             is_minimized = bool(window_state & Qt.WindowState.WindowMinimized)
             
-            print(f"窗口当前状态: 可见={is_visible}, 最小化={is_minimized}, 标题={window.windowTitle()}")
+            logger.debug(f"窗口当前状态: 可见={is_visible}, 最小化={is_minimized}, 标题={window.windowTitle()}")
             
             # 如果窗口可见，则强制隐藏
             if is_visible:
-                print(f"强制隐藏窗口: {window.windowTitle()}")
+                logger.info(f"强制隐藏窗口: {window.windowTitle()}")
                 # 直接写入应用状态变量，确保正确记录
                 window.setProperty("_visible_before_hide", True)
                 window.hide()
-                print(f"窗口隐藏后状态: 可见={window.isVisible()}")
+                logger.debug(f"窗口隐藏后状态: 可见={window.isVisible()}")
             else:
                 # 窗口不可见，则强制显示
-                print(f"强制显示窗口: {window.windowTitle()}")
+                logger.info(f"强制显示窗口: {window.windowTitle()}")
                 # 如果窗口最小化，先还原
                 if is_minimized:
                     window.setWindowState(window_state & ~Qt.WindowState.WindowMinimized)
@@ -204,11 +260,9 @@ def setup_global_shortcuts(app, main_window, auxiliary_window):
                 window.setFocus(Qt.FocusReason.OtherFocusReason)
                 # 设置窗口为激活状态
                 window.setAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating, False)
-                print(f"窗口显示后状态: 可见={window.isVisible()}, 激活={window.isActiveWindow()}")
+                logger.debug(f"窗口显示后状态: 可见={window.isVisible()}, 激活={window.isActiveWindow()}")
         except Exception as e:
-            print(f"切换窗口状态出错: {e}")
-            import traceback
-            traceback.print_exc()
+            logger.error(f"切换窗口状态出错: {e}", exc_info=True)
     
     # 保持一个对窗口的强引用和处理函数的引用
     window_actions = {
@@ -226,12 +280,12 @@ def setup_global_shortcuts(app, main_window, auxiliary_window):
         
         @pyqtSlot()
         def _toggle_main(self):
-            print("执行主窗口切换")
+            logger.info("执行主窗口切换")
             force_toggle_window(main_window)
         
         @pyqtSlot()
         def _toggle_aux(self):
-            print("执行辅助窗口切换")
+            logger.info("执行辅助窗口切换")
             force_toggle_window(auxiliary_window)
     
     # 创建事件处理器实例并连接信号
@@ -288,7 +342,7 @@ def setup_global_shortcuts(app, main_window, auxiliary_window):
                         if (key_char == shortcut_key.lower() and 
                             set(current_modifiers) == shortcut_modifiers):
                             
-                            print(f"触发自定义快捷键: {'+'.join(current_modifiers)}+{key_char} ({name})")
+                            logger.info(f"触发自定义快捷键: {'+'.join(current_modifiers)}+{key_char} ({name})")
                             
                             # 触发相应的动作
                             if name == "main_window":
@@ -296,9 +350,7 @@ def setup_global_shortcuts(app, main_window, auxiliary_window):
                             elif name == "auxiliary_window":
                                 handler.toggle_aux_window.emit()
         except Exception as e:
-            print(f"快捷键处理出错: {e}")
-            import traceback
-            traceback.print_exc()
+            logger.error(f"快捷键处理出错: {e}", exc_info=True)
     
     def on_release(key):
         """按键释放事件处理"""
@@ -315,7 +367,7 @@ def setup_global_shortcuts(app, main_window, auxiliary_window):
             elif key == keyboard.Key.cmd:
                 meta_pressed = False
         except Exception as e:
-            print(f"按键释放处理出错: {e}")
+            logger.error(f"按键释放处理出错: {e}")
     
     # 创建键盘监听器
     def start_listener():
@@ -323,10 +375,10 @@ def setup_global_shortcuts(app, main_window, auxiliary_window):
             # 启动监听器，设置为守护线程
             listener = keyboard.Listener(on_press=on_press, on_release=on_release, daemon=True)
             listener.start()
-            print("全局快捷键监听器已启动")
+            logger.info("全局快捷键监听器已启动")
             return listener
         except Exception as e:
-            print(f"启动键盘监听器出错: {e}")
+            logger.error(f"启动键盘监听器出错: {e}", exc_info=True)
             return None
     
     # 立即启动监听器
@@ -339,9 +391,9 @@ def setup_global_shortcuts(app, main_window, auxiliary_window):
         if hasattr(app, '_keyboard_listener'):
             try:
                 app._keyboard_listener.stop()
-                print("键盘监听器已停止")
-            except:
-                pass
+                logger.info("键盘监听器已停止")
+            except Exception as e:
+                logger.error(f"停止键盘监听器时出错: {e}")
     
     # 返回清理函数
     return cleanup_listener
@@ -350,7 +402,11 @@ def main():
     """应用主入口函数"""
     # 首先确保所有必要的目录都已创建
     data_dir = ensure_app_directories()
-    print(f"应用数据目录: {data_dir}")
+    
+    # 配置日志系统
+    global logger
+    logger = configure_logging(data_dir)
+    logger.info(f"应用数据目录: {data_dir}")
     
     # 创建应用实例
     app = QApplication(sys.argv)
@@ -360,19 +416,24 @@ def main():
     theme_manager = ThemeManager()
     app.theme_manager = theme_manager
     theme_manager.apply_theme(app)
+    logger.info("应用主题已应用")
     
     # 初始化数据库
     db_manager = DatabaseManager()
+    logger.info("数据库管理器已初始化")
     
     # 初始化Web配置管理器
     web_profile_manager = WebProfileManager()
+    logger.info("Web配置管理器已初始化")
     
     # 初始化用户设置管理器
     settings_manager = SettingsManager()
+    logger.info("用户设置管理器已初始化")
     
     # 创建主窗口和辅助窗口
     main_window = MainWindow()
     auxiliary_window = AuxiliaryWindow(db_manager)
+    logger.info("应用窗口已创建")
     
     # 初始化窗口管理器
     window_manager = WindowManager(main_window, auxiliary_window)
@@ -383,12 +444,12 @@ def main():
     
     # 检测屏幕数量，根据情况选择显示模式
     screens = app.screens()
-    print(f"检测到 {len(screens)} 个屏幕")
+    logger.info(f"检测到 {len(screens)} 个屏幕")
     if len(screens) > 1:
-        print("检测到多个屏幕，启用双屏幕模式")
+        logger.info("启用双屏幕模式")
         window_manager.set_dual_screen_mode()
     else:
-        print("检测到单个屏幕，使用初始显示模式")
+        logger.info("使用初始显示模式")
         window_manager.set_initial_display_mode()
     
     # 设置系统托盘图标
@@ -404,6 +465,8 @@ def main():
     # 显示窗口
     main_window.show()
     auxiliary_window.show()
+    
+    logger.info("应用程序启动完成")
     
     # 运行应用
     sys.exit(app.exec())
