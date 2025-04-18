@@ -22,7 +22,7 @@ const PLATFORM_SELECTORS = {
     doubao: {
         input: 'textarea.semi-input-textarea',
         button: '#flow-end-msg-send',
-        responseSelector: '[data-testid="receive_message"]'
+        responseSelector: '[data-testid="message_text_content"]'
     },
     // 元宝
     yuanbao: {
