@@ -40,6 +40,9 @@ import os
 import qtawesome as qta
 import sys
 import logging
+import json
+from PyQt6.QtWebChannel import QWebChannel
+from PyQt6.QtCore import pyqtSlot, QObject
 
 from app.config import SUPPORTED_AI_PLATFORMS
 from app.controllers.web_profile_manager import WebProfileManager
@@ -65,15 +68,24 @@ class WebEnginePage(QWebEnginePage):
         self.view_name = parent.ai_name if hasattr(parent, 'ai_name') else "未知视图"
         
     def javaScriptConsoleMessage(self, level, message, line, source):
-        """捕获网页控制台日志"""
-        source_name = os.path.basename(source) if source else "unknown"
-        level_map = {
-            0: self.logger.info,    # QtInfoMsg
-            1: self.logger.warning,  # QtWarningMsg
-            2: self.logger.error     # QtErrorMessage
+        """接收JavaScript控制台消息"""
+        # 使用数字枚举值替代不存在的常量名称
+        log_level_map = {
+            0: "INFO",      # 对应 InfoMessageLevel
+            1: "WARNING",   # 对应 WarningMessageLevel 
+            2: "ERROR"      # 对应 ErrorMessageLevel
         }
-        log_func = level_map.get(level, self.logger.debug)
-        log_func(f"[{self.view_name}][JS] {source_name}:{line} - {message}")
+        log_level = log_level_map.get(level, "INFO")
+        source_name = os.path.basename(source) if source else "unknown"
+        log_msg = f"[{self.view_name}][JS-{log_level}] {source_name}:{line} - {message}"
+        
+        # 根据级别记录到不同的日志级别
+        if log_level == "ERROR":
+            self.logger.error(log_msg)
+        elif log_level == "WARNING":
+            self.logger.warning(log_msg)
+        else:
+            self.logger.info(log_msg)
         
     def certificateError(self, error):
         """捕获证书错误"""
@@ -153,6 +165,12 @@ class AIWebView(QWebEngineView):
         
         # 设置加载状态监听
         self.loadFinished.connect(self.on_load_finished)
+        
+        # 设置JavaScript日志处理器
+        self.page().settings().setAttribute(QWebEngineSettings.WebAttribute.JavascriptEnabled, True)
+        
+        # 监听JavaScript日志事件
+        self._install_js_log_handler()
     
     def on_load_finished(self, success):
         """网页加载完成后的处理"""
@@ -240,6 +258,74 @@ class AIWebView(QWebEngineView):
             callback: 回调函数，接收包含url和reply的对象
         """
         self.page().runJavaScript("window.AiSparkHub.getPromptResponse()", callback)
+
+    def _install_js_log_handler(self):
+        """安装JavaScript日志处理器，接收前端发送的日志"""
+        js_code = """
+        document.addEventListener('aiSendLogToPython', function(event) {
+            try {
+                const logData = JSON.parse(event.detail);
+                // 直接调用QtWebEngine桥接的函数，而不是pywebview
+                new QWebChannel(qt.webChannelTransport, function(channel) {
+                    channel.objects.bridge.receiveJsLog(JSON.stringify(logData));
+                });
+            } catch(e) {
+                console.error('发送日志到Python时出错:', e);
+            }
+        });
+        """
+        
+        # 创建并设置桥接对象
+        class Bridge(QObject):
+            @pyqtSlot(str)
+            def receiveJsLog(self, log_json):
+                self.parent().receive_js_log(log_json)
+        
+        # 创建桥接对象并设置父对象
+        self.bridge = Bridge(self)
+        
+        # 创建Web通道并注册桥接对象
+        channel = QWebChannel(self.page())
+        channel.registerObject("bridge", self.bridge)
+        self.page().setWebChannel(channel)
+        
+        # 运行JavaScript代码
+        self.page().runJavaScript(js_code)
+        
+    def receive_js_log(self, log_data):
+        """接收并处理来自JavaScript的日志"""
+        try:
+            # 如果是字符串，尝试解析JSON
+            if isinstance(log_data, str):
+                log_data = json.loads(log_data)
+            
+            # 提取日志信息
+            level = log_data.get('level', 'info').lower()
+            message = log_data.get('message', '')
+            timestamp = log_data.get('timestamp', '')
+            data = log_data.get('data')
+            
+            # 格式化日志消息
+            full_message = f"[JS-{timestamp}] {message}"
+            if data:
+                if isinstance(data, dict):
+                    data_str = json.dumps(data, ensure_ascii=False)
+                else:
+                    data_str = str(data)
+                full_message += f" - {data_str}"
+            
+            # 根据级别选择合适的日志方法
+            if level == 'error':
+                self.logger.error(full_message)
+            elif level == 'warning':
+                self.logger.warning(full_message)
+            elif level == 'debug':
+                self.logger.debug(full_message)
+            else:
+                self.logger.info(full_message)
+                
+        except Exception as e:
+            self.logger.error(f"处理JS日志时出错: {e}")
 
 class AIView(QWidget):
     """AI对话页面，管理多个AI网页视图"""

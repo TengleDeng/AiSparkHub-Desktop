@@ -265,13 +265,467 @@ window.AiSparkHub.getCurrentPageUrl = getCurrentPageUrl;
 window.AiSparkHub.getLatestAIResponse = getLatestAIResponse;
 window.AiSparkHub.getPromptResponse = getPromptResponse;
 
+// 显示toast提示 - 将此函数移到前面，确保在其他代码引用它之前已定义
+function showToast(message) {
+    // 创建提示元素
+    const toast = document.createElement('div');
+    toast.textContent = message;
+    toast.style.cssText = `
+        position: fixed;
+        bottom: 20px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: rgba(0, 0, 0, 0.7);
+        color: white;
+        padding: 8px 16px;
+        border-radius: 4px;
+        font-size: 14px;
+        z-index: 10001;
+        animation: fadeInOut 2s forwards;
+    `;
+    
+    // 添加动画
+    const toastStyle = document.createElement('style');
+    toastStyle.textContent = `
+        @keyframes fadeInOut {
+            0% { opacity: 0; transform: translate(-50%, 20px); }
+            15% { opacity: 1; transform: translate(-50%, 0); }
+            85% { opacity: 1; transform: translate(-50%, 0); }
+            100% { opacity: 0; transform: translate(-50%, -20px); }
+        }
+    `;
+    document.head.appendChild(toastStyle);
+    
+    // 添加到文档
+    document.body.appendChild(toast);
+    
+    // 2秒后移除
+    setTimeout(() => {
+        if (document.body.contains(toast)) {
+            document.body.removeChild(toast);
+        }
+        if (document.head.contains(toastStyle)) {
+            document.head.removeChild(toastStyle);
+        }
+    }, 2000);
+}
+
+// 将showToast函数暴露给全局作用域
+window.AiSparkHub.showToast = showToast;
+
+// 添加日志工具，将日志发送回Python
+window.AiSparkHub.logToPython = function(level, message, data) {
+    try {
+        // 准备日志数据 - 处理循环引用问题
+        const safeData = data ? safeJsonData(data) : null;
+        
+        const logData = {
+            level: level,
+            message: message,
+            timestamp: new Date().toISOString(),
+            data: safeData
+        };
+        
+        // 将对象转为JSON字符串
+        const logJson = JSON.stringify(logData);
+        
+        // 创建一个特殊的事件，Python端可以捕获
+        const logEvent = new CustomEvent('aiSendLogToPython', { 
+            detail: logJson 
+        });
+        
+        // 触发事件
+        document.dispatchEvent(logEvent);
+        
+        // 仍然保留控制台输出
+        if (level === 'error') {
+            console.error(message, data || '');
+        } else {
+            console.log(message, data || '');
+        }
+        
+        return true;
+    } catch (e) {
+        console.error('发送日志到Python失败:', e);
+        return false;
+    }
+};
+
+// 处理循环引用和DOM对象问题的安全序列化函数
+function safeJsonData(data) {
+    if (!data) return null;
+    
+    // 如果是基本类型，直接返回
+    if (typeof data !== 'object' || data === null) return data;
+    
+    // 如果是DOM节点，返回简化信息
+    if (data.nodeType) {
+        return {
+            type: 'DOMNode',
+            tagName: data.tagName || '未知节点',
+            className: data.className || '',
+            id: data.id || ''
+        };
+    }
+    
+    // 如果是错误对象
+    if (data instanceof Error) {
+        return {
+            type: 'Error',
+            name: data.name,
+            message: data.message,
+            stack: data.stack
+        };
+    }
+    
+    // 如果是数组，处理每个元素
+    if (Array.isArray(data)) {
+        return data.map(item => safeJsonData(item));
+    }
+    
+    // 处理普通对象，过滤不安全属性
+    try {
+        const safeObj = {};
+        const seen = new WeakSet(); // 用于检测循环引用
+        
+        Object.keys(data).forEach(key => {
+            // 跳过函数和私有属性
+            if (typeof data[key] === 'function' || key.startsWith('_')) return;
+            
+            const value = data[key];
+            
+            // 检测循环引用
+            if (typeof value === 'object' && value !== null) {
+                if (seen.has(value)) {
+                    safeObj[key] = '[循环引用]';
+                    return;
+                }
+                seen.add(value);
+            }
+            
+            // 递归处理属性值
+            safeObj[key] = safeJsonData(value);
+        });
+        
+        return safeObj;
+    } catch (e) {
+        return {
+            type: 'Object',
+            note: '无法安全序列化',
+            error: e.message
+        };
+    }
+}
+
+// 简化的日志方法
+const logInfo = (msg, data) => window.AiSparkHub.logToPython('info', msg, data);
+const logError = (msg, data) => window.AiSparkHub.logToPython('error', msg, data);
+const logWarning = (msg, data) => window.AiSparkHub.logToPython('warning', msg, data);
+const logDebug = (msg, data) => window.AiSparkHub.logToPython('debug', msg, data);
+
+// 添加Rangy库支持 - 处理CSP限制问题
+(function() {
+    logInfo("===== Rangy库加载诊断 =====");
+    logInfo("开始加载Rangy库...");
+    
+    // 检查是否已经加载过
+    if (typeof window.rangyLoaded !== 'undefined') {
+        logInfo("Rangy库已经开始加载，避免重复");
+        return;
+    }
+    
+    // 标记已经开始加载
+    window.rangyLoaded = false;
+    
+    // 检测是否可能有CSP限制
+    function detectCSP() {
+        // 检查当前域名是否为已知的严格CSP站点
+        const strictCSPSites = ['chat.openai.com', 'chatgpt.com', 'claude.ai', 'bard.google.com'];
+        const currentHost = window.location.hostname;
+        
+        for (const site of strictCSPSites) {
+            if (currentHost.includes(site)) {
+                logWarning(`检测到可能的CSP限制站点: ${currentHost}`);
+                return true;
+            }
+        }
+        
+        return false;
+    }
+    
+    const hasCSPRestriction = detectCSP();
+    
+    // 尝试加载Rangy
+    function loadRangy() {
+        // 如果检测到CSP限制，显示警告并跳过加载
+        if (hasCSPRestriction) {
+            logWarning("当前网站存在CSP限制，无法加载外部Rangy库。将使用传统高亮方法。");
+            showToast("此网站限制了外部脚本，将使用基本高亮功能");
+            return;
+        }
+        
+        // 动态加载Rangy核心
+        const rangyScript = document.createElement('script');
+        rangyScript.src = 'https://cdn.jsdelivr.net/npm/rangy@1.3.0/lib/rangy-core.min.js';
+        rangyScript.async = false; // 改为同步加载，确保顺序
+        
+        // 加载完核心后加载highlighter模块
+        rangyScript.onload = function() {
+            logInfo("Rangy核心库加载成功!");
+            
+            // 先加载classapplier模块 (highlighter需要此模块)
+            const classapplierScript = document.createElement('script');
+            classapplierScript.src = 'https://cdn.jsdelivr.net/npm/rangy@1.3.0/lib/rangy-classapplier.min.js';
+            classapplierScript.async = false;
+            
+            // 加载highlighter模块
+            classapplierScript.onload = function() {
+                logInfo("Rangy类应用模块加载成功!");
+                
+                const highlighterScript = document.createElement('script');
+                highlighterScript.src = 'https://cdn.jsdelivr.net/npm/rangy@1.3.0/lib/rangy-highlighter.min.js';
+                highlighterScript.async = false;
+                
+                highlighterScript.onload = function() {
+                    logInfo("Rangy高亮模块加载成功!");
+                    
+                    // 初始化Rangy
+                    if (typeof rangy !== 'undefined') {
+                        try {
+                            logInfo("准备初始化Rangy...");
+                            rangy.init();
+                            logInfo("Rangy初始化成功! 版本:", rangy.version);
+                            
+                            // 创建一个highlighter
+                            const highlighter = rangy.createHighlighter();
+                            
+                            // 定义全局样式变量，以便所有高亮方法可以共享
+                            window.AiSparkHub = window.AiSparkHub || {};
+                            window.AiSparkHub.highlightStyles = {
+                                yellow: {
+                                    backgroundColor: "rgba(255,255,0,0.3)",
+                                    borderBottom: "2px solid gold",
+                                    transition: "background-color 0.3s"
+                                },
+                                red: {
+                                    backgroundColor: "rgba(255,0,0,0.3)",
+                                    borderBottom: "2px solid red",
+                                    transition: "background-color 0.3s"
+                                },
+                                green: {
+                                    backgroundColor: "rgba(0,255,0,0.3)",
+                                    borderBottom: "2px solid green",
+                                    transition: "background-color 0.3s"
+                                }
+                            };
+                            
+                            // 添加不同颜色的应用器
+                            highlighter.addClassApplier(rangy.createClassApplier("ai-highlight-yellow", {
+                                tagNames: ["span"],
+                                elementAttributes: {
+                                    "data-highlight-type": "yellow"
+                                },
+                                elementProperties: {
+                                    style: window.AiSparkHub.highlightStyles.yellow
+                                },
+                                onElementCreate: function(element) {
+                                    // 确保样式直接应用在元素上
+                                    const style = window.AiSparkHub.highlightStyles.yellow;
+                                    element.style.backgroundColor = style.backgroundColor;
+                                    element.style.borderBottom = style.borderBottom; // 改为下划线
+                                    element.style.transition = style.transition;
+                                    element.className = "ai-highlight-yellow"; // 确保类名被应用
+                                }
+                            }));
+                            
+                            highlighter.addClassApplier(rangy.createClassApplier("ai-highlight-red", {
+                                tagNames: ["span"],
+                                elementAttributes: {
+                                    "data-highlight-type": "red"
+                                },
+                                elementProperties: {
+                                    style: window.AiSparkHub.highlightStyles.red
+                                },
+                                onElementCreate: function(element) {
+                                    // 确保样式直接应用在元素上
+                                    const style = window.AiSparkHub.highlightStyles.red;
+                                    element.style.backgroundColor = style.backgroundColor;
+                                    element.style.borderBottom = style.borderBottom; // 改为下划线
+                                    element.style.transition = style.transition;
+                                    element.className = "ai-highlight-red"; // 确保类名被应用
+                                }
+                            }));
+                            
+                            highlighter.addClassApplier(rangy.createClassApplier("ai-highlight-green", {
+                                tagNames: ["span"],
+                                elementAttributes: {
+                                    "data-highlight-type": "green"
+                                },
+                                elementProperties: {
+                                    style: window.AiSparkHub.highlightStyles.green
+                                },
+                                onElementCreate: function(element) {
+                                    // 确保样式直接应用在元素上
+                                    const style = window.AiSparkHub.highlightStyles.green;
+                                    element.style.backgroundColor = style.backgroundColor;
+                                    element.style.borderBottom = style.borderBottom; // 改为下划线
+                                    element.style.transition = style.transition;
+                                    element.className = "ai-highlight-green"; // 确保类名被应用
+                                }
+                            }));
+                            
+                            // 将highlighter保存到全局对象
+                            window.AiSparkHub.rangyHighlighter = highlighter;
+                            logInfo("Rangy高亮器配置完成", highlighter);
+                            
+                            // 标记加载成功
+                            window.rangyLoaded = true;
+                            
+                            // 显示加载成功提示
+                            showToast("Rangy高亮库加载成功！");
+                        } catch (e) {
+                            logError("Rangy初始化失败:", e);
+                            showToast("Rangy初始化失败: " + e.message);
+                        }
+                    } else {
+                        logError("Rangy对象不存在，加载失败");
+                        showToast("Rangy对象不存在，加载失败");
+                    }
+                };
+                
+                highlighterScript.onerror = function() {
+                    logError("Rangy高亮模块加载失败!");
+                    showToast("Rangy高亮模块加载失败");
+                };
+                
+                document.head.appendChild(highlighterScript);
+            };
+            
+            classapplierScript.onerror = function() {
+                logError("Rangy类应用模块加载失败!");
+                showToast("Rangy类应用模块加载失败");
+            };
+            
+            document.head.appendChild(classapplierScript);
+        };
+        
+        rangyScript.onerror = function() {
+            logError("Rangy核心库加载失败!");
+            showToast("Rangy核心库加载失败");
+        };
+        
+        document.head.appendChild(rangyScript);
+    }
+    
+    // 开始加载
+    loadRangy();
+    
+    logInfo("Rangy脚本已添加到文档中");
+})();
+
+// 修改原有的highlightSelection函数，使用Rangy
+function highlightSelection(bgColor, border, type) {
+    logInfo("🔍 检查Rangy状态");
+    
+    // 直接检查window对象
+    logDebug("rangy对象存在: " + (typeof rangy !== 'undefined'));
+    logDebug("rangyLoaded标志: " + window.rangyLoaded);
+    logDebug("AiSparkHub对象: " + !!window.AiSparkHub);
+    logDebug("rangyHighlighter对象: " + !!(window.AiSparkHub && window.AiSparkHub.rangyHighlighter));
+    
+    // 检查Rangy高亮器是否可用
+    if (window.rangyLoaded && window.AiSparkHub && window.AiSparkHub.rangyHighlighter && typeof rangy !== 'undefined') {
+        logInfo("✅ Rangy高亮器可用，尝试使用Rangy高亮文本");
+        
+        try {
+            const selection = rangy.getSelection();
+            
+            logDebug("当前选择对象类型: " + (selection ? typeof selection : 'undefined'));
+            logDebug("选择是否为空: " + (selection ? selection.isCollapsed : 'undefined'));
+            logDebug("选择的文本: " + (selection ? selection.toString() : 'undefined'));
+            
+            if (selection.isCollapsed) {
+                logInfo("没有选择文本，无法高亮");
+                return false;
+            }
+            
+            // 根据颜色确定使用哪种样式
+            let className = "ai-highlight-yellow"; // 默认黄色
+            
+            // 解析传入的颜色值
+            logInfo("传入的颜色值: " + bgColor);
+            
+            // 更精确的颜色匹配
+            if (typeof bgColor === 'string') {
+                // 提取颜色分量进行比较
+                if (bgColor.includes('red') || (bgColor.match(/rgba?\s*\(\s*255\s*,\s*0\s*,\s*0/))) {
+                    className = "ai-highlight-red";
+                    logInfo("选择红色高亮");
+                } else if (bgColor.includes('green') || (bgColor.match(/rgba?\s*\(\s*0\s*,\s*255\s*,\s*0/))) {
+                    className = "ai-highlight-green";
+                    logInfo("选择绿色高亮");
+                } else if (bgColor.includes('yellow') || (bgColor.match(/rgba?\s*\(\s*255\s*,\s*255\s*,\s*0/))) {
+                    className = "ai-highlight-yellow";
+                    logInfo("选择黄色高亮");
+                } else {
+                    logInfo("未匹配到具体颜色，使用默认黄色高亮");
+                }
+            }
+            
+            // 应用高亮
+            logInfo("使用Rangy高亮，应用类: " + className);
+            
+            try {
+                // 检查highlighter对象
+                logDebug("检查highlighter可用性: " + !!window.AiSparkHub.rangyHighlighter);
+                logDebug("检查highlightSelection方法: " + typeof window.AiSparkHub.rangyHighlighter.highlightSelection);
+                
+                // 试着使用highlighter
+                window.AiSparkHub.rangyHighlighter.highlightSelection(className);
+                logInfo("Rangy高亮操作成功!");
+                
+                // 查看创建的高亮元素样式
+                setTimeout(() => {
+                    const highlights = document.querySelectorAll("span." + className);
+                    logInfo("创建的高亮元素数量: " + highlights.length);
+                    if (highlights.length > 0) {
+                        const lastHighlight = highlights[highlights.length - 1];
+                        logInfo("高亮元素样式: " + lastHighlight.style.cssText);
+                        logInfo("高亮元素类名: " + lastHighlight.className);
+                    }
+                }, 50);
+                
+                // 清除选择
+                selection.removeAllRanges();
+                
+                // 显示成功提示
+                showToast("✅ 使用Rangy实现高亮成功");
+                
+                return true;
+            } catch (highlightError) {
+                logError("Rangy高亮具体操作失败:" + highlightError.message);
+                showToast("Rangy高亮操作失败: " + highlightError.message);
+                return false;
+            }
+        } catch (e) {
+            logError("Rangy高亮整体失败:" + e.message);
+            showToast("Rangy高亮失败: " + e.message);
+            return false;
+        }
+    } else {
+        logWarning("❌ Rangy高亮器未初始化或不可用，使用原始方法");
+        showToast("Rangy未加载完成，使用传统方法");
+        return false;
+    }
+}
+
 // 简单高亮功能
 (function() {
-    console.log("======== AiSparkHub 高亮和复制功能初始化 ========");
-    console.log("navigator.clipboard是否可用:", typeof navigator.clipboard !== 'undefined');
-    console.log("document.execCommand是否可用:", typeof document.execCommand === 'function');
+    logInfo("======== AiSparkHub 高亮和复制功能初始化 ========");
+    logInfo("navigator.clipboard是否可用:" + (typeof navigator.clipboard !== 'undefined'));
+    logInfo("document.execCommand是否可用:" + (typeof document.execCommand === 'function'));
     
-    console.log("初始化简单高亮功能");
+    logInfo("初始化简单高亮功能");
     
     // 创建高亮菜单
     const menu = document.createElement('div');
@@ -290,7 +744,6 @@ window.AiSparkHub.getPromptResponse = getPromptResponse;
         animation: fadeIn 0.2s ease-out;
     `;
 
-    
     // 容器用于水平排列按钮
     const buttonContainer = document.createElement('div');
     buttonContainer.style.cssText = `
@@ -303,9 +756,9 @@ window.AiSparkHub.getPromptResponse = getPromptResponse;
     // 定义颜色和按钮
     const colors = [
         { name: '复制', color: '#f8f8f8', border: '2px solid #ccc', icon: '📋', action: 'copy' },
-        { name: '红色', color: 'rgba(255,0,0,0.3)', border: '2px solid red', icon: '🔴', action: 'highlight' },
-        { name: '黄色', color: 'rgba(255,255,0,0.3)', border: '2px solid gold', icon: '🟡', action: 'highlight' },
-        { name: '绿色', color: 'rgba(0,255,0,0.3)', border: '2px solid green', icon: '🟢', action: 'highlight' }
+        { name: '红色', color: 'rgba(255,0,0,0.3)', border: '2px solid red', icon: '🔴', action: 'highlight', type: 'red' },
+        { name: '黄色', color: 'rgba(255,255,0,0.3)', border: '2px solid gold', icon: '🟡', action: 'highlight', type: 'yellow' },
+        { name: '绿色', color: 'rgba(0,255,0,0.3)', border: '2px solid green', icon: '🟢', action: 'highlight', type: 'green' }
     ];
     
     // 添加颜色按钮
@@ -374,9 +827,18 @@ window.AiSparkHub.getPromptResponse = getPromptResponse;
             if (c.action === 'copy') {
                 copySelection();
             } else {
-                highlightSelection(c.color, c.border);
+                // 先尝试使用Rangy高亮
+                logInfo("点击高亮按钮，尝试高亮，类型: " + c.type);
+                const rangySuccess = highlightSelection(c.color, c.border, c.type);
+                
+                // 如果Rangy失败，使用原始方法
+                if (!rangySuccess) {
+                    logInfo("Rangy高亮失败，回退到传统方法");
+                    legacyHighlightSelection(c.color, c.border, c.type);
+                }
+                
+                menu.style.display = 'none';
             }
-            menu.style.display = 'none';
         };
         
         buttonContainer.appendChild(btn);
@@ -395,47 +857,140 @@ window.AiSparkHub.getPromptResponse = getPromptResponse;
     // 添加到文档
     document.body.appendChild(menu);
     
-    // 监听选择事件
-    document.addEventListener('mouseup', function(e) {
-        // 处理当前的click/mouseup事件
-        setTimeout(function() {
-            const selection = window.getSelection();
-            const text = selection.toString().trim();
-            
-            // 菜单默认不显示
-            menu.style.display = 'none';
-            
-            // 有选中文本时才显示菜单
-            if (text) {
-                menu.style.display = 'block';
-                
-                // 计算位置，避免超出屏幕边缘
-                const menuWidth = 210; // 菜单宽度
-                const menuHeight = 90; // 菜单高度
-                
-                let leftPos = e.pageX - menuWidth / 2;
-                let topPos = e.pageY + 10;
-                
-                // 确保不超出右边
-                if (leftPos + menuWidth > window.innerWidth + window.scrollX) {
-                    leftPos = window.innerWidth + window.scrollX - menuWidth - 10;
+    // 检测当前网站类型
+    const isPerplexity = window.location.hostname.includes('perplexity.ai');
+    
+    // 为Perplexity网站添加特殊处理
+    if (isPerplexity) {
+        logInfo("检测到Perplexity网站，使用键盘快捷键触发高亮菜单");
+        
+        // 添加指导提示
+        const hintDiv = document.createElement('div');
+        hintDiv.style.cssText = `
+            position: fixed;
+            top: 10px;
+            right: 10px;
+            background: rgba(0,0,0,0.7);
+            color: white;
+            padding: 8px 12px;
+            border-radius: 4px;
+            z-index: 9999;
+            font-size: 12px;
+            pointer-events: none;
+            transition: opacity 0.3s;
+            opacity: 0.8;
+        `;
+        hintDiv.textContent = "选择文本后按 Alt+H 显示高亮菜单";
+        document.body.appendChild(hintDiv);
+        
+        // 5秒后隐藏提示
+        setTimeout(() => {
+            hintDiv.style.opacity = "0";
+            setTimeout(() => {
+                if (document.body.contains(hintDiv)) {
+                    document.body.removeChild(hintDiv);
                 }
+            }, 300);
+        }, 5000);
+        
+        // 监听键盘快捷键
+        document.addEventListener('keydown', function(e) {
+            // Alt+H 组合键显示高亮菜单
+            if (e.altKey && e.key === 'h') {
+                e.preventDefault(); // 防止默认行为
+                const selection = window.getSelection();
+                const text = selection.toString().trim();
                 
-                // 确保不超出左边
-                if (leftPos < window.scrollX) {
-                    leftPos = window.scrollX + 10;
+                if (text) {
+                    // 获取选择范围位置
+                    try {
+                        const range = selection.getRangeAt(0);
+                        const rect = range.getBoundingClientRect();
+                        
+                        // 显示菜单在选择区域下方
+                        const x = rect.left + (rect.width / 2);
+                        const y = rect.bottom;
+                        
+                        // 用绝对定位显示菜单，避免React干扰
+                        menu.style.display = 'none'; // 先隐藏，然后重新显示
+                        menu.style.position = 'absolute';
+                        menu.style.zIndex = '2147483647'; // 最大z-index
+                        menu.style.left = x + 'px';
+                        menu.style.top = (y + 10) + 'px';
+                        
+                        // 确保在视口内
+                        if (parseFloat(menu.style.left) + 210 > window.innerWidth) {
+                            menu.style.left = (window.innerWidth - 220) + 'px';
+                        }
+                        
+                        // 显示菜单
+                        menu.style.display = 'block';
+                        logInfo("通过键盘快捷键显示高亮菜单");
+                        
+                        // 闪烁菜单以提示用户
+                        menu.style.animation = 'none';
+                        setTimeout(() => {
+                            menu.style.animation = 'fadeIn 0.3s ease-out';
+                        }, 10);
+                    } catch (e) {
+                        logError("显示菜单时出错: " + e.message);
+                    }
+                } else {
+                    logInfo("没有选择文本，不显示菜单");
                 }
-                
-                // 确保不超出底部
-                if (topPos + menuHeight > window.innerHeight + window.scrollY) {
-                    topPos = e.pageY - menuHeight - 10;
-                }
-                
-                menu.style.left = `${leftPos}px`;
-                menu.style.top = `${topPos}px`;
             }
-        }, 0);
-    });
+        });
+        
+        // 点击文档隐藏菜单（但不注册mouseup事件，避免React冲突）
+        document.addEventListener('click', function(e) {
+            if (menu.style.display === 'block' && !menu.contains(e.target)) {
+                menu.style.display = 'none';
+            }
+        }, true); // 使用捕获阶段
+        
+    } else {
+        // 其他网站使用标准监听方式
+        document.addEventListener('mouseup', function(e) {
+            // 处理当前的click/mouseup事件
+            setTimeout(function() {
+                const selection = window.getSelection();
+                const text = selection.toString().trim();
+                
+                // 菜单默认不显示
+                menu.style.display = 'none';
+                
+                // 有选中文本时才显示菜单
+                if (text) {
+                    menu.style.display = 'block';
+                    
+                    // 计算位置，避免超出屏幕边缘
+                    const menuWidth = 210; // 菜单宽度
+                    const menuHeight = 90; // 菜单高度
+                    
+                    let leftPos = e.pageX - menuWidth / 2;
+                    let topPos = e.pageY + 10;
+                    
+                    // 确保不超出右边
+                    if (leftPos + menuWidth > window.innerWidth + window.scrollX) {
+                        leftPos = window.innerWidth + window.scrollX - menuWidth - 10;
+                    }
+                    
+                    // 确保不超出左边
+                    if (leftPos < window.scrollX) {
+                        leftPos = window.scrollX + 10;
+                    }
+                    
+                    // 确保不超出底部
+                    if (topPos + menuHeight > window.innerHeight + window.scrollY) {
+                        topPos = e.pageY - menuHeight - 10;
+                    }
+                    
+                    menu.style.left = `${leftPos}px`;
+                    menu.style.top = `${topPos}px`;
+                }
+            }, 0);
+        });
+    }
     
     // 点击页面任何位置关闭菜单（除了菜单本身）
     document.addEventListener('mousedown', function(e) {
@@ -480,53 +1035,29 @@ window.AiSparkHub.getPromptResponse = getPromptResponse;
         }
     }
     
-    // 显示toast提示
-    function showToast(message) {
-        // 创建提示元素
-        const toast = document.createElement('div');
-        toast.textContent = message;
-        toast.style.cssText = `
-            position: fixed;
-            bottom: 20px;
-            left: 50%;
-            transform: translateX(-50%);
-            background: rgba(0, 0, 0, 0.7);
-            color: white;
-            padding: 8px 16px;
-            border-radius: 4px;
-            font-size: 14px;
-            z-index: 10001;
-            animation: fadeInOut 2s forwards;
-        `;
+    // 原始高亮方法，重命名为legacyHighlightSelection
+    function legacyHighlightSelection(bgColor, border, type) {
+        // 根据类型直接选择样式，而不是依赖颜色字符串分析
+        let styleToUse;
         
-        // 添加动画
-        const toastStyle = document.createElement('style');
-        toastStyle.textContent = `
-            @keyframes fadeInOut {
-                0% { opacity: 0; transform: translate(-50%, 20px); }
-                15% { opacity: 1; transform: translate(-50%, 0); }
-                85% { opacity: 1; transform: translate(-50%, 0); }
-                100% { opacity: 0; transform: translate(-50%, -20px); }
+        if (window.AiSparkHub && window.AiSparkHub.highlightStyles) {
+            // 根据明确的类型参数选择样式
+            if (type === 'red') {
+                styleToUse = window.AiSparkHub.highlightStyles.red;
+                logInfo("legacyHighlight: 使用红色样式");
+            } else if (type === 'green') {
+                styleToUse = window.AiSparkHub.highlightStyles.green;
+                logInfo("legacyHighlight: 使用绿色样式");
+            } else {
+                styleToUse = window.AiSparkHub.highlightStyles.yellow;
+                logInfo("legacyHighlight: 使用黄色样式");
             }
-        `;
-        document.head.appendChild(toastStyle);
+            
+            // 获取正确的样式属性
+            bgColor = styleToUse.backgroundColor;
+            border = styleToUse.borderBottom;
+        }
         
-        // 添加到文档
-        document.body.appendChild(toast);
-        
-        // 2秒后移除
-        setTimeout(() => {
-            if (document.body.contains(toast)) {
-                document.body.removeChild(toast);
-            }
-            if (document.head.contains(toastStyle)) {
-                document.head.removeChild(toastStyle);
-            }
-        }, 2000);
-    }
-    
-    // 高亮选中文本
-    function highlightSelection(bgColor, border) {
         const selection = window.getSelection();
         if (!selection.rangeCount) return;
         
@@ -544,7 +1075,7 @@ window.AiSparkHub.getPromptResponse = getPromptResponse;
                 // 创建高亮元素
                 const span = document.createElement('span');
                 span.style.backgroundColor = bgColor;
-                span.style.borderBottom = border;
+                span.style.borderBottom = border; // 使用borderBottom替代border
                 span.style.transition = 'background-color 0.3s';
                 
                 // 尝试简单包裹
@@ -556,14 +1087,20 @@ window.AiSparkHub.getPromptResponse = getPromptResponse;
                 setTimeout(() => {
                     span.style.backgroundColor = originalBg;
                 }, 150);
+                
+                // 显示提示 - 简单方法
+                showToast("🔶 使用简单方法高亮成功");
             } else {
                 // 复杂选择（跨多个元素），采用分段高亮方法
                 highlightComplexSelection(originalRange, bgColor, border);
+                
+                // 显示提示 - 复杂方法
+                showToast("🔸 使用复杂方法高亮成功");
             }
             
             // 清除选择
             selection.removeAllRanges();
-            console.log('已高亮文本');
+            console.log('已使用原始方法高亮文本');
             
         } catch (e) {
             console.error('高亮操作失败:', e);
@@ -574,9 +1111,12 @@ window.AiSparkHub.getPromptResponse = getPromptResponse;
                 highlightComplexSelection(range, bgColor, border);
                 selection.removeAllRanges();
                 console.log('使用备用方法成功高亮文本');
+                
+                // 显示提示 - 备用方法
+                showToast("⚠️ 使用备用方法高亮成功");
             } catch (backupError) {
                 console.error('备用高亮方法也失败:', backupError);
-                showToast('无法高亮选中的内容，请尝试选择更简单的文本块');
+                showToast('❌ 无法高亮选中的内容，请尝试选择更简单的文本块');
             }
         }
     }
@@ -644,7 +1184,7 @@ window.AiSparkHub.getPromptResponse = getPromptResponse;
                 // 创建高亮元素
                 const span = document.createElement('span');
                 span.style.backgroundColor = bgColor;
-                span.style.borderBottom = border;
+                span.style.borderBottom = border; // 使用borderBottom替代border
                 span.style.transition = 'background-color 0.3s';
                 
                 // 使用surroundContents高亮此节点
