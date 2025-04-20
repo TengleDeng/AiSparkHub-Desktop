@@ -649,6 +649,9 @@ function highlightSelection(bgColor, border, type) {
                 return false;
             }
             
+            // 获取选中的文本内容
+            const selectedText = selection.toString();
+            
             // 根据颜色确定使用哪种样式
             let className = "ai-highlight-yellow"; // 默认黄色
             
@@ -684,6 +687,41 @@ function highlightSelection(bgColor, border, type) {
                 window.AiSparkHub.rangyHighlighter.highlightSelection(className);
                 logInfo("Rangy高亮操作成功!");
                 
+                // 获取选区范围信息
+                const ranges = selection.getAllRanges();
+                if (ranges.length > 0) {
+                    const range = ranges[0]; // 获取第一个范围
+                    
+                    // 尝试获取XPath和偏移量
+                    let xpath = '';
+                    let offsetStart = 0;
+                    let offsetEnd = 0;
+                    
+                    try {
+                        if (range.startContainer && range.startContainer.nodeType === Node.TEXT_NODE) {
+                            // 获取起始节点的XPath
+                            xpath = getXPathForElement(range.startContainer.parentNode);
+                            offsetStart = range.startOffset;
+                            offsetEnd = range.endOffset;
+                            
+                            // 保存高亮数据到后端
+                            saveHighlightToPython({
+                                url: getCurrentPageUrl(),
+                                text_content: selectedText,
+                                xpath: xpath,
+                                offset_start: offsetStart,
+                                offset_end: offsetEnd,
+                                highlight_type: type || className.replace('ai-highlight-', ''),
+                                bg_color: bgColor,
+                                border: border || '',
+                                note: ''
+                            });
+                        }
+                    } catch (xpathError) {
+                        logError("获取XPath失败:" + xpathError.message);
+                    }
+                }
+                
                 // 查看创建的高亮元素样式
                 setTimeout(() => {
                     const highlights = document.querySelectorAll("span." + className);
@@ -699,7 +737,7 @@ function highlightSelection(bgColor, border, type) {
                 selection.removeAllRanges();
                 
                 // 显示成功提示
-                showToast("✅ 使用Rangy实现高亮成功");
+                showToast("✅ 高亮成功并已保存");
                 
                 return true;
             } catch (highlightError) {
@@ -716,6 +754,274 @@ function highlightSelection(bgColor, border, type) {
         logWarning("❌ Rangy高亮器未初始化或不可用，使用原始方法");
         showToast("Rangy未加载完成，使用传统方法");
         return false;
+    }
+}
+
+/**
+ * 获取元素的XPath路径
+ * @param {Element} element - DOM元素
+ * @return {String} XPath路径
+ */
+function getXPathForElement(element) {
+    if (!element) return '';
+    
+    // 如果已到达根节点，返回
+    if (element.tagName === 'HTML') return '/HTML[1]';
+    if (element === document.body) return '/HTML[1]/BODY[1]';
+    
+    let ix = 0;
+    let siblings = element.parentNode.childNodes;
+    
+    for (let i = 0; i < siblings.length; i++) {
+        let sibling = siblings[i];
+        
+        // 同样的元素类型
+        if (sibling === element) {
+            // 构建路径
+            let path = getXPathForElement(element.parentNode);
+            let tagName = element.tagName;
+            
+            // 添加索引
+            path += '/' + tagName + '[' + (ix + 1) + ']';
+            return path;
+        }
+        
+        // 确保节点类型和标签名匹配后才递增计数
+        if (sibling.nodeType === 1 && sibling.tagName === element.tagName) {
+            ix++;
+        }
+    }
+    
+    // 如果未找到匹配项
+    return '';
+}
+
+/**
+ * 保存高亮数据到Python后端
+ * @param {Object} highlightData - 高亮数据对象
+ */
+function saveHighlightToPython(highlightData) {
+    try {
+        logInfo("准备保存高亮数据到后端", highlightData);
+        
+        // 检查WebChannel状态（如果有这个方法）
+        if (window.AiSparkHub && typeof window.AiSparkHub.checkWebChannel === "function") {
+            window.AiSparkHub.checkWebChannel();
+        }
+        
+        // 决定使用哪种传输方式
+        if (window.AiSparkHub && window.AiSparkHub.webChannelAvailable === false) {
+            // WebChannel不可用，直接使用备用方式
+            logInfo("WebChannel被标记为不可用，使用备用方案");
+            if (window.AiSparkHub.fallbackHighlight) {
+                window.AiSparkHub.fallbackHighlight(highlightData);
+                logInfo("已通过备用方案发送高亮数据");
+                return true;
+            }
+        }
+        
+        // 尝试使用WebChannel方式（默认）
+        try {
+            // 创建自定义事件
+            const event = new CustomEvent('aiSaveHighlightToPython', {
+                detail: JSON.stringify(highlightData)
+            });
+            
+            // 派发事件，由Python后端捕获
+            document.dispatchEvent(event);
+            
+            logInfo("高亮数据保存事件已发送");
+            return true;
+        } catch (error) {
+            logError("标准保存方式失败:", error.message);
+            
+            // 失败时尝试备用方式
+            if (window.AiSparkHub && window.AiSparkHub.fallbackHighlight) {
+                logInfo("尝试使用备用方案发送高亮数据");
+                window.AiSparkHub.fallbackHighlight(highlightData);
+                logInfo("已通过备用方案发送高亮数据");
+                return true;
+            } else {
+                logError("备用传输方案不可用，无法保存高亮数据");
+                return false;
+            }
+        }
+    } catch (error) {
+        logError("保存高亮数据失败:", error.message);
+        return false;
+    }
+}
+
+/**
+ * 应用保存的高亮数据
+ * @param {Array} highlightDataArray - 高亮数据数组
+ */
+function applyStoredHighlights(highlightDataArray) {
+    if (!Array.isArray(highlightDataArray) || highlightDataArray.length === 0) {
+        logInfo("没有高亮数据需要应用");
+        return;
+    }
+    
+    logInfo("开始应用保存的高亮数据", { count: highlightDataArray.length });
+    
+    // 确保Rangy已加载
+    if (!window.rangyLoaded || !window.AiSparkHub || !window.AiSparkHub.rangyHighlighter) {
+        logWarning("Rangy未初始化，无法应用高亮");
+        setTimeout(() => applyStoredHighlights(highlightDataArray), 1000); // 延迟重试
+        return;
+    }
+    
+    // 遍历所有高亮数据
+    highlightDataArray.forEach(data => {
+        try {
+            // 查找XPath对应的元素
+            const element = getElementByXPath(data.xpath);
+            
+            if (!element || !element.childNodes || element.childNodes.length === 0) {
+                logWarning("未找到匹配的元素:", data.xpath);
+                return;
+            }
+            
+            // 获取文本节点
+            const textNodes = getAllTextNodesIn(element);
+            if (textNodes.length === 0) {
+                logWarning("元素内没有文本节点");
+                return;
+            }
+            
+            // 查找包含目标文本的节点
+            let targetNode = null;
+            let nodeText = '';
+            
+            for (const node of textNodes) {
+                nodeText = node.nodeValue || '';
+                if (nodeText.includes(data.text_content)) {
+                    targetNode = node;
+                    break;
+                }
+            }
+            
+            // 如果找不到精确匹配，使用第一个文本节点
+            if (!targetNode && textNodes.length > 0) {
+                targetNode = textNodes[0];
+                logWarning("未找到包含目标文本的节点，使用第一个文本节点");
+            }
+            
+            if (!targetNode) {
+                logWarning("无法找到合适的文本节点");
+                return;
+            }
+            
+            // 创建范围并应用高亮
+            try {
+                const range = rangy.createRange();
+                
+                // 尝试使用保存的偏移量
+                if (data.offset_start >= 0 && data.offset_end > data.offset_start) {
+                    range.setStart(targetNode, data.offset_start);
+                    range.setEnd(targetNode, data.offset_end);
+                } else {
+                    // 如果偏移量无效，尝试通过文本内容查找
+                    const startPos = nodeText.indexOf(data.text_content);
+                    if (startPos >= 0) {
+                        range.setStart(targetNode, startPos);
+                        range.setEnd(targetNode, startPos + data.text_content.length);
+                    } else {
+                        logWarning("无法在文本中定位高亮内容");
+                        return;
+                    }
+                }
+                
+                // 确定高亮类名
+                let className = 'ai-highlight-yellow'; // 默认
+                
+                if (data.highlight_type) {
+                    if (data.highlight_type.includes('red')) {
+                        className = 'ai-highlight-red';
+                    } else if (data.highlight_type.includes('green')) {
+                        className = 'ai-highlight-green';
+                    } else if (data.highlight_type.includes('yellow')) {
+                        className = 'ai-highlight-yellow';
+                    }
+                }
+                
+                // 应用高亮
+                window.AiSparkHub.rangyHighlighter.highlightRange(className, range);
+                logInfo("成功应用高亮", {
+                    text: data.text_content,
+                    class: className
+                });
+                
+                // 发送高亮应用成功的通知
+                notifyHighlightApplied(data.id);
+                
+            } catch (rangeError) {
+                logError("创建或应用高亮范围失败:", rangeError.message);
+            }
+            
+        } catch (error) {
+            logError("应用高亮记录失败:", error.message);
+        }
+    });
+}
+
+/**
+ * 通过XPath获取元素
+ * @param {String} xpath - XPath表达式
+ * @return {Element} 匹配的DOM元素
+ */
+function getElementByXPath(xpath) {
+    try {
+        return document.evaluate(
+            xpath,
+            document,
+            null,
+            XPathResult.FIRST_ORDERED_NODE_TYPE,
+            null
+        ).singleNodeValue;
+    } catch (e) {
+        logError("XPath求值失败:", e.message);
+        return null;
+    }
+}
+
+/**
+ * 获取元素内所有文本节点
+ * @param {Element} element - DOM元素
+ * @return {Array} 文本节点数组
+ */
+function getAllTextNodesIn(element) {
+    const textNodes = [];
+    
+    function collectTextNodes(node) {
+        if (node.nodeType === Node.TEXT_NODE && node.nodeValue.trim()) {
+            textNodes.push(node);
+        } else {
+            for (let i = 0; i < node.childNodes.length; i++) {
+                collectTextNodes(node.childNodes[i]);
+            }
+        }
+    }
+    
+    collectTextNodes(element);
+    return textNodes;
+}
+
+/**
+ * 通知Python后端高亮已应用
+ * @param {Number} highlightId - 高亮记录ID
+ */
+function notifyHighlightApplied(highlightId) {
+    try {
+        // 创建自定义事件
+        const event = new CustomEvent('aiHighlightApplied', {
+            detail: JSON.stringify({ id: highlightId })
+        });
+        
+        // 派发事件
+        document.dispatchEvent(event);
+    } catch (error) {
+        logError("通知高亮应用状态失败:", error.message);
     }
 }
 
@@ -1246,4 +1552,102 @@ window.copyTextThroughJs = function(text) {
     }
     
     return true; // 返回true以表示复制请求已发出
-}; 
+};
+
+/**
+ * 测试WebChannel通信
+ */
+function testWebChannelCommunication() {
+    logInfo("开始测试WebChannel通信...");
+    
+    try {
+        // 检查必要对象
+        const qtExists = typeof qt !== 'undefined';
+        const transportExists = qtExists && typeof qt.webChannelTransport !== 'undefined';
+        const webChannelExists = typeof QWebChannel !== 'undefined';
+        
+        logInfo("WebChannel前置检查:", {
+            qt存在: qtExists,
+            transport存在: transportExists,
+            QWebChannel存在: webChannelExists
+        });
+        
+        if (!qtExists || !transportExists) {
+            logError("WebChannel通信所需的qt对象不完整，无法建立通信");
+            return;
+        }
+        
+        // 如果QWebChannel不存在，但qt.webChannelTransport存在，尝试等待QWebChannel对象
+        if (!webChannelExists) {
+            logWarning("QWebChannel对象不存在，等待10秒后重试");
+            // 间隔1秒检查10次
+            let checkCount = 0;
+            const checkInterval = setInterval(function() {
+                checkCount++;
+                if (typeof QWebChannel !== 'undefined') {
+                    logInfo("QWebChannel已加载，开始测试通信");
+                    clearInterval(checkInterval);
+                    completeTest();
+                } else if (checkCount >= 10) {
+                    logError("等待10秒后QWebChannel仍不可用，测试失败");
+                    clearInterval(checkInterval);
+                } else {
+                    logInfo(`等待QWebChannel加载...第${checkCount}次检查`);
+                }
+            }, 1000);
+            return;
+        }
+        
+        completeTest();
+    } catch (error) {
+        logError("测试WebChannel通信时出错:", error.message);
+    }
+    
+    // 执行实际测试
+    function completeTest() {
+        try {
+            // 尝试创建WebChannel并发送测试数据
+            logInfo("准备创建QWebChannel并测试通信...");
+            
+            new QWebChannel(qt.webChannelTransport, function(channel) {
+                logInfo("QWebChannel已创建，可用对象:", Object.keys(channel.objects));
+                
+                if (channel.objects.highlightBridge) {
+                    logInfo("找到highlightBridge对象，发送测试数据");
+                    
+                    const testData = {
+                        text_content: "WebChannel通信测试",
+                        url: window.location.href,
+                        timestamp: new Date().toISOString(),
+                        test: true
+                    };
+                    
+                    channel.objects.highlightBridge.saveHighlight(JSON.stringify(testData));
+                    logInfo("测试数据已发送到Python");
+                    
+                    // 尝试高亮操作
+                    logInfo("测试高亮功能 - 创建自定义事件");
+                    try {
+                        const event = new CustomEvent('aiSaveHighlightToPython', {
+                            detail: JSON.stringify(testData)
+                        });
+                        document.dispatchEvent(event);
+                        logInfo("高亮事件已触发");
+                    } catch (e) {
+                        logError("触发高亮事件失败:", e.message);
+                    }
+                } else {
+                    logError("无法找到highlightBridge对象，无法测试通信");
+                }
+            });
+        } catch (error) {
+            logError("测试通信失败:", error.message);
+        }
+    }
+}
+
+// 页面完全加载后执行WebChannel测试
+window.addEventListener('load', function() {
+    // 延迟5秒执行，确保所有组件已加载完成
+    setTimeout(testWebChannelCommunication, 5000);
+}); 

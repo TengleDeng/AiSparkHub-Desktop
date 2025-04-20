@@ -456,6 +456,34 @@ class DatabaseManager:
             )
             ''')
             
+            # 创建高亮数据表
+            print("正在创建或确认高亮数据表...")
+            cursor.execute('''
+            CREATE TABLE IF NOT EXISTS highlight_data (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                url TEXT NOT NULL,
+                text_content TEXT NOT NULL,
+                xpath TEXT,
+                offset_start INTEGER,
+                offset_end INTEGER,
+                highlight_type TEXT,
+                bg_color TEXT,
+                border TEXT,
+                note TEXT,
+                timestamp INTEGER NOT NULL,
+                last_applied INTEGER
+            )
+            ''')
+            
+            # 创建高亮数据索引，提高查询速度
+            cursor.execute('CREATE INDEX IF NOT EXISTS idx_highlight_url ON highlight_data(url)')
+            print("高亮数据表及索引已创建/确认")
+            
+            # 检查表结构是否正确
+            cursor.execute("PRAGMA table_info(highlight_data)")
+            columns = cursor.fetchall()
+            print(f"高亮数据表结构：{columns}")
+            
             # 创建PKM文件夹表
             cursor.execute('''
             CREATE TABLE IF NOT EXISTS pkm_folders (
@@ -2368,3 +2396,198 @@ class DatabaseManager:
             import traceback
             traceback.print_exc()
             return []
+    
+    def save_highlight(self, url, text_content, xpath, offset_start, offset_end, highlight_type, bg_color, border, note=""):
+        """保存网页高亮数据
+        
+        Args:
+            url (str): 网页URL
+            text_content (str): 高亮的文本内容
+            xpath (str): 文本在DOM中的XPath路径
+            offset_start (int): 文本在节点中的起始偏移量
+            offset_end (int): 文本在节点中的结束偏移量
+            highlight_type (str): 高亮类型（普通、重要、疑问等）
+            bg_color (str): 背景颜色
+            border (str): 边框样式
+            note (str, optional): 可选的附加笔记
+            
+        Returns:
+            int: 新添加记录的ID，失败返回None
+        """
+        if not self.conn:
+            print("数据库未连接")
+            return None
+            
+        try:
+            print(f"开始保存高亮数据: URL={url[:50]}..., 文本长度={len(text_content)}")
+            
+            cursor = self.conn.cursor()
+            current_time = int(time.time())
+            
+            # 查询是否已有完全相同的高亮记录
+            cursor.execute("""
+                SELECT id FROM highlight_data
+                WHERE url = ? AND text_content = ? AND xpath = ? AND offset_start = ? AND offset_end = ?
+            """, (url, text_content, xpath, offset_start, offset_end))
+            
+            existing_record = cursor.fetchone()
+            
+            # 如果已存在，更新时间戳和其他属性
+            if existing_record:
+                highlight_id = existing_record[0]
+                print(f"找到已存在的高亮记录，ID={highlight_id}，正在更新")
+                cursor.execute("""
+                    UPDATE highlight_data SET
+                    highlight_type = ?,
+                    bg_color = ?,
+                    border = ?,
+                    note = ?,
+                    timestamp = ?
+                    WHERE id = ?
+                """, (highlight_type, bg_color, border, note, current_time, highlight_id))
+                self.conn.commit()
+                print(f"已更新高亮记录，ID={highlight_id}")
+                return highlight_id
+                
+            # 插入新记录
+            print(f"未找到已存在的高亮记录，正在插入新记录")
+            cursor.execute("""
+                INSERT INTO highlight_data
+                (url, text_content, xpath, offset_start, offset_end, 
+                highlight_type, bg_color, border, note, timestamp, last_applied)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (url, text_content, xpath, offset_start, offset_end, 
+                highlight_type, bg_color, border, note, current_time, current_time))
+            
+            self.conn.commit()
+            new_id = cursor.lastrowid
+            print(f"已插入新高亮记录，ID={new_id}")
+            return new_id
+            
+        except Exception as e:
+            print(f"保存高亮数据时出错: {e}")
+            if self.conn:
+                self.conn.rollback()
+            import traceback
+            traceback.print_exc()
+            return None
+            
+    def get_highlights_for_url(self, url):
+        """获取指定URL的所有高亮数据
+        
+        Args:
+            url (str): 网页URL
+            
+        Returns:
+            list: 高亮数据字典的列表，失败返回空列表
+        """
+        if not self.conn:
+            print("数据库未连接")
+            return []
+            
+        try:
+            cursor = self.conn.cursor()
+            
+            # 查询指定URL的所有高亮
+            cursor.execute("""
+                SELECT id, url, text_content, xpath, offset_start, offset_end,
+                highlight_type, bg_color, border, note, timestamp, last_applied
+                FROM highlight_data
+                WHERE url = ?
+                ORDER BY timestamp DESC
+            """, (url,))
+            
+            highlights = []
+            for row in cursor.fetchall():
+                (id, url, text_content, xpath, offset_start, offset_end,
+                highlight_type, bg_color, border, note, timestamp, last_applied) = row
+                
+                highlight = {
+                    "id": id,
+                    "url": url,
+                    "text_content": text_content,
+                    "xpath": xpath,
+                    "offset_start": offset_start,
+                    "offset_end": offset_end,
+                    "highlight_type": highlight_type,
+                    "bg_color": bg_color,
+                    "border": border,
+                    "note": note,
+                    "timestamp": timestamp,
+                    "last_applied": last_applied
+                }
+                
+                highlights.append(highlight)
+                
+            return highlights
+            
+        except Exception as e:
+            print(f"获取高亮数据时出错: {e}")
+            import traceback
+            traceback.print_exc()
+            return []
+            
+    def delete_highlight(self, highlight_id):
+        """删除高亮记录
+        
+        Args:
+            highlight_id (int): 高亮记录ID
+            
+        Returns:
+            bool: 操作是否成功
+        """
+        if not self.conn:
+            print("数据库未连接")
+            return False
+            
+        try:
+            cursor = self.conn.cursor()
+            cursor.execute("DELETE FROM highlight_data WHERE id = ?", (highlight_id,))
+            self.conn.commit()
+            return cursor.rowcount > 0
+            
+        except Exception as e:
+            print(f"删除高亮数据时出错: {e}")
+            if self.conn:
+                self.conn.rollback()
+            return False
+            
+    def update_highlight_applied_time(self, highlight_id):
+        """更新高亮应用时间
+        
+        Args:
+            highlight_id (int): 高亮记录ID
+            
+        Returns:
+            bool: 操作是否成功
+        """
+        if not self.conn:
+            print("数据库未连接")
+            return False
+            
+        try:
+            print(f"开始更新高亮应用时间，ID={highlight_id}")
+            cursor = self.conn.cursor()
+            current_time = int(time.time())
+            
+            # 先检查记录是否存在
+            cursor.execute("SELECT id FROM highlight_data WHERE id = ?", (highlight_id,))
+            if not cursor.fetchone():
+                print(f"高亮记录不存在，ID={highlight_id}")
+                return False
+                
+            cursor.execute("UPDATE highlight_data SET last_applied = ? WHERE id = ?", 
+                          (current_time, highlight_id))
+            
+            self.conn.commit()
+            affected_rows = cursor.rowcount
+            print(f"已更新高亮应用时间，ID={highlight_id}，影响行数={affected_rows}")
+            return affected_rows > 0
+            
+        except Exception as e:
+            print(f"更新高亮应用时间时出错: {e}")
+            if self.conn:
+                self.conn.rollback()
+            import traceback
+            traceback.print_exc()
+            return False

@@ -420,6 +420,7 @@ def main():
     
     # 初始化数据库
     db_manager = DatabaseManager()
+    app.db_manager = db_manager  # 将数据库管理器添加到app对象中
     logger.info("数据库管理器已初始化")
     
     # 初始化Web配置管理器

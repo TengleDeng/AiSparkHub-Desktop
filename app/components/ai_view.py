@@ -121,6 +121,28 @@ class AIWebView(QWebEngineView):
         web_page = WebEnginePage(shared_profile, self)
         self.setPage(web_page)
         
+        # 创建WebChannel和桥接对象 - 确保先创建高亮桥接对象
+        self.highlight_bridge = self._create_highlight_bridge()
+        self.log_bridge = self._create_log_bridge()
+        
+        # 确保QWebChannel可用
+        try:
+            self.logger.info("初始化WebChannel")
+            # 创建并设置全局WebChannel
+            self.channel = QWebChannel(self.page())
+            self.page().setWebChannel(self.channel)
+            
+            # 注册桥接对象到WebChannel - 放在创建后立即注册
+            self.logger.info("注册highlightBridge和bridge对象到WebChannel")
+            self.channel.registerObject("highlightBridge", self.highlight_bridge)
+            self.channel.registerObject("bridge", self.log_bridge)
+            
+            self.logger.info(f"WebChannel已创建并注册了对象: highlightBridge, bridge")
+        except Exception as e:
+            self.logger.error(f"初始化WebChannel失败: {str(e)}")
+            import traceback
+            self.logger.error(traceback.format_exc())
+        
         # 设置剪贴板权限
         settings = web_page.settings()
         
@@ -169,13 +191,51 @@ class AIWebView(QWebEngineView):
         # 设置JavaScript日志处理器
         self.page().settings().setAttribute(QWebEngineSettings.WebAttribute.JavascriptEnabled, True)
         
-        # 监听JavaScript日志事件
-        self._install_js_log_handler()
+        # 获取数据库管理器实例
+        app = QApplication.instance()
+        if hasattr(app, 'db_manager'):
+            self.db_manager = app.db_manager
+        else:
+            from app.models.database import DatabaseManager
+            self.db_manager = DatabaseManager()
+            self.logger.warning(f"无法从应用实例获取数据库管理器，创建新实例")
+    
+    def _create_highlight_bridge(self):
+        """创建高亮桥接对象"""
+        class HighlightBridge(QObject):
+            @pyqtSlot(str)
+            def saveHighlight(self, highlight_json):
+                self.parent().logger.info("WebChannel接收到高亮保存请求")
+                self.parent().save_highlight_from_js(highlight_json)
+                
+            @pyqtSlot(int)
+            def updateHighlightApplied(self, highlight_id):
+                self.parent().logger.info(f"WebChannel接收到高亮应用通知，ID: {highlight_id}")
+                self.parent().update_highlight_applied_time(highlight_id)
+        
+        # 创建并返回桥接对象
+        bridge = HighlightBridge(self)
+        return bridge
+    
+    def _create_log_bridge(self):
+        """创建日志桥接对象"""
+        class LogBridge(QObject):
+            @pyqtSlot(str)
+            def receiveJsLog(self, log_json):
+                self.parent().receive_js_log(log_json)
+        
+        # 创建并返回桥接对象
+        bridge = LogBridge(self)
+        return bridge
     
     def on_load_finished(self, success):
         """网页加载完成后的处理"""
         if success:
             self.logger.info(f"页面加载完成: {self.url().toString()}")
+            
+            # 首先注入qwebchannel.js脚本
+            self.inject_qwebchannel_script()
+            
             # 注入提示词注入脚本
             self.inject_script()
             
@@ -193,8 +253,550 @@ class AIWebView(QWebEngineView):
                 self.page().runJavaScript(debug_key_script)
             except Exception as e:
                 self.logger.error(f"注入F12快捷键脚本失败: {str(e)}")
+                
+            # 安装JavaScript日志处理器
+            self._install_js_log_handler()
+            
+            # 注入事件监听代码
+            self.setup_highlight_handlers()
+            
+            # 加载当前页面的高亮数据
+            self.load_highlights_for_current_page()
+            
+            # 测试WebChannel通信
+            self.test_webchannel_communication()
         else:
             self.logger.error(f"页面加载失败: {self.url().toString()}")
+    
+    def inject_qwebchannel_script(self):
+        """注入qwebchannel.js脚本，这是WebChannel通信的必要条件"""
+        self.logger.info("正在注入qwebchannel.js脚本...")
+        
+        # 简化版的QWebChannel实现，避免语法错误和CSP限制
+        qwebchannel_simplified = """
+(function() {
+    // 检查QWebChannel是否已存在，如果存在则不重复定义
+    if (typeof QWebChannel !== 'undefined') {
+        console.log('QWebChannel已存在，无需注入');
+        return;
+    }
+    
+    console.log('正在定义QWebChannel...');
+    
+    // 定义消息类型
+    var QWebChannelMessageTypes = {
+        signal: 1,
+        propertyUpdate: 2,
+        init: 3,
+        idle: 4,
+        debug: 5,
+        invokeMethod: 6,
+        connectToSignal: 7,
+        disconnectFromSignal: 8,
+        setProperty: 9,
+        response: 10
+    };
+    
+    // 定义QWebChannel构造函数
+    window.QWebChannel = function(transport, initCallback) {
+        console.log('QWebChannel构造函数被调用');
+        var channel = this;
+        this.transport = transport;
+        this.objects = {};
+        
+        this.send = function(data) {
+            if (typeof(data) !== "string") {
+                data = JSON.stringify(data);
+            }
+            channel.transport.send(data);
+        };
+        
+        this.transport.onmessage = function(message) {
+            var data = message.data;
+            if (typeof data === "string") {
+                data = JSON.parse(data);
+            }
+            switch (data.type) {
+                case QWebChannelMessageTypes.signal:
+                    console.log('收到signal消息');
+                    break;
+                case QWebChannelMessageTypes.response:
+                    console.log('收到response消息');
+                    break;
+                case QWebChannelMessageTypes.propertyUpdate:
+                    console.log('收到propertyUpdate消息');
+                    break;
+                default:
+                    console.log('收到其他类型消息');
+                    break;
+            }
+        };
+        
+        // 设置延迟，避免出现错误
+        setTimeout(function() {
+            try {
+                if (initCallback) {
+                    console.log('调用QWebChannel初始化回调');
+                    initCallback(channel);
+                }
+            } catch(e) {
+                console.error('QWebChannel初始化回调错误:', e);
+            }
+        }, 10);
+    };
+    
+    console.log('QWebChannel定义完成');
+})();
+
+// 测试QWebChannel是否可用
+try {
+    if (typeof QWebChannel === 'undefined') {
+        console.error('QWebChannel定义失败');
+    } else {
+        console.log('QWebChannel定义成功, 类型:', typeof QWebChannel);
+    }
+} catch(e) {
+    console.error('QWebChannel检查出错:', e);
+}
+        """
+        
+        try:
+            # 先检查是否已加载
+            check_script = """
+            (function() {
+                return typeof QWebChannel !== 'undefined';
+            })();
+            """
+            
+            def handle_check(result):
+                if result:
+                    self.logger.info("QWebChannel已存在，无需注入")
+                else:
+                    self.logger.info("QWebChannel未定义，正在注入脚本...")
+                    
+                    # 使用runJavaScript的同步方式，确保脚本执行完成
+                    self.page().runJavaScript(qwebchannel_simplified, lambda result: self._verify_qwebchannel_loaded(result))
+                    
+            self.page().runJavaScript(check_script, handle_check)
+            
+        except Exception as e:
+            self.logger.error(f"注入QWebChannel脚本失败: {str(e)}")
+            import traceback
+            self.logger.error(traceback.format_exc())
+    
+    def _verify_qwebchannel_loaded(self, result):
+        """验证QWebChannel是否成功加载"""
+        self.logger.info(f"QWebChannel脚本注入结果: {result if result is not None else 'OK'}")
+        
+        # 再次检查QWebChannel是否定义成功
+        check_script = """
+        (function() {
+            var status = {
+                qwebchannel_exists: typeof QWebChannel !== 'undefined',
+                qwebchannel_type: typeof QWebChannel,
+                is_function: typeof QWebChannel === 'function'
+            };
+            console.log('QWebChannel加载检查:', JSON.stringify(status));
+            return status;
+        })();
+        """
+        
+        self.page().runJavaScript(check_script, lambda result: self.logger.info(f"QWebChannel验证结果: {result}"))
+    
+    def test_webchannel_communication(self):
+        """测试WebChannel通信是否正常工作"""
+        self.logger.info("开始测试WebChannel通信...")
+        
+        # 1. 检查qt对象是否存在
+        check_script = """
+        (function() {
+            var result = {
+                qt_exists: typeof qt !== 'undefined',
+                transport_exists: typeof qt !== 'undefined' && typeof qt.webChannelTransport !== 'undefined',
+                webchannel_exists: typeof QWebChannel !== 'undefined'
+            };
+            console.log('WebChannel状态检查: ', JSON.stringify(result));
+            return result;
+        })();
+        """
+        self.page().runJavaScript(check_script, self._handle_webchannel_check)
+        
+        # 2. 如果QWebChannel不存在，先注入脚本再测试
+        def _ensure_qwebchannel_and_test():
+            self.page().runJavaScript("typeof QWebChannel !== 'undefined'", lambda result: self._execute_test() if result else self._inject_and_test())
+        
+        # 延迟执行，确保WebChannel检查完成
+        QTimer.singleShot(500, _ensure_qwebchannel_and_test)
+    
+    def _inject_and_test(self):
+        """注入QWebChannel脚本并测试通信"""
+        self.logger.info("QWebChannel未定义，正在注入脚本并重新测试...")
+        
+        # 定义注入脚本后的回调函数
+        def after_inject(result):
+            self.logger.info(f"QWebChannel脚本注入结果: {result if result is not None else 'OK'}")
+            # 延迟执行测试，确保脚本已加载
+            QTimer.singleShot(1000, self._execute_test)
+        
+        # 注入脚本
+        self.page().runJavaScript("""
+        // 如果QWebChannel未定义，则在全局作用域上定义一个测试函数
+        if (typeof QWebChannel === 'undefined') {
+            console.log('正在注入临时QWebChannel实现...');
+            
+            // 简化版QWebChannel实现，仅用于测试
+            window.QWebChannel = function(transport, initCallback) {
+                console.log('QWebChannel构造函数被调用');
+                this.transport = transport;
+                this.objects = {};
+                
+                if (initCallback) {
+                    console.log('调用QWebChannel初始化回调');
+                    initCallback(this);
+                }
+            };
+            
+            console.log('QWebChannel已定义');
+            return true;
+        }
+        return false;
+        """, after_inject)
+    
+    def _execute_test(self):
+        """执行WebChannel通信测试"""
+        self.logger.info("正在执行WebChannel通信测试...")
+        
+        # 尝试主动发送一个测试事件
+        test_script = """
+        (function() {
+            try {
+                console.log('准备测试WebChannel通信...');
+                if (typeof QWebChannel === 'undefined') {
+                    console.error('QWebChannel仍然未定义，无法测试通信');
+                    return {success: false, error: 'QWebChannel未定义'};
+                }
+                
+                console.log('QWebChannel已定义，类型:', typeof QWebChannel);
+                
+                if (typeof qt === 'undefined' || typeof qt.webChannelTransport === 'undefined') {
+                    console.error('qt.webChannelTransport未定义，无法测试通信');
+                    return {success: false, error: 'qt.webChannelTransport未定义'};
+                }
+                
+                // 创建一个直接绑定到window的bridge对象，用于测试
+                window.testBridge = {
+                    saveHighlight: function(data) {
+                        console.log('测试bridge.saveHighlight被调用，数据:', data);
+                        return true;
+                    },
+                    updateHighlightApplied: function(id) {
+                        console.log('测试bridge.updateHighlightApplied被调用，ID:', id);
+                        return true;
+                    }
+                };
+                
+                // 绕过QWebChannel，直接创建并触发高亮事件
+                console.log('创建直接高亮测试...');
+                try {
+                    var testData = {
+                        text_content: '测试WebChannel通信',
+                        url: window.location.href,
+                        timestamp: Date.now(),
+                        test: true
+                    };
+                    
+                    var event = new CustomEvent('aiSaveHighlightToPython', {
+                        detail: JSON.stringify(testData)
+                    });
+                    
+                    console.log('触发高亮事件aiSaveHighlightToPython');
+                    document.dispatchEvent(event);
+                    console.log('高亮事件已触发');
+                } catch(directError) {
+                    console.error('直接触发事件失败:', directError);
+                }
+                
+                return {success: true, message: '测试完成，请检查控制台日志'};
+            } catch(e) {
+                console.error('测试WebChannel通信失败:', e);
+                return {success: false, error: e.toString()};
+            }
+        })();
+        """
+        
+        self.page().runJavaScript(test_script, self._handle_webchannel_test)
+        
+        # 测试直接访问bridge对象
+        direct_test = """
+        (function() {
+            if (typeof qt !== 'undefined' && typeof qt.webChannelTransport !== 'undefined') {
+                // 尝试直接获取WebChannel对象
+                try {
+                    new QWebChannel(qt.webChannelTransport, function(channel) {
+                        console.log('直接获取WebChannel对象成功，可用对象:', Object.keys(channel.objects));
+                        
+                        // 检查highlightBridge对象是否存在
+                        if (channel.objects.highlightBridge) {
+                            console.log('找到highlightBridge对象，尝试直接调用');
+                            
+                            var testData = {
+                                text_content: '直接调用测试',
+                                url: window.location.href,
+                                timestamp: new Date().toISOString(),
+                                test: true
+                            };
+                            
+                            // 直接调用Python的方法
+                            try {
+                                channel.objects.highlightBridge.saveHighlight(JSON.stringify(testData));
+                                console.log('直接调用highlightBridge.saveHighlight成功');
+                                return {direct_call: true, message: '直接调用成功'};
+                            } catch(callError) {
+                                console.error('直接调用highlightBridge方法失败:', callError);
+                                return {direct_call: false, error: callError.toString()};
+                            }
+                        } else {
+                            console.error('无法找到highlightBridge对象');
+                            return {direct_call: false, error: '找不到highlightBridge对象'};
+                        }
+                    });
+                    return {attempted: true};
+                } catch(e) {
+                    console.error('直接获取WebChannel失败:', e);
+                    return {attempted: false, error: e.toString()};
+                }
+            } else {
+                return {attempted: false, error: 'qt.webChannelTransport未定义'};
+            }
+        })();
+        """
+        
+        self.page().runJavaScript(direct_test, lambda result: self.logger.info(f"WebChannel直接访问测试结果: {result}"))
+    
+    def _handle_webchannel_check(self, result):
+        """处理WebChannel检查结果"""
+        if result:
+            self.logger.info(f"WebChannel状态: qt存在={result.get('qt_exists', False)}, "
+                           f"transport存在={result.get('transport_exists', False)}, "
+                           f"QWebChannel存在={result.get('webchannel_exists', False)}")
+        else:
+            self.logger.error("WebChannel检查返回空结果")
+    
+    def _handle_webchannel_test(self, result):
+        """处理WebChannel测试结果"""
+        self.logger.info(f"WebChannel测试结果: {result}")
+    
+    def setup_highlight_handlers(self):
+        """设置高亮处理器，处理来自JavaScript的高亮相关事件"""
+        self.logger.info(f"正在为{self.ai_name}设置高亮事件监听...")
+        
+        # 注入事件监听JavaScript
+        js_code = """
+        document.addEventListener('aiSaveHighlightToPython', function(event) {
+            try {
+                console.log('接收到高亮保存事件');
+                const highlightData = JSON.parse(event.detail);
+                console.log('已解析高亮数据:', highlightData);
+                
+                if (typeof qt === 'undefined' || typeof qt.webChannelTransport === 'undefined') {
+                    console.error('错误: qt.webChannelTransport未定义，无法保存高亮');
+                    // 失败时自动切换到备用方案
+                    window.AiSparkHub.webChannelAvailable = false;
+                    window.AiSparkHub.fallbackHighlight(highlightData);
+                    return;
+                }
+                
+                if (typeof QWebChannel === 'undefined') {
+                    console.error('错误: QWebChannel未定义，无法保存高亮');
+                    // 失败时自动切换到备用方案
+                    window.AiSparkHub.webChannelAvailable = false;
+                    window.AiSparkHub.fallbackHighlight(highlightData);
+                    return;
+                }
+                
+                console.log('准备通过WebChannel发送高亮数据');
+                new QWebChannel(qt.webChannelTransport, function(channel) {
+                    console.log('WebChannel已创建，可用对象:', Object.keys(channel.objects));
+                    if (channel.objects.highlightBridge) {
+                        console.log('找到highlightBridge对象，发送高亮数据');
+                        try {
+                            channel.objects.highlightBridge.saveHighlight(JSON.stringify(highlightData));
+                            console.log('高亮数据已发送到Python');
+                            window.AiSparkHub.webChannelAvailable = true; // 标记通信正常
+                        } catch(callError) {
+                            console.error('调用highlightBridge.saveHighlight失败:', callError);
+                            window.AiSparkHub.webChannelAvailable = false;
+                            window.AiSparkHub.fallbackHighlight(highlightData);
+                        }
+                    } else {
+                        console.error('无法找到highlightBridge对象，事件无法处理');
+                        // 标记WebChannel不可用
+                        window.AiSparkHub.webChannelAvailable = false;
+                        // 尝试使用备用方式
+                        if (window.AiSparkHub && window.AiSparkHub.fallbackHighlight) {
+                            console.log('尝试使用备用方式发送高亮数据');
+                            window.AiSparkHub.fallbackHighlight(highlightData);
+                        }
+                    }
+                });
+            } catch(e) {
+                console.error('处理高亮保存事件失败:', e);
+                // 任何失败都尝试用备用方案
+                if (window.AiSparkHub && window.AiSparkHub.fallbackHighlight) {
+                    window.AiSparkHub.fallbackHighlight(highlightData);
+                }
+            }
+        });
+        
+        document.addEventListener('aiHighlightApplied', function(event) {
+            try {
+                const data = JSON.parse(event.detail);
+                new QWebChannel(qt.webChannelTransport, function(channel) {
+                    if (channel.objects.highlightBridge) {
+                        channel.objects.highlightBridge.updateHighlightApplied(data.id);
+                    } else {
+                        console.error('无法找到highlightBridge对象，无法更新高亮应用时间');
+                        // 标记WebChannel不可用
+                        window.AiSparkHub.webChannelAvailable = false;
+                    }
+                });
+            } catch(e) {
+                console.error('处理高亮应用通知失败:', e);
+                window.AiSparkHub.webChannelAvailable = false;
+            }
+        });
+        
+        // 确保fallbackHighlight函数已定义
+        if (!window.AiSparkHub) {
+            window.AiSparkHub = {};
+        }
+        if (!window.AiSparkHub.fallbackHighlight) {
+            window.AiSparkHub.fallbackHighlight = function(highlightData) {
+                try {
+                    // 使用LocalStorage存储
+                    const key = 'HIGHLIGHT_' + Date.now() + '_' + Math.random().toString(36).substring(2, 10);
+                    localStorage.setItem(key, JSON.stringify(highlightData));
+                    console.log('备用方式: 高亮数据已保存到LocalStorage，键名:', key);
+                } catch(e) {
+                    console.error('备用高亮保存失败:', e);
+                }
+            };
+        }
+        """
+        
+        # 验证highlightBridge对象是否可用
+        test_script = """
+        (function() {
+            if (typeof qt !== 'undefined' && typeof qt.webChannelTransport !== 'undefined' && typeof QWebChannel !== 'undefined') {
+                new QWebChannel(qt.webChannelTransport, function(channel) {
+                    console.log('验证highlightBridge: 可用对象有:', Object.keys(channel.objects));
+                    if (channel.objects.highlightBridge) {
+                        console.log('highlightBridge对象可用，高亮功能正常');
+                        window.AiSparkHub = window.AiSparkHub || {};
+                        window.AiSparkHub.webChannelAvailable = true;
+                    } else {
+                        console.error('验证失败: highlightBridge对象不存在，高亮功能可能不可用');
+                        window.AiSparkHub = window.AiSparkHub || {};
+                        window.AiSparkHub.webChannelAvailable = false;
+                    }
+                });
+            } else {
+                console.error('无法验证highlightBridge: WebChannel组件不完整');
+                window.AiSparkHub = window.AiSparkHub || {};
+                window.AiSparkHub.webChannelAvailable = false;
+            }
+        })();
+        """
+        
+        # 运行JavaScript代码
+        self.page().runJavaScript(js_code)
+        self.page().runJavaScript(test_script)
+        self.logger.info("已注入高亮事件监听JavaScript代码")
+    
+    def save_highlight_from_js(self, highlight_json):
+        """从JavaScript接收高亮数据并保存到数据库
+        
+        Args:
+            highlight_json (str): JSON格式的高亮数据
+        """
+        try:
+            self.logger.info(f"接收到高亮数据: {highlight_json[:100]}...")  # 记录接收到的原始数据(限制长度)
+            
+            data = json.loads(highlight_json)
+            
+            # 获取URL
+            url = data.get('url')
+            if not url:
+                # 如果未提供URL，使用当前页面URL
+                url = self.url().toString()
+                self.logger.debug(f"未提供URL，使用当前页面URL: {url}")
+            
+            # 记录关键数据
+            self.logger.info(f"准备保存高亮数据: URL={url}, 文本长度={len(data.get('text_content', ''))}, 类型={data.get('highlight_type', '未知')}")
+            
+            # 保存到数据库
+            highlight_id = self.db_manager.save_highlight(
+                url=url,
+                text_content=data.get('text_content', ''),
+                xpath=data.get('xpath', ''),
+                offset_start=data.get('offset_start', 0),
+                offset_end=data.get('offset_end', 0),
+                highlight_type=data.get('highlight_type', 'yellow'),
+                bg_color=data.get('bg_color', ''),
+                border=data.get('border', ''),
+                note=data.get('note', '')
+            )
+            
+            if highlight_id:
+                self.logger.info(f"成功保存高亮数据，ID: {highlight_id}")
+            else:
+                self.logger.error(f"保存高亮数据失败，返回的ID为空或无效")
+            
+        except Exception as e:
+            self.logger.error(f"处理高亮数据时出错: {str(e)}")
+            import traceback
+            self.logger.error(f"错误详情: {traceback.format_exc()}")
+    
+    def update_highlight_applied_time(self, highlight_id):
+        """更新高亮数据的应用时间
+        
+        Args:
+            highlight_id (int): 高亮记录ID
+        """
+        try:
+            success = self.db_manager.update_highlight_applied_time(highlight_id)
+            if success:
+                self.logger.debug(f"已更新高亮应用时间，ID: {highlight_id}")
+            else:
+                self.logger.warning(f"更新高亮应用时间失败，ID: {highlight_id}")
+        except Exception as e:
+            self.logger.error(f"更新高亮应用时间时出错: {str(e)}")
+    
+    def load_highlights_for_current_page(self):
+        """加载当前页面的高亮数据并应用"""
+        try:
+            current_url = self.url().toString()
+            self.logger.debug(f"正在加载页面高亮数据: {current_url}")
+            
+            # 获取当前URL的高亮数据
+            highlights = self.db_manager.get_highlights_for_url(current_url)
+            
+            if not highlights:
+                self.logger.debug(f"未找到页面高亮数据: {current_url}")
+                return
+                
+            self.logger.info(f"找到{len(highlights)}条高亮数据")
+            
+            # 将高亮数据传递给前端JS处理
+            js_code = f"if (typeof applyStoredHighlights === 'function') {{ applyStoredHighlights({json.dumps(highlights)}); }} else {{ console.warn('applyStoredHighlights函数不可用'); }}"
+            
+            # 设置延迟，确保DOM已完全加载
+            QTimer.singleShot(1000, lambda: self.page().runJavaScript(js_code))
+            
+        except Exception as e:
+            self.logger.error(f"加载高亮数据时出错: {str(e)}")
+            import traceback
+            traceback.print_exc()
     
     def inject_script(self):
         """注入提示词注入脚本"""
@@ -206,9 +808,38 @@ class AIWebView(QWebEngineView):
                 script_content = script_file.readAll().data().decode('utf-8')
                 script_file.close()
                 
+                # 添加备用通信功能
+                fallback_script = """
+                // 添加备用高亮功能
+                if (typeof saveHighlightToPython === 'function') {
+                    const originalSaveHighlight = saveHighlightToPython;
+                    saveHighlightToPython = function(highlightData) {
+                        try {
+                            // 先尝试正常方式
+                            originalSaveHighlight(highlightData);
+                            
+                            // 同时使用备用方式，作为冗余
+                            if (window.AiSparkHub && window.AiSparkHub.fallbackHighlight) {
+                                window.AiSparkHub.fallbackHighlight(highlightData);
+                            }
+                        } catch(e) {
+                            console.error('高亮保存失败，使用备用方式:', e);
+                            // 如果正常方式失败，确保使用备用方式
+                            if (window.AiSparkHub && window.AiSparkHub.fallbackHighlight) {
+                                window.AiSparkHub.fallbackHighlight(highlightData);
+                            }
+                        }
+                    };
+                    console.log('已设置备用高亮保存功能');
+                }
+                """
+                
+                # 组合脚本
+                combined_script = script_content + "\n" + fallback_script
+                
                 # 注入脚本 - 移除回调
-                self.page().runJavaScript(script_content)
-                self.logger.debug(f"已注入提示词脚本")
+                self.page().runJavaScript(combined_script)
+                self.logger.debug(f"已注入提示词脚本（包含备用通信功能）")
             else:
                 self.logger.error(f"无法打开脚本文件: {INJECTOR_SCRIPT_PATH}")
         except Exception as e:
@@ -267,31 +898,243 @@ class AIWebView(QWebEngineView):
                 const logData = JSON.parse(event.detail);
                 // 直接调用QtWebEngine桥接的函数，而不是pywebview
                 new QWebChannel(qt.webChannelTransport, function(channel) {
-                    channel.objects.bridge.receiveJsLog(JSON.stringify(logData));
+                    if (channel.objects.bridge) {
+                        channel.objects.bridge.receiveJsLog(JSON.stringify(logData));
+                    } else {
+                        console.error('无法找到bridge对象，日志可能无法发送到后端');
+                    }
                 });
             } catch(e) {
                 console.error('发送日志到Python时出错:', e);
             }
         });
+        
+        // 添加备用通信方式 - 通过LocalStorage
+        window.AiSparkHub = window.AiSparkHub || {};
+        window.AiSparkHub.fallbackHighlight = function(highlightData) {
+            try {
+                console.log('使用备用方式(LocalStorage)发送高亮数据');
+                // 生成唯一key并存入LocalStorage
+                const key = 'HIGHLIGHT_' + Date.now() + '_' + Math.random().toString(36).substring(2, 10);
+                localStorage.setItem(key, JSON.stringify(highlightData));
+                console.log('高亮数据已保存到LocalStorage，键名:', key);
+                return true;
+            } catch(e) {
+                console.error('备用高亮方式(LocalStorage)失败:', e);
+                // 尝试其他可能的备用机制
+                try {
+                    // 特殊格式化，前缀标识这是一个高亮数据
+                    const encodedData = 'HIGHLIGHT:' + JSON.stringify(highlightData);
+                    
+                    // 尝试写入剪贴板 (作为最后的备用)
+                    if (navigator.clipboard && navigator.clipboard.writeText) {
+                        navigator.clipboard.writeText(encodedData)
+                            .then(() => console.log('高亮数据已写入剪贴板(备用方案2)'))
+                            .catch(err => console.error('剪贴板写入失败:', err));
+                    } else {
+                        console.error('所有备用方案均失败');
+                    }
+                } catch(clipboardError) {
+                    console.error('所有备用通信方式均失败');
+                }
+                return false;
+            }
+        };
+
+        // 添加WebChannel状态检测功能
+        window.AiSparkHub.checkWebChannel = function() {
+            try {
+                if (typeof qt === 'undefined' || typeof qt.webChannelTransport === 'undefined') {
+                    console.error('WebChannel不可用: qt或webChannelTransport未定义');
+                    window.AiSparkHub.webChannelAvailable = false;
+                    return false;
+                }
+                
+                if (typeof QWebChannel === 'undefined') {
+                    console.error('WebChannel不可用: QWebChannel未定义');
+                    window.AiSparkHub.webChannelAvailable = false;
+                    return false;
+                }
+                
+                new QWebChannel(qt.webChannelTransport, function(channel) {
+                    if (!channel.objects.highlightBridge) {
+                        console.error('WebChannel可用但highlightBridge对象不存在');
+                        window.AiSparkHub.webChannelAvailable = false;
+                    } else {
+                        console.log('WebChannel状态正常，highlightBridge对象可用');
+                        window.AiSparkHub.webChannelAvailable = true;
+                    }
+                });
+            } catch(e) {
+                console.error('检查WebChannel状态失败:', e);
+                window.AiSparkHub.webChannelAvailable = false;
+                return false;
+            }
+        };
+        
+        // 增强saveHighlightToPython函数，添加自动故障切换能力
+        window.saveHighlightToPython = function(highlightData) {
+            // 先执行WebChannel状态检查
+            window.AiSparkHub.checkWebChannel();
+            
+            try {
+                // 如果WebChannel可用，正常发送
+                if (window.AiSparkHub.webChannelAvailable !== false) {
+                    const event = new CustomEvent('aiSaveHighlightToPython', {
+                        detail: JSON.stringify(highlightData)
+                    });
+                    document.dispatchEvent(event);
+                    console.log('通过aiSaveHighlightToPython事件发送高亮数据');
+                    return true;
+                } else {
+                    // WebChannel不可用，直接使用备用方式
+                    console.warn('检测到WebChannel不可用，直接使用备用方式');
+                    window.AiSparkHub.fallbackHighlight(highlightData);
+                    return true;
+                }
+            } catch(e) {
+                console.error('保存高亮失败，使用备用方式:', e);
+                window.AiSparkHub.fallbackHighlight(highlightData);
+                return false;
+            }
+        };
+
+        // 全局测试函数
+        window.testHighlightBridge = function() {
+            try {
+                console.log('测试highlightBridge...');
+                if (typeof qt === 'undefined' || typeof qt.webChannelTransport === 'undefined') {
+                    console.error('qt.webChannelTransport不可用，无法测试');
+                    return false;
+                }
+                
+                new QWebChannel(qt.webChannelTransport, function(channel) {
+                    console.log('WebChannel对象已获取，可用对象:', Object.keys(channel.objects));
+                    if (channel.objects.highlightBridge) {
+                        console.log('找到highlightBridge对象，发送测试数据');
+                        const testData = {
+                            text_content: "测试高亮",
+                            url: window.location.href,
+                            timestamp: new Date().toISOString(),
+                            test: true
+                        };
+                        channel.objects.highlightBridge.saveHighlight(JSON.stringify(testData));
+                        console.log('测试数据已通过highlightBridge发送');
+                        return true;
+                    } else {
+                        console.error('未找到highlightBridge对象');
+                        return false;
+                    }
+                });
+            } catch(e) {
+                console.error('测试highlightBridge失败:', e);
+                return false;
+            }
+        };
         """
-        
-        # 创建并设置桥接对象
-        class Bridge(QObject):
-            @pyqtSlot(str)
-            def receiveJsLog(self, log_json):
-                self.parent().receive_js_log(log_json)
-        
-        # 创建桥接对象并设置父对象
-        self.bridge = Bridge(self)
-        
-        # 创建Web通道并注册桥接对象
-        channel = QWebChannel(self.page())
-        channel.registerObject("bridge", self.bridge)
-        self.page().setWebChannel(channel)
         
         # 运行JavaScript代码
         self.page().runJavaScript(js_code)
         
+        # 初始检查WebChannel状态
+        self.page().runJavaScript("window.AiSparkHub.checkWebChannel()")
+        
+        # 启动备用通信监控器
+        self._setup_storage_monitor()
+    
+    def _setup_storage_monitor(self):
+        """设置LocalStorage监控，作为WebChannel的备用通信方式"""
+        self.logger.info("启动LocalStorage监控作为备用通信方式")
+        
+        # 创建定时器，每300毫秒检查一次LocalStorage
+        self.storage_timer = QTimer(self)
+        self.storage_timer.timeout.connect(self._check_local_storage)
+        self.storage_timer.start(300)  # 300毫秒更频繁检查
+        
+        # 保留剪贴板监控作为第二备用方案
+        self.clipboard_timer = QTimer(self)
+        self.clipboard_timer.timeout.connect(self._check_clipboard)
+        self.clipboard_timer.start(1000)  # 毫秒
+        
+        # 缓存上一次剪贴板内容，避免重复处理
+        self.last_clipboard_text = ""
+    
+    def _check_local_storage(self):
+        """检查LocalStorage是否有高亮数据"""
+        js_code = """
+        (function() {
+            try {
+                const keys = Object.keys(localStorage);
+                const highlightKeys = keys.filter(k => k.startsWith('HIGHLIGHT_'));
+                
+                if (highlightKeys.length === 0) {
+                    return null;
+                }
+                
+                let results = [];
+                
+                for (const key of highlightKeys) {
+                    try {
+                        const data = localStorage.getItem(key);
+                        results.push({key: key, data: data});
+                        // 读取后删除
+                        localStorage.removeItem(key);
+                    } catch(e) {
+                        console.error('读取LocalStorage数据失败:', e);
+                    }
+                }
+                
+                return results.length > 0 ? results : null;
+            } catch(e) {
+                console.error('检查LocalStorage时出错:', e);
+                return null;
+            }
+        })();
+        """
+        self.page().runJavaScript(js_code, self._handle_local_storage_data)
+    
+    def _handle_local_storage_data(self, results):
+        """处理从LocalStorage获取的高亮数据"""
+        if not results:
+            return
+        
+        self.logger.info(f"从LocalStorage发现{len(results)}条高亮数据")
+        
+        for item in results:
+            try:
+                data = item.get('data', '{}')
+                key = item.get('key', 'unknown')
+                self.logger.info(f"处理LocalStorage中的高亮数据: {key}")
+                self.save_highlight_from_js(data)
+            except Exception as e:
+                self.logger.error(f"处理LocalStorage高亮数据出错: {str(e)}")
+    
+    def _check_clipboard(self):
+        """检查剪贴板是否有高亮数据"""
+        try:
+            clipboard = QApplication.clipboard()
+            text = clipboard.text()
+            
+            # 如果内容相同或为空，忽略
+            if not text or text == self.last_clipboard_text:
+                return
+                
+            self.last_clipboard_text = text
+            
+            # 检查是否是我们的特殊格式
+            if text.startswith("HIGHLIGHT:"):
+                self.logger.info("检测到剪贴板中的高亮数据")
+                # 提取JSON数据
+                json_data = text[len("HIGHLIGHT:"):]
+                
+                # 处理高亮数据
+                self.save_highlight_from_js(json_data)
+                
+                # 清空剪贴板，避免重复处理
+                clipboard.clear()
+        except Exception as e:
+            self.logger.error(f"检查剪贴板出错: {str(e)}")
+            
     def receive_js_log(self, log_data):
         """接收并处理来自JavaScript的日志"""
         try:
