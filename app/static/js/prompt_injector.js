@@ -864,147 +864,124 @@ function applyStoredHighlights(highlightDataArray) {
     
     logInfo("开始应用保存的高亮数据", { count: highlightDataArray.length });
     
-    // 确保Rangy已加载
-    if (!window.rangyLoaded || !window.AiSparkHub || !window.AiSparkHub.rangyHighlighter) {
-        logWarning("Rangy未初始化，无法应用高亮");
-        setTimeout(() => applyStoredHighlights(highlightDataArray), 1000); // 延迟重试
-        return;
-    }
+    // 设置简单的高亮样式
+    const highlightStyles = {
+        yellow: "background-color: rgba(255, 255, 0, 0.3); border-bottom: 2px solid gold;",
+        red: "background-color: rgba(255, 0, 0, 0.3); border-bottom: 2px solid red;",
+        green: "background-color: rgba(0, 255, 0, 0.3); border-bottom: 2px solid green;"
+    };
     
     // 遍历所有高亮数据
-    highlightDataArray.forEach(data => {
+    highlightDataArray.forEach((data, index) => {
         try {
-            // 查找XPath对应的元素
-            const element = getElementByXPath(data.xpath);
-            
-            if (!element || !element.childNodes || element.childNodes.length === 0) {
-                logWarning("未找到匹配的元素:", data.xpath);
+            // 获取需要高亮的文本内容
+            const textToHighlight = data.text_content;
+            if (!textToHighlight || textToHighlight.trim() === '') {
+                logWarning(`高亮数据 #${index} 没有文本内容`);
                 return;
             }
             
-            // 获取文本节点
-            const textNodes = getAllTextNodesIn(element);
-            if (textNodes.length === 0) {
-                logWarning("元素内没有文本节点");
-                return;
+            logInfo(`正在应用高亮 #${index}: "${textToHighlight.substring(0, 30)}${textToHighlight.length > 30 ? '...' : ''}"`);
+            
+            // 确定高亮样式
+            let style = highlightStyles.yellow; // 默认黄色
+            if (data.highlight_type === 'red') {
+                style = highlightStyles.red;
+            } else if (data.highlight_type === 'green') {
+                style = highlightStyles.green;
             }
             
-            // 查找包含目标文本的节点
-            let targetNode = null;
-            let nodeText = '';
-            
-            for (const node of textNodes) {
-                nodeText = node.nodeValue || '';
-                if (nodeText.includes(data.text_content)) {
-                    targetNode = node;
-                    break;
-                }
-            }
-            
-            // 如果找不到精确匹配，使用第一个文本节点
-            if (!targetNode && textNodes.length > 0) {
-                targetNode = textNodes[0];
-                logWarning("未找到包含目标文本的节点，使用第一个文本节点");
-            }
-            
-            if (!targetNode) {
-                logWarning("无法找到合适的文本节点");
-                return;
-            }
-            
-            // 创建范围并应用高亮
-            try {
-                const range = rangy.createRange();
-                
-                // 尝试使用保存的偏移量
-                if (data.offset_start >= 0 && data.offset_end > data.offset_start) {
-                    range.setStart(targetNode, data.offset_start);
-                    range.setEnd(targetNode, data.offset_end);
-                } else {
-                    // 如果偏移量无效，尝试通过文本内容查找
-                    const startPos = nodeText.indexOf(data.text_content);
-                    if (startPos >= 0) {
-                        range.setStart(targetNode, startPos);
-                        range.setEnd(targetNode, startPos + data.text_content.length);
-                    } else {
-                        logWarning("无法在文本中定位高亮内容");
-                        return;
-                    }
-                }
-                
-                // 确定高亮类名
-                let className = 'ai-highlight-yellow'; // 默认
-                
-                if (data.highlight_type) {
-                    if (data.highlight_type.includes('red')) {
-                        className = 'ai-highlight-red';
-                    } else if (data.highlight_type.includes('green')) {
-                        className = 'ai-highlight-green';
-                    } else if (data.highlight_type.includes('yellow')) {
-                        className = 'ai-highlight-yellow';
-                    }
-                }
-                
-                // 应用高亮
-                window.AiSparkHub.rangyHighlighter.highlightRange(className, range);
-                logInfo("成功应用高亮", {
-                    text: data.text_content,
-                    class: className
-                });
-                
-                // 发送高亮应用成功的通知
-                notifyHighlightApplied(data.id);
-                
-            } catch (rangeError) {
-                logError("创建或应用高亮范围失败:", rangeError.message);
-            }
+            // 简单的文本替换方法
+            highlightTextInPage(textToHighlight, style, data.id);
             
         } catch (error) {
-            logError("应用高亮记录失败:", error.message);
+            logError(`应用高亮 #${index} 失败:`, error.message);
         }
     });
-}
-
-/**
- * 通过XPath获取元素
- * @param {String} xpath - XPath表达式
- * @return {Element} 匹配的DOM元素
- */
-function getElementByXPath(xpath) {
-    try {
-        return document.evaluate(
-            xpath,
-            document,
-            null,
-            XPathResult.FIRST_ORDERED_NODE_TYPE,
-            null
-        ).singleNodeValue;
-    } catch (e) {
-        logError("XPath求值失败:", e.message);
-        return null;
-    }
-}
-
-/**
- * 获取元素内所有文本节点
- * @param {Element} element - DOM元素
- * @return {Array} 文本节点数组
- */
-function getAllTextNodesIn(element) {
-    const textNodes = [];
     
-    function collectTextNodes(node) {
-        if (node.nodeType === Node.TEXT_NODE && node.nodeValue.trim()) {
+    showToast(`已应用 ${highlightDataArray.length} 条高亮`);
+}
+
+/**
+ * 在页面中查找并高亮文本
+ * @param {string} text - 要高亮的文本
+ * @param {string} style - CSS样式
+ * @param {number} highlightId - 高亮ID
+ */
+function highlightTextInPage(text, style, highlightId) {
+    // 对特殊字符进行转义，以便在正则表达式中使用
+    const escapeRegExp = (string) => {
+        return string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    };
+    
+    try {
+        // 创建文本节点遍历器
+        const textNodes = [];
+        const walker = document.createTreeWalker(
+            document.body,
+            NodeFilter.SHOW_TEXT,
+            { acceptNode: node => node.nodeValue.trim() ? NodeFilter.FILTER_ACCEPT : NodeFilter.FILTER_REJECT }
+        );
+        
+        // 收集所有文本节点
+        let node;
+        while (node = walker.nextNode()) {
             textNodes.push(node);
-        } else {
-            for (let i = 0; i < node.childNodes.length; i++) {
-                collectTextNodes(node.childNodes[i]);
+        }
+        
+        // 查找包含目标文本的节点
+        let found = false;
+        const escapedText = escapeRegExp(text);
+        const regex = new RegExp(escapedText, 'i');
+        
+        for (const node of textNodes) {
+            const content = node.nodeValue;
+            if (regex.test(content)) {
+                // 找到匹配的文本，替换为带高亮的HTML
+                const range = document.createRange();
+                range.selectNode(node);
+                
+                const startIndex = content.toLowerCase().indexOf(text.toLowerCase());
+                if (startIndex === -1) continue;
+                
+                const span = document.createElement('span');
+                span.setAttribute('style', style);
+                span.setAttribute('data-highlight-id', highlightId);
+                span.classList.add('ai-highlight');
+                span.textContent = content.substring(startIndex, startIndex + text.length);
+                
+                // 分割文本节点
+                const beforeText = content.substring(0, startIndex);
+                const afterText = content.substring(startIndex + text.length);
+                
+                const fragment = document.createDocumentFragment();
+                if (beforeText) {
+                    fragment.appendChild(document.createTextNode(beforeText));
+                }
+                fragment.appendChild(span);
+                if (afterText) {
+                    fragment.appendChild(document.createTextNode(afterText));
+                }
+                
+                // 替换原始节点
+                node.parentNode.replaceChild(fragment, node);
+                
+                // 通知后端高亮已应用
+                notifyHighlightApplied(highlightId);
+                
+                found = true;
+                logInfo(`成功高亮文本: "${text.substring(0, 30)}${text.length > 30 ? '...' : ''}"`);
+                break; // 只替换第一个匹配项
             }
         }
+        
+        if (!found) {
+            logWarning(`未找到匹配文本: "${text.substring(0, 30)}${text.length > 30 ? '...' : ''}"`);
+        }
+        
+    } catch (error) {
+        logError("高亮文本时出错:", error.message);
     }
-    
-    collectTextNodes(element);
-    return textNodes;
 }
 
 /**
