@@ -426,201 +426,133 @@ const logDebug = (msg, data) => window.AiSparkHub.logToPython('debug', msg, data
 // 添加Rangy库支持 - 处理CSP限制问题
 (function() {
     logInfo("===== Rangy库加载诊断 =====");
-    logInfo("开始加载Rangy库...");
+    logInfo("检查Rangy库状态...");
     
-    // 检查是否已经加载过
-    if (typeof window.rangyLoaded !== 'undefined') {
-        logInfo("Rangy库已经开始加载，避免重复");
-        return;
-    }
-    
-    // 标记已经开始加载
+    // 标记全局变量，后续功能会检查它
     window.rangyLoaded = false;
     
-    // 检测是否可能有CSP限制
-    function detectCSP() {
-        // 检查当前域名是否为已知的严格CSP站点
-        const strictCSPSites = ['chat.openai.com', 'chatgpt.com', 'claude.ai', 'bard.google.com'];
-        const currentHost = window.location.hostname;
-        
-        for (const site of strictCSPSites) {
-            if (currentHost.includes(site)) {
-                logWarning(`检测到可能的CSP限制站点: ${currentHost}`);
-                return true;
+    // 直接初始化Rangy (假设Python已经注入了脚本)
+    function initRangy() {
+        try {
+            // 检查rangy是否已被Python注入并定义
+            if (typeof rangy === 'undefined') {
+                logError("Rangy对象未定义，请确保Python后端已注入rangy脚本");
+                showToast("高级高亮功能未加载，将使用基本功能");
+                return;
             }
-        }
-        
-        return false;
-    }
-    
-    const hasCSPRestriction = detectCSP();
-    
-    // 尝试加载Rangy
-    function loadRangy() {
-        // 如果检测到CSP限制，显示警告并跳过加载
-        if (hasCSPRestriction) {
-            logWarning("当前网站存在CSP限制，无法加载外部Rangy库。将使用传统高亮方法。");
-            showToast("此网站限制了外部脚本，将使用基本高亮功能");
-            return;
-        }
-        
-        // 动态加载Rangy核心
-        const rangyScript = document.createElement('script');
-        rangyScript.src = 'https://cdn.jsdelivr.net/npm/rangy@1.3.0/lib/rangy-core.min.js';
-        rangyScript.async = false; // 改为同步加载，确保顺序
-        
-        // 加载完核心后加载highlighter模块
-        rangyScript.onload = function() {
-            logInfo("Rangy核心库加载成功!");
             
-            // 先加载classapplier模块 (highlighter需要此模块)
-            const classapplierScript = document.createElement('script');
-            classapplierScript.src = 'https://cdn.jsdelivr.net/npm/rangy@1.3.0/lib/rangy-classapplier.min.js';
-            classapplierScript.async = false;
+            logInfo("Rangy对象已存在，尝试初始化...");
             
-            // 加载highlighter模块
-            classapplierScript.onload = function() {
-                logInfo("Rangy类应用模块加载成功!");
-                
-                const highlighterScript = document.createElement('script');
-                highlighterScript.src = 'https://cdn.jsdelivr.net/npm/rangy@1.3.0/lib/rangy-highlighter.min.js';
-                highlighterScript.async = false;
-                
-                highlighterScript.onload = function() {
-                    logInfo("Rangy高亮模块加载成功!");
-                    
-                    // 初始化Rangy
-                    if (typeof rangy !== 'undefined') {
-                        try {
-                            logInfo("准备初始化Rangy...");
-                            rangy.init();
-                            logInfo("Rangy初始化成功! 版本:", rangy.version);
-                            
-                            // 创建一个highlighter
-                            const highlighter = rangy.createHighlighter();
-                            
-                            // 定义全局样式变量，以便所有高亮方法可以共享
-                            window.AiSparkHub = window.AiSparkHub || {};
-                            window.AiSparkHub.highlightStyles = {
-                                yellow: {
-                                    backgroundColor: "rgba(255,255,0,0.3)",
-                                    borderBottom: "2px solid gold",
-                                    transition: "background-color 0.3s"
-                                },
-                                red: {
-                                    backgroundColor: "rgba(255,0,0,0.3)",
-                                    borderBottom: "2px solid red",
-                                    transition: "background-color 0.3s"
-                                },
-                                green: {
-                                    backgroundColor: "rgba(0,255,0,0.3)",
-                                    borderBottom: "2px solid green",
-                                    transition: "background-color 0.3s"
-                                }
-                            };
-                            
-                            // 添加不同颜色的应用器
-                            highlighter.addClassApplier(rangy.createClassApplier("ai-highlight-yellow", {
-                                tagNames: ["span"],
-                                elementAttributes: {
-                                    "data-highlight-type": "yellow"
-                                },
-                                elementProperties: {
-                                    style: window.AiSparkHub.highlightStyles.yellow
-                                },
-                                onElementCreate: function(element) {
-                                    // 确保样式直接应用在元素上
-                                    const style = window.AiSparkHub.highlightStyles.yellow;
-                                    element.style.backgroundColor = style.backgroundColor;
-                                    element.style.borderBottom = style.borderBottom; // 改为下划线
-                                    element.style.transition = style.transition;
-                                    element.className = "ai-highlight-yellow"; // 确保类名被应用
-                                }
-                            }));
-                            
-                            highlighter.addClassApplier(rangy.createClassApplier("ai-highlight-red", {
-                                tagNames: ["span"],
-                                elementAttributes: {
-                                    "data-highlight-type": "red"
-                                },
-                                elementProperties: {
-                                    style: window.AiSparkHub.highlightStyles.red
-                                },
-                                onElementCreate: function(element) {
-                                    // 确保样式直接应用在元素上
-                                    const style = window.AiSparkHub.highlightStyles.red;
-                                    element.style.backgroundColor = style.backgroundColor;
-                                    element.style.borderBottom = style.borderBottom; // 改为下划线
-                                    element.style.transition = style.transition;
-                                    element.className = "ai-highlight-red"; // 确保类名被应用
-                                }
-                            }));
-                            
-                            highlighter.addClassApplier(rangy.createClassApplier("ai-highlight-green", {
-                                tagNames: ["span"],
-                                elementAttributes: {
-                                    "data-highlight-type": "green"
-                                },
-                                elementProperties: {
-                                    style: window.AiSparkHub.highlightStyles.green
-                                },
-                                onElementCreate: function(element) {
-                                    // 确保样式直接应用在元素上
-                                    const style = window.AiSparkHub.highlightStyles.green;
-                                    element.style.backgroundColor = style.backgroundColor;
-                                    element.style.borderBottom = style.borderBottom; // 改为下划线
-                                    element.style.transition = style.transition;
-                                    element.className = "ai-highlight-green"; // 确保类名被应用
-                                }
-                            }));
-                            
-                            // 将highlighter保存到全局对象
-                            window.AiSparkHub.rangyHighlighter = highlighter;
-                            logInfo("Rangy高亮器配置完成", highlighter);
-                            
-                            // 标记加载成功
-                            window.rangyLoaded = true;
-                            
-                            // 显示加载成功提示
-                            showToast("Rangy高亮库加载成功！");
-                        } catch (e) {
-                            logError("Rangy初始化失败:", e);
-                            showToast("Rangy初始化失败: " + e.message);
-                        }
-                    } else {
-                        logError("Rangy对象不存在，加载失败");
-                        showToast("Rangy对象不存在，加载失败");
-                    }
-                };
-                
-                highlighterScript.onerror = function() {
-                    logError("Rangy高亮模块加载失败!");
-                    showToast("Rangy高亮模块加载失败");
-                };
-                
-                document.head.appendChild(highlighterScript);
+            // 初始化Rangy
+            rangy.init();
+            logInfo("Rangy初始化成功! 版本:", rangy.version);
+            
+            // 创建一个highlighter
+            const highlighter = rangy.createHighlighter();
+            
+            // 定义全局样式变量，以便所有高亮方法可以共享
+            window.AiSparkHub = window.AiSparkHub || {};
+            window.AiSparkHub.highlightStyles = {
+                yellow: {
+                    backgroundColor: "rgba(255,255,0,0.3)",
+                    borderBottom: "2px solid gold",
+                    transition: "background-color 0.3s"
+                },
+                red: {
+                    backgroundColor: "rgba(255,0,0,0.3)",
+                    borderBottom: "2px solid red",
+                    transition: "background-color 0.3s"
+                },
+                green: {
+                    backgroundColor: "rgba(0,255,0,0.3)",
+                    borderBottom: "2px solid green",
+                    transition: "background-color 0.3s"
+                }
             };
             
-            classapplierScript.onerror = function() {
-                logError("Rangy类应用模块加载失败!");
-                showToast("Rangy类应用模块加载失败");
-            };
+            // 添加不同颜色的应用器
+            highlighter.addClassApplier(rangy.createClassApplier("ai-highlight-yellow", {
+                tagNames: ["span"],
+                elementAttributes: {
+                    "data-highlight-type": "yellow"
+                },
+                elementProperties: {
+                    style: window.AiSparkHub.highlightStyles.yellow
+                },
+                onElementCreate: function(element) {
+                    // 确保样式直接应用在元素上
+                    const style = window.AiSparkHub.highlightStyles.yellow;
+                    element.style.backgroundColor = style.backgroundColor;
+                    element.style.borderBottom = style.borderBottom;
+                    element.style.transition = style.transition;
+                    element.className = "ai-highlight-yellow";
+                }
+            }));
             
-            document.head.appendChild(classapplierScript);
-        };
-        
-        rangyScript.onerror = function() {
-            logError("Rangy核心库加载失败!");
-            showToast("Rangy核心库加载失败");
-        };
-        
-        document.head.appendChild(rangyScript);
+            highlighter.addClassApplier(rangy.createClassApplier("ai-highlight-red", {
+                tagNames: ["span"],
+                elementAttributes: {
+                    "data-highlight-type": "red"
+                },
+                elementProperties: {
+                    style: window.AiSparkHub.highlightStyles.red
+                },
+                onElementCreate: function(element) {
+                    // 确保样式直接应用在元素上
+                    const style = window.AiSparkHub.highlightStyles.red;
+                    element.style.backgroundColor = style.backgroundColor;
+                    element.style.borderBottom = style.borderBottom;
+                    element.style.transition = style.transition;
+                    element.className = "ai-highlight-red";
+                }
+            }));
+            
+            highlighter.addClassApplier(rangy.createClassApplier("ai-highlight-green", {
+                tagNames: ["span"],
+                elementAttributes: {
+                    "data-highlight-type": "green"
+                },
+                elementProperties: {
+                    style: window.AiSparkHub.highlightStyles.green
+                },
+                onElementCreate: function(element) {
+                    // 确保样式直接应用在元素上
+                    const style = window.AiSparkHub.highlightStyles.green;
+                    element.style.backgroundColor = style.backgroundColor;
+                    element.style.borderBottom = style.borderBottom;
+                    element.style.transition = style.transition;
+                    element.className = "ai-highlight-green";
+                }
+            }));
+            
+            // 将highlighter保存到全局对象
+            window.AiSparkHub.rangyHighlighter = highlighter;
+            logInfo("Rangy高亮器配置完成", highlighter);
+            
+            // 标记加载成功
+            window.rangyLoaded = true;
+            
+            // 显示加载成功提示
+            showToast("高亮功能已准备就绪");
+        } catch (e) {
+            logError("Rangy初始化失败:", e);
+            showToast("高亮功能初始化失败: " + e.message);
+        }
     }
     
-    // 开始加载
-    loadRangy();
+    // 页面加载完成后初始化
+    if (document.readyState === 'complete') {
+        initRangy();
+    } else {
+        window.addEventListener('load', initRangy);
+    }
     
-    logInfo("Rangy脚本已添加到文档中");
+    // 预先检查rangy对象是否已定义
+    if (typeof rangy !== 'undefined') {
+        logInfo("Rangy对象已提前定义，页面加载时将初始化");
+    } else {
+        logInfo("等待Python注入Rangy脚本...");
+    }
 })();
 
 // 修改原有的highlightSelection函数，使用Rangy

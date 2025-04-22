@@ -34,7 +34,7 @@ AI对话视图系统 - AIView/AIWebView
 from PyQt6.QtWidgets import QWidget, QHBoxLayout, QVBoxLayout, QLabel, QSplitter, QComboBox, QPushButton, QApplication
 from PyQt6.QtCore import Qt, QUrl, QFile, QIODevice, QTimer, QSize
 from PyQt6.QtWebEngineWidgets import QWebEngineView
-from PyQt6.QtWebEngineCore import QWebEnginePage, QWebEngineSettings
+from PyQt6.QtWebEngineCore import QWebEnginePage, QWebEngineSettings, QWebEngineScript
 from PyQt6.QtGui import QPixmap, QIcon
 import os
 import qtawesome as qta
@@ -121,27 +121,14 @@ class AIWebView(QWebEngineView):
         web_page = WebEnginePage(shared_profile, self)
         self.setPage(web_page)
         
-        # 创建WebChannel和桥接对象 - 确保先创建高亮桥接对象
+        # 创建桥接对象 - 但暂不创建WebChannel
         self.highlight_bridge = self._create_highlight_bridge()
         self.log_bridge = self._create_log_bridge()
         
-        # 确保QWebChannel可用
-        try:
-            self.logger.info("初始化WebChannel")
-            # 创建并设置全局WebChannel
-            self.channel = QWebChannel(self.page())
-            self.page().setWebChannel(self.channel)
-            
-            # 注册桥接对象到WebChannel - 放在创建后立即注册
-            self.logger.info("注册highlightBridge和bridge对象到WebChannel")
-            self.channel.registerObject("highlightBridge", self.highlight_bridge)
-            self.channel.registerObject("bridge", self.log_bridge)
-            
-            self.logger.info(f"WebChannel已创建并注册了对象: highlightBridge, bridge")
-        except Exception as e:
-            self.logger.error(f"初始化WebChannel失败: {str(e)}")
-            import traceback
-            self.logger.error(traceback.format_exc())
+        # WebChannel将在页面加载完成后创建
+        self.channel = None
+        
+        self.logger.info("桥接对象已创建，WebChannel将在页面加载完成后初始化")
         
         # 设置剪贴板权限
         settings = web_page.settings()
@@ -233,43 +220,69 @@ class AIWebView(QWebEngineView):
         if success:
             self.logger.info(f"页面加载完成: {self.url().toString()}")
             
-            # 首先注入qwebchannel.js脚本
-            self.inject_qwebchannel_script()
-            
-            # 注入提示词注入脚本
-            self.inject_script()
-            
-            # 注入F12快捷键脚本，用于打开开发者工具
+            # 导入WebChannel世界ID定义
             try:
-                debug_key_script = """
-                document.addEventListener('keydown', function(e) {
-                    if (e.key === 'F12') {
-                        console.log('F12 pressed - attempting to open dev tools');
-                        // 在PyQt6 6.9.0中，此操作可打开开发者工具
-                    }
-                });
-                console.log('Debug key listener installed');
-                """
-                self.page().runJavaScript(debug_key_script)
-            except Exception as e:
-                self.logger.error(f"注入F12快捷键脚本失败: {str(e)}")
+                from PyQt6.QtWebEngineCore import QWebEngineScript
+                self.MAIN_WORLD = QWebEngineScript.ScriptWorldId.MainWorld
+                self.logger.info("导入ScriptWorldId成功，使用MainWorld注入")
+            except (ImportError, AttributeError):
+                self.MAIN_WORLD = 0  # 默认值，如果无法导入
+                self.logger.warning("无法导入ScriptWorldId，使用默认值0")
                 
-            # 安装JavaScript日志处理器
-            self._install_js_log_handler()
+            # 重新初始化WebChannel，确保世界ID一致
+            self.channel = None
             
-            # 注入事件监听代码
-            self.setup_highlight_handlers()
-            
-            # 加载当前页面的高亮数据
-            self.load_highlights_for_current_page()
-            
-            # 测试WebChannel通信
-            self.test_webchannel_communication()
+            # 首先注入qwebchannel.js脚本，然后在回调中设置WebChannel
+            self.inject_qwebchannel_script(callback=self._continue_page_init)
         else:
             self.logger.error(f"页面加载失败: {self.url().toString()}")
-    
-    def inject_qwebchannel_script(self):
-        """注入qwebchannel.js脚本，这是WebChannel通信的必要条件"""
+
+    def _continue_page_init(self):
+        """QWebChannel脚本加载后继续页面初始化"""
+        self.logger.info("QWebChannel脚本加载完成，继续初始化页面...")
+        
+        # 创建WebChannel并设置 - 在QWebChannel脚本加载后
+        self._setup_webchannel()
+        
+        # 注入Rangy脚本
+        self.inject_rangy_scripts()
+        
+        # 注入提示词注入脚本
+        self.inject_script()
+        
+        # 注入F12快捷键脚本，用于打开开发者工具
+        try:
+            debug_key_script = """
+            document.addEventListener('keydown', function(e) {
+                if (e.key === 'F12') {
+                    console.log('F12 pressed - attempting to open dev tools');
+                    // 在PyQt6 6.9.0中，此操作可打开开发者工具
+                }
+            });
+            console.log('Debug key listener installed');
+            """
+            self.page().runJavaScript(debug_key_script)
+        except Exception as e:
+            self.logger.error(f"注入F12快捷键脚本失败: {str(e)}")
+            
+        # 安装JavaScript日志处理器
+        self._install_js_log_handler()
+        
+        # 注入事件监听代码 - 在WebChannel设置后
+        self.setup_highlight_handlers()
+            
+        # 加载当前页面的高亮数据
+        self.load_highlights_for_current_page()
+        
+        # 测试WebChannel通信
+        QTimer.singleShot(500, self.test_webchannel_communication)
+
+    def inject_qwebchannel_script(self, callback=None):
+        """注入qwebchannel.js脚本，这是WebChannel通信的必要条件
+        
+        Args:
+            callback: 脚本注入完成后的回调函数
+        """
         self.logger.info("正在注入qwebchannel.js脚本...")
         
         # 简化版的QWebChannel实现，避免语法错误和CSP限制
@@ -278,7 +291,7 @@ class AIWebView(QWebEngineView):
     // 检查QWebChannel是否已存在，如果存在则不重复定义
     if (typeof QWebChannel !== 'undefined') {
         console.log('QWebChannel已存在，无需注入');
-        return;
+        return true;
     }
     
     console.log('正在定义QWebChannel...');
@@ -346,6 +359,7 @@ class AIWebView(QWebEngineView):
     };
     
     console.log('QWebChannel定义完成');
+    return true;
 })();
 
 // 测试QWebChannel是否可用
@@ -371,18 +385,122 @@ try {
             def handle_check(result):
                 if result:
                     self.logger.info("QWebChannel已存在，无需注入")
+                    # 即使已经存在也继续执行回调
+                    if callback:
+                        callback()
                 else:
                     self.logger.info("QWebChannel未定义，正在注入脚本...")
                     
-                    # 使用runJavaScript的同步方式，确保脚本执行完成
-                    self.page().runJavaScript(qwebchannel_simplified, lambda result: self._verify_qwebchannel_loaded(result))
+                    # 使用在MainWorld中注入脚本
+                    def verify_and_call_callback(result):
+                        self._verify_qwebchannel_loaded(result)
+                        if callback:
+                            callback()
+                            
+                    try:
+                        self.page().runJavaScript(
+                            qwebchannel_simplified, 
+                            self.MAIN_WORLD,
+                            verify_and_call_callback
+                        )
+                    except TypeError:
+                        # 回退到不指定世界的方式
+                        self.logger.warning("无法在MainWorld中注入脚本，使用默认方式")
+                        self.page().runJavaScript(
+                            qwebchannel_simplified,
+                            verify_and_call_callback
+                        )
                     
-            self.page().runJavaScript(check_script, handle_check)
+            # 在与脚本相同的世界中执行检查
+            try:
+                self.page().runJavaScript(check_script, self.MAIN_WORLD, handle_check)
+            except TypeError:
+                self.page().runJavaScript(check_script, handle_check)
             
         except Exception as e:
             self.logger.error(f"注入QWebChannel脚本失败: {str(e)}")
             import traceback
             self.logger.error(traceback.format_exc())
+            # 出错时也执行回调，确保初始化流程继续
+            if callback:
+                callback()
+
+    def _setup_webchannel(self):
+        """设置WebChannel和注册桥接对象"""
+        try:
+            # 如果channel已存在，则先清除
+            if self.channel:
+                self.logger.info("清除现有WebChannel并重新创建")
+                self.page().setWebChannel(None)
+                self.channel = None
+                
+            # 创建新的WebChannel对象
+            self.logger.info("创建新的WebChannel并注册桥接对象")
+            self.channel = QWebChannel(self.page())
+            
+            # 为了确保桥接对象在整个应用程序生命周期内都可用
+            # 将它们设为页面的属性，防止被垃圾回收
+            self.page().setProperty("_highlight_bridge_ref", self.highlight_bridge)
+            self.page().setProperty("_log_bridge_ref", self.log_bridge)
+            
+            # 注册桥接对象到WebChannel
+            self.logger.info("注册highlightBridge和bridge对象到WebChannel")
+            self.channel.registerObject("highlightBridge", self.highlight_bridge)
+            self.channel.registerObject("bridge", self.log_bridge)
+            
+            # 使用正确的世界ID设置WebChannel
+            try:
+                # 明确指定在MainWorld中设置WebChannel
+                self.page().setWebChannel(self.channel, self.MAIN_WORLD)
+                self.logger.info(f"WebChannel已设置在MainWorld({self.MAIN_WORLD})中")
+            except (TypeError, AttributeError) as e:
+                # 如果不支持指定世界，则使用默认方式
+                self.logger.warning(f"设置WebChannel世界ID失败: {str(e)}，使用默认方式")
+                self.page().setWebChannel(self.channel)
+                
+            self.logger.info("WebChannel设置和对象注册完成")
+            
+            # 在WebChannel设置完成后等待一段时间再测试
+            QTimer.singleShot(500, self._test_webchannel_after_setup)
+                
+        except Exception as e:
+            self.logger.error(f"WebChannel设置失败: {str(e)}")
+            import traceback
+            self.logger.error(traceback.format_exc())
+    
+    def _test_webchannel_after_setup(self):
+        """在WebChannel设置后执行简单测试"""
+        check_script = """
+        (function() {
+            if (typeof qt !== 'undefined' && typeof qt.webChannelTransport !== 'undefined') {
+                try {
+                    new QWebChannel(qt.webChannelTransport, function(channel) {
+                        var objects = Object.keys(channel.objects);
+                        console.log('WebChannel测试对象列表:', objects);
+                        return {
+                            success: true,
+                            objects: objects,
+                            has_highlight_bridge: objects.includes('highlightBridge'),
+                            has_bridge: objects.includes('bridge')
+                        };
+                    });
+                } catch(e) {
+                    console.error('WebChannel测试出错:', e);
+                    return {success: false, error: e.toString()};
+                }
+            }
+            return {success: false, error: 'qt.webChannelTransport未定义'};
+        })();
+        """
+        
+        try:
+            self.page().runJavaScript(check_script, self.MAIN_WORLD, 
+                lambda result: self.logger.info(f"WebChannel设置后测试结果: {result}")
+            )
+        except Exception:
+            self.page().runJavaScript(check_script, 
+                lambda result: self.logger.info(f"WebChannel设置后测试结果: {result}")
+            )
     
     def _verify_qwebchannel_loaded(self, result):
         """验证QWebChannel是否成功加载"""
@@ -401,7 +519,11 @@ try {
         })();
         """
         
-        self.page().runJavaScript(check_script, lambda result: self.logger.info(f"QWebChannel验证结果: {result}"))
+        # 使用相同的世界ID执行检查
+        try:
+            self.page().runJavaScript(check_script, self.MAIN_WORLD, lambda result: self.logger.info(f"QWebChannel验证结果: {result}"))
+        except TypeError:
+            self.page().runJavaScript(check_script, lambda result: self.logger.info(f"QWebChannel验证结果: {result}"))
     
     def test_webchannel_communication(self):
         """测试WebChannel通信是否正常工作"""
@@ -590,6 +712,11 @@ try {
         """设置高亮处理器，处理来自JavaScript的高亮相关事件"""
         self.logger.info(f"正在为{self.ai_name}设置高亮事件监听...")
         
+        # 先确认WebChannel是否已设置
+        if not self.channel:
+            self.logger.warning("WebChannel未设置，先初始化WebChannel再设置高亮处理器")
+            self._setup_webchannel()
+        
         # 注入事件监听JavaScript
         js_code = """
         document.addEventListener('aiSaveHighlightToPython', function(event) {
@@ -620,7 +747,7 @@ try {
                     if (channel.objects.highlightBridge) {
                         console.log('找到highlightBridge对象，发送高亮数据');
                         try {
-                            channel.objects.highlightBridge.saveHighlight(JSON.stringify(highlightData));
+                        channel.objects.highlightBridge.saveHighlight(JSON.stringify(highlightData));
                             console.log('高亮数据已发送到Python');
                             window.AiSparkHub.webChannelAvailable = true; // 标记通信正常
                         } catch(callError) {
@@ -682,6 +809,50 @@ try {
                 }
             };
         }
+        
+        // 添加工具函数，测试WebChannel连接
+        window.testWebChannel = function() {
+            try {
+                if (typeof qt === 'undefined' || typeof qt.webChannelTransport === 'undefined') {
+                    console.error('无法测试WebChannel: qt或webChannelTransport未定义');
+                    return {success: false, error: '缺少qt.webChannelTransport'};
+                }
+                
+                var result = 'pending';
+                new QWebChannel(qt.webChannelTransport, function(channel) {
+                    var objects = Object.keys(channel.objects);
+                    console.log('WebChannel测试 - 可用对象:', objects);
+                    
+                    if (objects.includes('highlightBridge') && objects.includes('bridge')) {
+                        console.log('WebChannel测试成功: 找到所有桥接对象');
+                        result = {
+                            success: true, 
+                            objects: objects
+                        };
+                    } else {
+                        console.error('WebChannel测试失败: 未找到所有桥接对象');
+                        result = {
+                            success: false, 
+                            objects: objects,
+                            missing: []
+                        };
+                        
+                        if (!objects.includes('highlightBridge')) {
+                            result.missing.push('highlightBridge');
+                        }
+                        
+                        if (!objects.includes('bridge')) {
+                            result.missing.push('bridge');
+                        }
+                    }
+                });
+                
+                return result;
+            } catch(e) {
+                console.error('测试WebChannel时出错:', e);
+                return {success: false, error: e.toString()};
+            }
+        };
         """
         
         # 验证highlightBridge对象是否可用
@@ -694,24 +865,141 @@ try {
                         console.log('highlightBridge对象可用，高亮功能正常');
                         window.AiSparkHub = window.AiSparkHub || {};
                         window.AiSparkHub.webChannelAvailable = true;
+                        return true;
                     } else {
                         console.error('验证失败: highlightBridge对象不存在，高亮功能可能不可用');
                         window.AiSparkHub = window.AiSparkHub || {};
                         window.AiSparkHub.webChannelAvailable = false;
+                        return false;
                     }
                 });
             } else {
                 console.error('无法验证highlightBridge: WebChannel组件不完整');
                 window.AiSparkHub = window.AiSparkHub || {};
                 window.AiSparkHub.webChannelAvailable = false;
+                return false;
             }
         })();
         """
         
-        # 运行JavaScript代码
-        self.page().runJavaScript(js_code)
-        self.page().runJavaScript(test_script)
-        self.logger.info("已注入高亮事件监听JavaScript代码")
+        # 运行JavaScript代码，确保在正确的世界中执行
+        try:
+            self.page().runJavaScript(js_code, self.MAIN_WORLD)
+            self.page().runJavaScript(test_script, self.MAIN_WORLD, self._handle_highlight_test)
+            self.logger.info("已在MainWorld中注入高亮事件监听JavaScript代码")
+        except (TypeError, AttributeError):
+            self.page().runJavaScript(js_code)
+            self.page().runJavaScript(test_script, self._handle_highlight_test)
+            self.logger.info("已注入高亮事件监听JavaScript代码（默认方式）")
+            
+        # 设置延迟验证，确保WebChannel和桥接对象正确设置
+        QTimer.singleShot(1000, self._delayed_verify_webchannel)
+        
+        # 手动执行测试脚本
+        self.page().runJavaScript("window.testWebChannel && window.testWebChannel()", 
+            self.MAIN_WORLD if hasattr(self, 'MAIN_WORLD') else None,
+            lambda result: self.logger.info(f"手动WebChannel测试结果: {result}")
+        )
+    
+    def _handle_highlight_test(self, result):
+        """处理高亮测试结果"""
+        if result:
+            self.logger.info("WebChannel桥接对象验证成功")
+        else:
+            self.logger.warning("WebChannel桥接对象验证失败，可能导致通信问题")
+            
+    def _delayed_verify_webchannel(self):
+        """延迟验证WebChannel设置是否正确，如果不正确则尝试重新设置"""
+        verification_script = """
+        (function() {
+            if (typeof qt === 'undefined' || typeof qt.webChannelTransport === 'undefined') {
+                return {success: false, error: 'qt或webChannelTransport未定义'};
+            }
+            
+            if (typeof QWebChannel === 'undefined') {
+                return {success: false, error: 'QWebChannel未定义'};
+            }
+            
+            try {
+                var channelTest = false;
+                new QWebChannel(qt.webChannelTransport, function(channel) {
+                    var objects = Object.keys(channel.objects);
+                    if (objects.includes('highlightBridge') && objects.includes('bridge')) {
+                        channelTest = {success: true, objects: objects};
+                    } else {
+                        channelTest = {success: false, objects: objects, error: 'bridge对象不存在'};
+                    }
+                });
+                return channelTest || {success: false, error: '测试结果未返回'};
+            } catch(e) {
+                return {success: false, error: e.toString()};
+            }
+        })();
+        """
+        
+        try:
+            self.page().runJavaScript(verification_script, self.MAIN_WORLD, self._handle_delayed_verification)
+        except (TypeError, AttributeError):
+            self.page().runJavaScript(verification_script, self._handle_delayed_verification)
+            
+    def _handle_delayed_verification(self, result):
+        """处理延迟验证结果，如果验证失败则重新设置WebChannel"""
+        if not result or not result.get('success', False):
+            self.logger.warning(f"WebChannel延迟验证失败: {result}")
+            # 强制重置WebChannel
+            if self.channel:
+                self.page().setWebChannel(None)
+                self.channel = None
+                
+            # 重新创建桥接对象
+            self.logger.info("重新创建桥接对象并重置WebChannel")
+            self.highlight_bridge = self._create_highlight_bridge()
+            self.log_bridge = self._create_log_bridge()
+            
+            # 重新设置WebChannel
+            self.logger.info("尝试重新设置WebChannel...")
+            self._setup_webchannel()
+            
+            # 再次测试，但使用二次验证函数避免无限循环
+            QTimer.singleShot(1000, self._final_webchannel_verification)
+        else:
+            self.logger.info(f"WebChannel延迟验证成功，可用对象: {result.get('objects', [])}")
+            
+    def _final_webchannel_verification(self):
+        """最终WebChannel验证，不会再次触发重置流程"""
+        test_script = """
+        (function() {
+            try {
+                if (typeof qt === 'undefined' || typeof qt.webChannelTransport === 'undefined') {
+                    return {success: false, error: 'qt.webChannelTransport未定义'};
+                }
+                
+                var result = {};
+                new QWebChannel(qt.webChannelTransport, function(channel) {
+                    var objects = Object.keys(channel.objects);
+                    console.log('最终验证 - WebChannel对象列表:', objects);
+                    result = {
+                        success: objects.length > 0,
+                        objects: objects,
+                        has_highlight_bridge: objects.includes('highlightBridge'),
+                        has_bridge: objects.includes('bridge')
+                    };
+                });
+                return result;
+            } catch(e) {
+                return {success: false, error: e.toString()};
+            }
+        })();
+        """
+        
+        try:
+            self.page().runJavaScript(test_script, self.MAIN_WORLD, 
+                lambda result: self.logger.info(f"最终WebChannel验证结果: {result}")
+            )
+        except Exception:
+            self.page().runJavaScript(test_script, 
+                lambda result: self.logger.info(f"最终WebChannel验证结果: {result}")
+            )
     
     def save_highlight_from_js(self, highlight_json):
         """从JavaScript接收高亮数据并保存到数据库
@@ -787,16 +1075,87 @@ try {
                 
             self.logger.info(f"找到{len(highlights)}条高亮数据")
             
-            # 将高亮数据传递给前端JS处理
-            js_code = f"if (typeof applyStoredHighlights === 'function') {{ applyStoredHighlights({json.dumps(highlights)}); }} else {{ console.warn('applyStoredHighlights函数不可用'); }}"
+            # 首先检查页面是否已加载完成，然后再应用高亮
+            check_content_script = """
+            (function() {
+                // 检查页面主要内容是否已加载
+                // 根据不同AI平台调整选择器
+                var contentSelectors = [
+                    '.chat-messages', // 通用聊天消息容器
+                    '.chat-content',  // 通用聊天内容
+                    '.chat-container',// 通用聊天容器
+                    '.message-content',// 消息内容
+                    'main',          // 主内容区
+                    '.chat-main',    // 聊天主区域
+                    '#chat-container',// ID选择器
+                    '.conversation-content',// 会话内容
+                    'article'        // 文章元素
+                ];
+                
+                var contentFound = false;
+                for (var i = 0; i < contentSelectors.length; i++) {
+                    var elements = document.querySelectorAll(contentSelectors[i]);
+                    if (elements.length > 0) {
+                        // 检查至少一个元素有内容
+                        for (var j = 0; j < elements.length; j++) {
+                            if (elements[j].textContent.trim().length > 50) {
+                                contentFound = true;
+                                console.log('找到有内容的元素:', contentSelectors[i]);
+                                break;
+                            }
+                        }
+                        if (contentFound) break;
+                    }
+                }
+                
+                return {
+                    contentLoaded: contentFound,
+                    pageHeight: document.body.scrollHeight,
+                    textLength: document.body.textContent.length
+                };
+            })();
+            """
             
-            # 设置延迟，确保DOM已完全加载
-            QTimer.singleShot(1000, lambda: self.page().runJavaScript(js_code))
+            # 尝试定期检查内容是否加载
+            def check_and_apply():
+                self.page().runJavaScript(check_content_script, lambda result: self._apply_highlights_if_ready(result, highlights))
+            
+            # 设置多个检查点，增加成功率
+            QTimer.singleShot(1500, check_and_apply)  # 1.5秒后首次检查
+            QTimer.singleShot(3000, check_and_apply)  # 3秒后再次检查
+            QTimer.singleShot(5000, check_and_apply)  # 5秒后最终检查
             
         except Exception as e:
             self.logger.error(f"加载高亮数据时出错: {str(e)}")
             import traceback
             traceback.print_exc()
+    
+    def _apply_highlights_if_ready(self, content_status, highlights):
+        """根据内容加载状态决定是否应用高亮"""
+        try:
+            if not content_status:
+                self.logger.warning("内容状态检查返回空结果")
+                return
+                
+            content_loaded = content_status.get('contentLoaded', False)
+            page_height = content_status.get('pageHeight', 0)
+            text_length = content_status.get('textLength', 0)
+            
+            self.logger.debug(f"内容加载状态: 找到内容={content_loaded}, 页面高度={page_height}, 文本长度={text_length}")
+            
+            # 如果内容看起来已加载或页面高度/文本长度足够，则应用高亮
+            if content_loaded or page_height > 1000 or text_length > 1000:
+                self.logger.info("页面内容已加载，开始应用高亮")
+                
+                # 将高亮数据传递给前端JS处理
+                js_code = f"if (typeof applyStoredHighlights === 'function') {{ applyStoredHighlights({json.dumps(highlights)}); }} else {{ console.warn('applyStoredHighlights函数不可用'); }}"
+                self.page().runJavaScript(js_code)
+            else:
+                self.logger.debug("页面内容尚未完全加载，延迟应用高亮")
+        except Exception as e:
+            self.logger.error(f"应用高亮时出错: {str(e)}")
+            import traceback
+            self.logger.error(traceback.format_exc())
     
     def inject_script(self):
         """注入提示词注入脚本"""
@@ -899,7 +1258,7 @@ try {
                 // 直接调用QtWebEngine桥接的函数，而不是pywebview
                 new QWebChannel(qt.webChannelTransport, function(channel) {
                     if (channel.objects.bridge) {
-                        channel.objects.bridge.receiveJsLog(JSON.stringify(logData));
+                    channel.objects.bridge.receiveJsLog(JSON.stringify(logData));
                     } else {
                         console.error('无法找到bridge对象，日志可能无法发送到后端');
                     }
@@ -1033,11 +1392,19 @@ try {
         };
         """
         
-        # 运行JavaScript代码
-        self.page().runJavaScript(js_code)
+        # 运行JavaScript代码，确保在正确的世界中执行
+        try:
+            self.page().runJavaScript(js_code, self.MAIN_WORLD)
+            self.logger.info("已在MainWorld中注入日志处理器和辅助函数")
+        except (TypeError, AttributeError):
+            self.page().runJavaScript(js_code)
+            self.logger.info("已注入日志处理器和辅助函数（默认方式）")
         
         # 初始检查WebChannel状态
-        self.page().runJavaScript("window.AiSparkHub.checkWebChannel()")
+        try:
+            self.page().runJavaScript("window.AiSparkHub.checkWebChannel()", self.MAIN_WORLD)
+        except (TypeError, AttributeError):
+            self.page().runJavaScript("window.AiSparkHub.checkWebChannel()")
         
         # 启动备用通信监控器
         self._setup_storage_monitor()
@@ -1091,7 +1458,10 @@ try {
             }
         })();
         """
-        self.page().runJavaScript(js_code, self._handle_local_storage_data)
+        try:
+            self.page().runJavaScript(js_code, self.MAIN_WORLD, self._handle_local_storage_data)
+        except (TypeError, AttributeError):
+            self.page().runJavaScript(js_code, self._handle_local_storage_data)
     
     def _handle_local_storage_data(self, results):
         """处理从LocalStorage获取的高亮数据"""
@@ -1169,6 +1539,74 @@ try {
                 
         except Exception as e:
             self.logger.error(f"处理JS日志时出错: {e}")
+
+    def inject_rangy_scripts(self):
+        """注入Rangy高亮相关脚本，从本地文件加载"""
+        self.logger.info("正在注入Rangy高亮脚本...")
+
+        # 获取项目根目录
+        import os
+        # 获取当前文件的绝对路径
+        current_file = os.path.abspath(__file__)
+        # 获取项目根目录
+        base_dir = os.path.dirname(os.path.dirname(os.path.dirname(current_file)))
+        
+        # 按依赖顺序定义脚本文件路径 - 使用绝对路径
+        rangy_scripts = [
+            os.path.join(base_dir, "app", "static", "js", "rangy-core.min.js"),
+            os.path.join(base_dir, "app", "static", "js", "rangy-classapplier.min.js"), 
+            os.path.join(base_dir, "app", "static", "js", "rangy-highlighter.min.js")
+        ]
+        
+        try:
+            # 依次加载并注入每个脚本
+            for script_path in rangy_scripts:
+                script_name = os.path.basename(script_path)
+                self.logger.info(f"尝试加载Rangy脚本: {script_path}")
+                
+                script_file = QFile(script_path)
+                
+                if not script_file.exists():
+                    self.logger.error(f"Rangy脚本文件不存在: {script_path}")
+                    continue
+                    
+                if script_file.open(QIODevice.ReadOnly | QIODevice.Text):
+                    script_content = script_file.readAll().data().decode('utf-8')
+                    script_file.close()
+                    
+                    # 注入脚本，无需回调
+                    self.page().runJavaScript(script_content)
+                    self.logger.info(f"已注入Rangy脚本: {script_name}")
+                else:
+                    self.logger.error(f"无法打开Rangy脚本文件: {script_path}")
+            
+            # 所有脚本注入完成后验证
+            verification_script = """
+            (function() {
+                var status = {
+                    rangy_exists: typeof rangy !== 'undefined',
+                    version: typeof rangy !== 'undefined' ? rangy.version : null,
+                    highlighter_available: typeof rangy !== 'undefined' && 
+                                          typeof rangy.createHighlighter === 'function'
+                };
+                console.log('Rangy状态检查:', JSON.stringify(status));
+                return status;
+            })();
+            """
+            
+            self.page().runJavaScript(verification_script, self._handle_rangy_verification)
+                
+        except Exception as e:
+            self.logger.error(f"注入Rangy脚本时出错: {str(e)}")
+            import traceback
+            self.logger.error(traceback.format_exc())
+    
+    def _handle_rangy_verification(self, result):
+        """处理Rangy脚本注入验证结果"""
+        if result and result.get('rangy_exists'):
+            self.logger.info(f"Rangy脚本注入成功，版本: {result.get('version')}")
+        else:
+            self.logger.error("Rangy脚本注入失败，高亮功能可能不可用")
 
 class AIView(QWidget):
     """AI对话页面，管理多个AI网页视图"""
