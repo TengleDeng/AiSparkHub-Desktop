@@ -31,7 +31,7 @@ AI对话视图系统 - AIView/AIWebView
 - 2025-04-15 初版多AI容器支持
 """
 
-from PyQt6.QtWidgets import QWidget, QHBoxLayout, QVBoxLayout, QLabel, QSplitter, QComboBox, QPushButton, QApplication
+from PyQt6.QtWidgets import QWidget, QHBoxLayout, QVBoxLayout, QLabel, QSplitter, QComboBox, QPushButton, QApplication, QDialog, QListWidget, QListWidgetItem, QTextEdit, QDialogButtonBox
 from PyQt6.QtCore import Qt, QUrl, QFile, QIODevice, QTimer, QSize
 from PyQt6.QtWebEngineWidgets import QWebEngineView
 from PyQt6.QtWebEngineCore import QWebEnginePage, QWebEngineSettings, QWebEngineScript
@@ -717,6 +717,15 @@ class AIView(QWidget):
         # 获取设置管理器
         self.settings_manager = SettingsManager()
         
+        # 初始化数据库管理器
+        if hasattr(app, 'db_manager'):
+            self.db_manager = app.db_manager
+            self.logger.debug("已连接数据库管理器")
+        else:
+            from app.models.database import DatabaseManager
+            self.db_manager = DatabaseManager()
+            self.logger.debug("创建新的数据库管理器实例")
+        
         # 创建布局
         self.layout = QHBoxLayout(self)
         self.layout.setContentsMargins(0, 0, 0, 0)
@@ -873,6 +882,14 @@ class AIView(QWidget):
             }
         """
         
+        # 创建高亮按钮
+        highlight_btn = QPushButton()
+        highlight_btn.setIcon(qta.icon("fa5s.highlighter"))
+        highlight_btn.setToolTip("显示页面高亮内容")
+        highlight_btn.setStyleSheet(button_style)
+        highlight_btn.setIconSize(QSize(14, 14))
+        highlight_btn.clicked.connect(lambda _, c=container: self.show_highlights(c))
+        
         # 创建控制按钮
         # 1. 向左移动按钮
         move_left_btn = QPushButton()
@@ -923,6 +940,7 @@ class AIView(QWidget):
         close_btn.clicked.connect(lambda _, c=container: self.close_view(c))
         
         # 存储按钮引用，以便后续访问
+        container.highlight_btn = highlight_btn
         container.move_left_btn = move_left_btn
         container.move_right_btn = move_right_btn
         container.refresh_btn = refresh_btn
@@ -939,6 +957,7 @@ class AIView(QWidget):
         title_layout.addStretch(1)
         
         # 添加控制按钮到标题栏右侧
+        title_layout.addWidget(highlight_btn)  # 添加高亮按钮在最左侧
         title_layout.addWidget(move_left_btn)
         title_layout.addWidget(move_right_btn)
         title_layout.addWidget(refresh_btn)
@@ -971,6 +990,9 @@ class AIView(QWidget):
         
         # 添加新方法：设置按钮初始图标
         self._set_initial_button_icons(container)
+        
+        # 启动高亮计数更新
+        QTimer.singleShot(1000, lambda: self.update_highlight_count(container))
         
         return web_view
     
@@ -1442,7 +1464,330 @@ class AIView(QWidget):
         # 调整视图大小
         self.adjust_splitter_sizes()
 
-    # 新增方法：设置容器按钮的初始图标和颜色
+    def show_highlights(self, container):
+        """显示当前页面的所有高亮内容
+        
+        Args:
+            container: 包含web_view的容器
+        """
+        if not hasattr(container, 'web_view'):
+            return
+            
+        web_view = container.web_view
+        current_url = web_view.url().toString()
+        
+        # 获取当前URL的高亮数据
+        highlights = self.db_manager.get_highlights_for_url(current_url)
+        
+        if not highlights:
+            return
+        
+        # 获取高亮按钮的全局位置
+        highlight_btn_pos = container.highlight_btn.mapToGlobal(container.highlight_btn.rect().bottomLeft())
+        
+        # 创建高亮显示对话框 - 使用无边框窗口
+        dialog = QDialog(self)
+        dialog.setWindowFlags(Qt.WindowType.Popup | Qt.WindowType.FramelessWindowHint)
+        dialog.setMinimumWidth(350)
+        dialog.setMaximumWidth(450)
+        
+        # 设置样式表
+        dialog.setStyleSheet("""
+            QDialog {
+                background-color: #FFFFFF;
+                border: 1px solid #CCCCCC;
+                border-radius: 6px;
+                box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            }
+            QListWidget {
+                border: none;
+                background-color: transparent;
+                outline: none;
+            }
+            QListWidget::item {
+                padding: 8px;
+                border-bottom: 1px solid #EEEEEE;
+            }
+            QListWidget::item:selected {
+                background-color: #F5F5F5;
+                color: #333333;
+            }
+            QListWidget::item:hover {
+                background-color: #F0F0F0;
+            }
+            QLabel {
+                font-weight: bold;
+                padding: 10px;
+                background-color: #F7F7F7;
+                border-bottom: 1px solid #EEEEEE;
+                border-top-left-radius: 6px;
+                border-top-right-radius: 6px;
+            }
+        """)
+        
+        # 创建布局
+        layout = QVBoxLayout(dialog)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+        
+        # 添加标题
+        title_label = QLabel(f"页面高亮内容 ({len(highlights)})")
+        title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(title_label)
+        
+        # 创建列表部件
+        list_widget = QListWidget()
+        list_widget.setAlternatingRowColors(False)
+        list_widget.setVerticalScrollMode(QListWidget.ScrollMode.ScrollPerPixel)
+        
+        # 添加高亮项
+        for highlight in highlights:
+            item = QListWidgetItem()
+            
+            # 创建高亮项容器部件
+            item_widget = QWidget()
+            item_layout = QVBoxLayout(item_widget)
+            item_layout.setContentsMargins(3, 3, 3, 3)
+            
+            # 获取高亮类型对应的颜色
+            highlight_type = highlight.get('highlight_type', 'yellow')
+            bg_color = highlight.get('bg_color', '')
+            
+            if not bg_color:
+                # 默认高亮颜色映射
+                color_map = {
+                    'yellow': '#FFFF8D',
+                    'green': '#B9F6CA',
+                    'blue': '#84FFFF',
+                    'purple': '#B388FF',
+                    'pink': '#FF80AB',
+                    'red': '#FF8A80'
+                }
+                bg_color = color_map.get(highlight_type, '#FFFF8D')
+            
+            # 创建内容显示区域
+            text_content = highlight.get('text_content', '')
+            # 将文本分割成行并限制为最多3行
+            lines = text_content.splitlines()
+            if not lines:  # 如果没有换行，则按照字符数分割
+                if len(text_content) > 150:
+                    displayed_text = text_content[:150] + '...'
+                else:
+                    displayed_text = text_content
+            else:
+                # 限制为3行
+                if len(lines) > 3:
+                    displayed_text = '\n'.join(lines[:3]) + '...'
+                else:
+                    displayed_text = '\n'.join(lines)
+            
+            # 创建文本标签，带有高亮背景色
+            text_label = QLabel(displayed_text)
+            text_label.setWordWrap(True)
+            text_label.setStyleSheet(f"""
+                QLabel {{
+                    background-color: {bg_color};
+                    padding: 5px;
+                    border-radius: 3px;
+                    font-size: 13px;
+                    line-height: 1.3;
+                }}
+            """)
+            
+            # 添加到布局
+            item_layout.addWidget(text_label)
+            
+            # 设置列表项高度
+            item.setSizeHint(item_widget.sizeHint())
+            
+            # 存储高亮数据用于定位
+            item.setData(Qt.ItemDataRole.UserRole, highlight)
+            
+            # 添加到列表
+            list_widget.addItem(item)
+            list_widget.setItemWidget(item, item_widget)
+        
+        # 连接列表项点击信号
+        list_widget.itemClicked.connect(lambda item: self.scroll_to_highlight(web_view, item.data(Qt.ItemDataRole.UserRole)))
+        
+        # 添加部件到布局
+        layout.addWidget(list_widget)
+        
+        # 调整对话框高度（最多显示5个项目，否则使用滚动条）
+        max_items = min(5, len(highlights))
+        item_height = 0
+        for i in range(min(max_items, list_widget.count())):
+            item_height += list_widget.sizeHintForRow(i)
+        
+        # 设置对话框的固定高度 (标题高度 + 项目高度 + 额外空间)
+        title_height = title_label.sizeHint().height()
+        dialog_height = title_height + item_height + 20  # 额外空间用于边距和滚动条
+        dialog.setFixedHeight(dialog_height)
+        
+        # 设置对话框位置在按钮正下方
+        dialog.move(highlight_btn_pos)
+        
+        # 添加点击外部关闭功能
+        dialog.installEventFilter(self)
+        
+        # 显示对话框
+        dialog.exec()
+        
+    def scroll_to_highlight(self, web_view, highlight_data):
+        """在网页中定位到指定的高亮位置
+        
+        Args:
+            web_view: 网页视图
+            highlight_data: 高亮数据
+        """
+        if not highlight_data:
+            return
+            
+        # 获取高亮的XPath和偏移量信息
+        xpath = highlight_data.get('xpath', '')
+        offset_start = highlight_data.get('offset_start', 0)
+        highlight_id = highlight_data.get('id', 0)
+        
+        if not xpath and not highlight_id:
+            self.logger.warning("无法定位高亮位置：缺少XPath和ID")
+            return
+            
+        # 使用JavaScript滚动到高亮位置
+        js_code = """
+        (function() {
+            try {
+                // 尝试通过多种方式定位高亮
+                const highlightId = %d;
+                
+                // 方法1: 尝试使用高亮ID直接定位
+                const highlightElements = document.querySelectorAll('.ais-highlight');
+                let found = false;
+                
+                // 遍历所有高亮元素，查找匹配ID的高亮
+                for (const elem of highlightElements) {
+                    if (elem.dataset.highlightId === String(highlightId) || 
+                        elem.getAttribute('data-highlight-id') === String(highlightId)) {
+                        elem.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                        
+                        // 闪烁动画突出显示
+                        const originalBackground = elem.style.backgroundColor;
+                        const originalTransition = elem.style.transition;
+                        
+                        elem.style.transition = 'background-color 0.5s ease';
+                        elem.style.backgroundColor = '#FF9800';
+                        
+                        setTimeout(() => {
+                            elem.style.backgroundColor = originalBackground;
+                            setTimeout(() => {
+                                elem.style.backgroundColor = '#FF9800';
+                                setTimeout(() => {
+                                    elem.style.backgroundColor = originalBackground;
+                                    elem.style.transition = originalTransition;
+                                }, 500);
+                            }, 500);
+                        }, 500);
+                        
+                        found = true;
+                        break;
+                    }
+                }
+                
+                if (found) return true;
+                
+                // 方法2: 尝试使用XPath定位
+                const xpath = "%s";
+                if (xpath) {
+                    const result = document.evaluate(xpath, document, null, 
+                                    XPathResult.FIRST_ORDERED_NODE_TYPE, null);
+                    if (result.singleNodeValue) {
+                        const elem = result.singleNodeValue;
+                        elem.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                        return true;
+                    }
+                }
+                
+                // 方法3: 搜索内容
+                const content = "%s";
+                if (content) {
+                    // 使用文本内容查找节点
+                    const textNodes = [];
+                    const walker = document.createTreeWalker(
+                        document.body, 
+                        NodeFilter.SHOW_TEXT,
+                        null,
+                        false
+                    );
+                    
+                    let node;
+                    while (node = walker.nextNode()) {
+                        if (node.nodeValue.includes(content.substring(0, 50))) {
+                            textNodes.push(node);
+                        }
+                    }
+                    
+                    if (textNodes.length > 0) {
+                        textNodes[0].parentNode.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                        return true;
+                    }
+                }
+                
+                return false;
+            } catch (e) {
+                console.error('定位高亮失败:', e);
+                return false;
+            }
+        })();
+        """ % (highlight_id, xpath, highlight_data.get('text_content', '')[:50].replace('"', '\\"').replace('\n', ' '))
+        
+        web_view.page().runJavaScript(js_code, lambda result: self.logger.debug(f"定位高亮结果: {result}"))
+
+    def eventFilter(self, obj, event):
+        """事件过滤器，用于处理点击高亮弹窗外部关闭"""
+        if isinstance(obj, QDialog) and event.type() == event.Type.MouseButtonPress:
+            # 如果点击的位置在对话框之外，关闭对话框
+            if not obj.rect().contains(event.pos()):
+                obj.close()
+                return True
+        return super().eventFilter(obj, event)
+
+    def update_highlight_count(self, container):
+        """更新高亮按钮上显示的高亮数量
+        
+        Args:
+            container: 包含web_view的容器
+        """
+        if not hasattr(container, 'web_view') or not hasattr(container, 'highlight_btn'):
+            return
+            
+        web_view = container.web_view
+        if not web_view:
+            return
+            
+        current_url = web_view.url().toString()
+        if not current_url or current_url == "about:blank":
+            return
+            
+        # 获取当前URL的高亮数据数量
+        highlights = self.db_manager.get_highlights_for_url(current_url)
+        count = len(highlights) if highlights else 0
+        
+        theme_colors = self.theme_manager.get_current_theme_colors() if self.theme_manager else {}
+        icon_color = theme_colors.get('foreground', '#D8DEE9')
+        
+        # 更新按钮图标和工具提示
+        if count > 0:
+            # 创建带数字的自定义图标
+            container.highlight_btn.setIcon(qta.icon("fa5s.highlighter", color=icon_color, 
+                                                   badge=str(count), 
+                                                   badge_color='red'))
+            container.highlight_btn.setToolTip(f"显示页面高亮内容 ({count})")
+        else:
+            container.highlight_btn.setIcon(qta.icon("fa5s.highlighter", color=icon_color))
+            container.highlight_btn.setToolTip("显示页面高亮内容")
+            
+        # 定时器定期更新高亮计数
+        QTimer.singleShot(5000, lambda: self.update_highlight_count(container))
+        
     def _set_initial_button_icons(self, container):
         if not self.theme_manager:
             self.logger.warning("警告: ThemeManager 未初始化，无法设置按钮图标颜色")
@@ -1452,7 +1797,23 @@ class AIView(QWidget):
             theme_colors = self.theme_manager.get_current_theme_colors()
             # 使用前景色作为图标颜色
             icon_color = theme_colors.get('foreground', '#D8DEE9') 
-            
+        
+        # 获取当前高亮数量（如果是高亮按钮）
+        if hasattr(container, 'highlight_btn') and hasattr(container, 'web_view'):
+            current_url = container.web_view.url().toString()
+            if current_url and current_url != "about:blank":
+                highlights = self.db_manager.get_highlights_for_url(current_url)
+                count = len(highlights) if highlights else 0
+                if count > 0:
+                    container.highlight_btn.setIcon(qta.icon("fa5s.highlighter", color=icon_color, 
+                                                          badge=str(count), 
+                                                          badge_color='red'))
+                    container.highlight_btn.setToolTip(f"显示页面高亮内容 ({count})")
+                else:
+                    container.highlight_btn.setIcon(qta.icon("fa5s.highlighter", color=icon_color))
+            else:
+                container.highlight_btn.setIcon(qta.icon("fa5s.highlighter", color=icon_color))
+                
         # 检查按钮是否存在并设置图标
         if hasattr(container, 'move_left_btn'):
             container.move_left_btn.setIcon(qta.icon("fa5s.arrow-left", color=icon_color))
@@ -1468,8 +1829,7 @@ class AIView(QWidget):
             container.add_btn.setIcon(qta.icon("fa5s.plus", color=icon_color))
         if hasattr(container, 'close_btn'):
             container.close_btn.setIcon(qta.icon("fa5s.times", color=icon_color))
-
-    # 新增方法：更新所有容器按钮的图标颜色以响应主题变化
+            
     def _update_all_button_icons(self):
         if not self.theme_manager:
             self.logger.warning("警告: ThemeManager 未初始化，无法更新按钮图标颜色")
@@ -1488,6 +1848,18 @@ class AIView(QWidget):
                 
             self.logger.debug(f"AIView: 正在更新容器 {i} 的按钮图标...")
             # 检查按钮是否存在并更新图标颜色
+            if hasattr(container, 'highlight_btn'):
+                # 更新高亮按钮时保留原有的数量显示
+                current_url = container.web_view.url().toString() if hasattr(container, 'web_view') else ""
+                highlights = self.db_manager.get_highlights_for_url(current_url) if current_url else []
+                count = len(highlights) if highlights else 0
+                
+                if count > 0:
+                    container.highlight_btn.setIcon(qta.icon("fa5s.highlighter", color=icon_color, 
+                                                           badge=str(count), 
+                                                           badge_color='red'))
+                else:
+                    container.highlight_btn.setIcon(qta.icon("fa5s.highlighter", color=icon_color))
             if hasattr(container, 'move_left_btn'):
                 container.move_left_btn.setIcon(qta.icon("fa5s.arrow-left", color=icon_color))
             if hasattr(container, 'move_right_btn'):
