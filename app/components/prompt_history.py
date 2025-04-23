@@ -42,7 +42,7 @@ class PromptItemWidget(QWidget):
         try:
             if os.path.exists(self.icon_dir):
                 files = os.listdir(self.icon_dir)
-                print(f"图标目录中的文件: {files}")
+                # print(f"图标目录中的文件: {files}")
             else:
                 print(f"图标目录不存在: {self.icon_dir}")
         except Exception as e:
@@ -477,7 +477,7 @@ class PromptItemWidget(QWidget):
             self.summarize_ai_responses.emit(prompt_id)
 
     def update_icons(self):
-        print("PromptItemWidget: 更新图标颜色...")
+        # print("PromptItemWidget: 更新图标颜色...")
         icon_color = '#D8DEE9' # Default
         if self.theme_manager:
             theme_colors = self.theme_manager.get_current_theme_colors()
@@ -527,7 +527,7 @@ class PromptItemWidget(QWidget):
             elif widget and widget.toolTip().startswith("在AI视图中打开所有链接"): # 更新打开所有按钮
                  widget.setIcon(qta.icon('fa5s.external-link-alt', color=icon_color))
                  
-        print("PromptItemWidget: 图标颜色更新完成")
+        # print("PromptItemWidget: 图标颜色更新完成")
 
     def update_border(self):
         """根据当前主题更新边框颜色"""
