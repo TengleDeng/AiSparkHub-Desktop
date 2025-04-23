@@ -313,7 +313,7 @@ function showToast(message) {
 // 将showToast函数暴露给全局作用域
 window.AiSparkHub.showToast = showToast;
 
-// 添加日志工具，将日志发送回Python
+// 添加日志工具，直接记录到控制台
 window.AiSparkHub.logToPython = function(level, message, data) {
     try {
         // 准备日志数据 - 处理循环引用问题
@@ -326,27 +326,16 @@ window.AiSparkHub.logToPython = function(level, message, data) {
             data: safeData
         };
         
-        // 将对象转为JSON字符串
-        const logJson = JSON.stringify(logData);
-        
-        // 创建一个特殊的事件，Python端可以捕获
-        const logEvent = new CustomEvent('aiSendLogToPython', { 
-            detail: logJson 
-        });
-        
-        // 触发事件
-        document.dispatchEvent(logEvent);
-        
-        // 仍然保留控制台输出
+        // 只记录到控制台
         if (level === 'error') {
-            console.error(message, data || '');
+            console.error(`[${level}] ${message}`, safeData || '');
         } else {
-            console.log(message, data || '');
+            console.log(`[${level}] ${message}`, safeData || '');
         }
         
         return true;
     } catch (e) {
-        console.error('发送日志到Python失败:', e);
+        console.error('处理日志失败:', e);
         return false;
     }
 };
@@ -729,55 +718,45 @@ function getXPathForElement(element) {
 }
 
 /**
- * 保存高亮数据到Python后端
+ * 保存高亮数据到后端
  * @param {Object} highlightData - 高亮数据对象
  */
 function saveHighlightToPython(highlightData) {
     try {
         logInfo("准备保存高亮数据到后端", highlightData);
         
-        // 检查WebChannel状态（如果有这个方法）
-        if (window.AiSparkHub && typeof window.AiSparkHub.checkWebChannel === "function") {
-            window.AiSparkHub.checkWebChannel();
-        }
-        
-        // 决定使用哪种传输方式
-        if (window.AiSparkHub && window.AiSparkHub.webChannelAvailable === false) {
-            // WebChannel不可用，直接使用备用方式
-            logInfo("WebChannel被标记为不可用，使用备用方案");
-            if (window.AiSparkHub.fallbackHighlight) {
-                window.AiSparkHub.fallbackHighlight(highlightData);
-                logInfo("已通过备用方案发送高亮数据");
-                return true;
-            }
-        }
-        
-        // 尝试使用WebChannel方式（默认）
-        try {
-            // 创建自定义事件
-            const event = new CustomEvent('aiSaveHighlightToPython', {
-                detail: JSON.stringify(highlightData)
-            });
-            
-            // 派发事件，由Python后端捕获
-            document.dispatchEvent(event);
-            
-            logInfo("高亮数据保存事件已发送");
+        // 直接使用备用方式
+        if (window.AiSparkHub && window.AiSparkHub.fallbackHighlight) {
+            window.AiSparkHub.fallbackHighlight(highlightData);
+            logInfo("已通过备用方案发送高亮数据");
             return true;
-        } catch (error) {
-            logError("标准保存方式失败:", error.message);
-            
-            // 失败时尝试备用方式
-            if (window.AiSparkHub && window.AiSparkHub.fallbackHighlight) {
-                logInfo("尝试使用备用方案发送高亮数据");
-                window.AiSparkHub.fallbackHighlight(highlightData);
-                logInfo("已通过备用方案发送高亮数据");
+        } else {
+            // 如果fallbackHighlight不可用，自行实现备用保存
+            try {
+                // 使用LocalStorage存储
+                const key = 'HIGHLIGHT_' + Date.now() + '_' + Math.random().toString(36).substring(2, 10);
+                localStorage.setItem(key, JSON.stringify(highlightData));
+                logInfo("已保存高亮数据到LocalStorage，键名:", key);
                 return true;
-            } else {
-                logError("备用传输方案不可用，无法保存高亮数据");
-                return false;
+            } catch (storageError) {
+                logError("保存到LocalStorage失败:", storageError);
+                
+                // 尝试使用剪贴板作为最终备用
+                try {
+                    const encodedData = 'HIGHLIGHT:' + JSON.stringify(highlightData);
+                    if (navigator.clipboard && navigator.clipboard.writeText) {
+                        navigator.clipboard.writeText(encodedData)
+                            .then(() => logInfo("高亮数据已写入剪贴板(备用方案)"))
+                            .catch(err => logError("剪贴板写入失败:", err));
+                        return true;
+                    }
+                } catch (clipboardError) {
+                    logError("所有备用通信方式均失败");
+                }
             }
         }
+        
+        return false;
     } catch (error) {
         logError("保存高亮数据失败:", error.message);
         return false;
@@ -917,20 +896,17 @@ function highlightTextInPage(text, style, highlightId) {
 }
 
 /**
- * 通知Python后端高亮已应用
+ * 通知后端高亮已应用
  * @param {Number} highlightId - 高亮记录ID
  */
 function notifyHighlightApplied(highlightId) {
     try {
-        // 创建自定义事件
-        const event = new CustomEvent('aiHighlightApplied', {
-            detail: JSON.stringify({ id: highlightId })
-        });
-        
-        // 派发事件
-        document.dispatchEvent(event);
+        // 使用LocalStorage记录已应用的高亮
+        const appliedKey = 'HIGHLIGHT_APPLIED_' + highlightId;
+        localStorage.setItem(appliedKey, Date.now().toString());
+        logInfo("已记录高亮应用状态，ID:", highlightId);
     } catch (error) {
-        logError("通知高亮应用状态失败:", error.message);
+        logError("记录高亮应用状态失败:", error.message);
     }
 }
 
@@ -1463,100 +1439,34 @@ window.copyTextThroughJs = function(text) {
     return true; // 返回true以表示复制请求已发出
 };
 
-/**
- * 测试WebChannel通信
- */
-function testWebChannelCommunication() {
-    logInfo("开始测试WebChannel通信...");
-    
+// 添加备用高亮通信功能
+window.AiSparkHub.fallbackHighlight = function(highlightData) {
     try {
-        // 检查必要对象
-        const qtExists = typeof qt !== 'undefined';
-        const transportExists = qtExists && typeof qt.webChannelTransport !== 'undefined';
-        const webChannelExists = typeof QWebChannel !== 'undefined';
-        
-        logInfo("WebChannel前置检查:", {
-            qt存在: qtExists,
-            transport存在: transportExists,
-            QWebChannel存在: webChannelExists
-        });
-        
-        if (!qtExists || !transportExists) {
-            logError("WebChannel通信所需的qt对象不完整，无法建立通信");
-            return;
-        }
-        
-        // 如果QWebChannel不存在，但qt.webChannelTransport存在，尝试等待QWebChannel对象
-        if (!webChannelExists) {
-            logWarning("QWebChannel对象不存在，等待10秒后重试");
-            // 间隔1秒检查10次
-            let checkCount = 0;
-            const checkInterval = setInterval(function() {
-                checkCount++;
-                if (typeof QWebChannel !== 'undefined') {
-                    logInfo("QWebChannel已加载，开始测试通信");
-                    clearInterval(checkInterval);
-                    completeTest();
-                } else if (checkCount >= 10) {
-                    logError("等待10秒后QWebChannel仍不可用，测试失败");
-                    clearInterval(checkInterval);
-                } else {
-                    logInfo(`等待QWebChannel加载...第${checkCount}次检查`);
-                }
-            }, 1000);
-            return;
-        }
-        
-        completeTest();
-    } catch (error) {
-        logError("测试WebChannel通信时出错:", error.message);
-    }
-    
-    // 执行实际测试
-    function completeTest() {
+        logInfo('使用备用方式保存高亮数据');
+        // 生成唯一key并存入LocalStorage
+        const key = 'HIGHLIGHT_' + Date.now() + '_' + Math.random().toString(36).substring(2, 10);
+        localStorage.setItem(key, JSON.stringify(highlightData));
+        logInfo('高亮数据已保存到LocalStorage，键名:', key);
+        return true;
+    } catch(e) {
+        logError('备用高亮方式(LocalStorage)失败:', e);
+        // 尝试其他可能的备用机制
         try {
-            // 尝试创建WebChannel并发送测试数据
-            logInfo("准备创建QWebChannel并测试通信...");
+            // 特殊格式化，前缀标识这是一个高亮数据
+            const encodedData = 'HIGHLIGHT:' + JSON.stringify(highlightData);
             
-            new QWebChannel(qt.webChannelTransport, function(channel) {
-                logInfo("QWebChannel已创建，可用对象:", Object.keys(channel.objects));
-                
-                if (channel.objects.highlightBridge) {
-                    logInfo("找到highlightBridge对象，发送测试数据");
-                    
-                    const testData = {
-                        text_content: "WebChannel通信测试",
-                        url: window.location.href,
-                        timestamp: new Date().toISOString(),
-                        test: true
-                    };
-                    
-                    channel.objects.highlightBridge.saveHighlight(JSON.stringify(testData));
-                    logInfo("测试数据已发送到Python");
-                    
-                    // 尝试高亮操作
-                    logInfo("测试高亮功能 - 创建自定义事件");
-                    try {
-                        const event = new CustomEvent('aiSaveHighlightToPython', {
-                            detail: JSON.stringify(testData)
-                        });
-                        document.dispatchEvent(event);
-                        logInfo("高亮事件已触发");
-                    } catch (e) {
-                        logError("触发高亮事件失败:", e.message);
-                    }
-                } else {
-                    logError("无法找到highlightBridge对象，无法测试通信");
-                }
-            });
-        } catch (error) {
-            logError("测试通信失败:", error.message);
+            // 尝试写入剪贴板 (作为最后的备用)
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(encodedData)
+                    .then(() => logInfo('高亮数据已写入剪贴板(备用方案2)'))
+                    .catch(err => logError('剪贴板写入失败:', err));
+                return true;
+            } else {
+                logError('所有备用方案均失败');
+            }
+        } catch(clipboardError) {
+            logError('所有备用通信方式均失败');
         }
+        return false;
     }
-}
-
-// 页面完全加载后执行WebChannel测试
-window.addEventListener('load', function() {
-    // 延迟5秒执行，确保所有组件已加载完成
-    setTimeout(testWebChannelCommunication, 5000);
-}); 
+}; 
