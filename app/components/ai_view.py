@@ -620,7 +620,17 @@ class AIWebView(QWebEngineView):
                 data = item.get('data', '{}')
                 key = item.get('key', 'unknown')
                 self.logger.info(f"处理LocalStorage中的高亮数据: {key}")
-                self.save_highlight_from_js(data)
+
+                # 跳过应用状态通知
+                if key.startswith('HIGHLIGHT_APPLIED_'):
+                    self.logger.debug(f"跳过应用状态通知: {key}")
+                    continue
+
+                # 只处理JSON字符串
+                if isinstance(data, str) and (data.startswith('{') or data.startswith('[')):
+                    self.save_highlight_from_js(data)
+                else:
+                    self.logger.warning(f"无效的高亮数据格式: {type(data)}，内容: {data}")
             except Exception as e:
                 self.logger.error(f"处理LocalStorage高亮数据出错: {str(e)}")
     
