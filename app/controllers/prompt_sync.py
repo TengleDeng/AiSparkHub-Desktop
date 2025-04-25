@@ -276,6 +276,8 @@ class PromptSync(QObject):
             
         if elapsed_time > self.MAX_WAIT_TIME:
             print(f"轮询超时（超过 {self.MAX_WAIT_TIME}ms），强制结束收集。")
+            # 仅停止轮询，不要清除状态
+            self._stop_polling()
             # 直接调用保存方法而不是_finalize_collection
             print("由于超时，强制保存当前已收集的响应...")
             self._save_responses()
@@ -295,7 +297,7 @@ class PromptSync(QObject):
              print("AI视图容器丢失，停止轮询。")
              self._stop_polling()
              # 尝试保存已收集的数据
-             if self.collected_responses:
+             if self.current_prompt_id:  # 检查是否有当前提示ID
                  print("AI视图容器丢失，但尝试保存已收集的响应...")
                  self._save_responses()
              return
@@ -420,21 +422,55 @@ class PromptSync(QObject):
             print("没有当前提示ID，跳过保存响应。")
             return
             
+        if not self.current_prompt_text:
+            print("警告：提示词文本为空，但仍尝试保存。")
+            
         print(f"使用当前已收集数据保存 Prompt ID {self.current_prompt_id} 的响应，共 {len(self.collected_responses)} 个")
             
         # 保存到数据库
         if self.db_manager:
             timestamp = int(time.time()) # 使用当前时间戳
             try:
+                # 即使没有收集到响应，也保存提示词
+                responses_to_save = []
+                
+                # 清理和验证已收集的响应数据
+                for response in self.collected_responses:
+                    if response is None:
+                        continue  # 跳过None响应
+                        
+                    # 确保每个响应都包含url和reply字段
+                    cleaned_response = {
+                        "url": response.get("url", "") if isinstance(response, dict) else "",
+                        "reply": response.get("reply", "") if isinstance(response, dict) else ""
+                    }
+                    responses_to_save.append(cleaned_response)
+                
+                # 如果没有响应但有活动视图，至少保存URL信息
+                if not responses_to_save and self.ai_view_container and hasattr(self.ai_view_container, 'ai_web_views'):
+                    for ai_key, web_view in self.ai_view_container.ai_web_views.items():
+                        if web_view and hasattr(web_view, 'url'):
+                            url = web_view.url().toString()
+                            responses_to_save.append({"url": url, "reply": "未能获取回复"})
+                            print(f"添加视图 {ai_key} 的URL信息用于保存")
+                
+                # 如果仍然没有响应，添加一个空响应以确保数据库操作成功
+                if not responses_to_save:
+                    responses_to_save.append({"url": "无可用URL", "reply": "未能获取任何回复"})
+                    print("添加空响应占位符以确保保存成功")
+                
+                print(f"实际保存的响应数量: {len(responses_to_save)}")
                 self.db_manager.add_prompt_details(
                     self.current_prompt_id, 
                     self.current_prompt_text,
                     timestamp,
-                    self.collected_responses
+                    responses_to_save
                 )
                 print(f"Prompt ID {self.current_prompt_id} 的响应已保存到数据库。")
             except Exception as e:
                 print(f"保存 Prompt ID {self.current_prompt_id} 到数据库时出错: {e}")
+                import traceback
+                print(traceback.format_exc())
         else:
              print("数据库管理器未设置，无法保存响应。")
             
@@ -450,6 +486,9 @@ class PromptSync(QObject):
         if not self.current_prompt_id:
             print("没有当前提示ID，跳过保存响应。")
             return
+            
+        if not self.current_prompt_text:
+            print("警告：提示词文本为空，但仍尝试保存。")
         
         # 获取视图的视觉顺序
         visual_order = []
@@ -466,7 +505,7 @@ class PromptSync(QObject):
             print(f"无法获取视觉顺序，回退到原始记录顺序: {visual_order}")
         elif not visual_order:
             print("无法获取视觉顺序，也没有原始顺序记录，使用响应映射中的所有键")
-            visual_order = list(self.response_map.keys())
+            visual_order = list(self.response_map.keys()) if self.response_map else []
             
         # 构建按顺序排列的响应列表 - 确保不重复处理
         ordered_responses = []
@@ -480,23 +519,54 @@ class PromptSync(QObject):
                 
             response = self.response_map.get(ai_key)
             if response:
-                ordered_responses.append(response)
+                # 确保响应包含url和reply字段
+                cleaned_response = {
+                    "url": response.get("url", "") if isinstance(response, dict) else "",
+                    "reply": response.get("reply", "") if isinstance(response, dict) else ""
+                }
+                ordered_responses.append(cleaned_response)
                 processed_keys.add(ai_key)  # 标记为已处理
-                print(f"添加 {ai_key} 的响应到有序列表，URL: {response.get('url', 'N/A')}")
+                print(f"添加 {ai_key} 的响应到有序列表，URL: {cleaned_response.get('url', 'N/A')}")
         
         # 添加任何不在视觉顺序中但在响应映射中的项（以防万一）
-        for ai_key, response in self.response_map.items():
-            if ai_key not in processed_keys:
-                ordered_responses.append(response)
-                processed_keys.add(ai_key)
-                print(f"添加额外的来自 {ai_key} 的响应（不在视觉顺序中）")
+        if self.response_map:
+            for ai_key, response in self.response_map.items():
+                if ai_key not in processed_keys:
+                    if response:
+                        # 确保响应包含url和reply字段
+                        cleaned_response = {
+                            "url": response.get("url", "") if isinstance(response, dict) else "",
+                            "reply": response.get("reply", "") if isinstance(response, dict) else ""
+                        }
+                        ordered_responses.append(cleaned_response)
+                        processed_keys.add(ai_key)
+                        print(f"添加额外的来自 {ai_key} 的响应（不在视觉顺序中）")
         
+        # 如果没有收集到任何响应，但有活动视图，至少保存URL信息
+        if not ordered_responses and self.ai_view_container and hasattr(self.ai_view_container, 'ai_web_views'):
+            for ai_key, web_view in self.ai_view_container.ai_web_views.items():
+                if web_view and hasattr(web_view, 'url'):
+                    url = web_view.url().toString()
+                    ordered_responses.append({"url": url, "reply": "未能获取回复"})
+                    print(f"添加视图 {ai_key} 的URL信息用于保存")
+        
+        # 如果仍然没有响应，添加一个空响应以确保数据库操作成功
+        if not ordered_responses:
+            ordered_responses.append({"url": "无可用URL", "reply": "未能获取任何回复"})
+            print("添加空响应占位符以确保保存成功")
+            
         print(f"按视觉顺序保存 Prompt ID {self.current_prompt_id} 的响应，共 {len(ordered_responses)} 个")
         
         # 保存到数据库
         if self.db_manager:
             timestamp = int(time.time()) # 使用当前时间戳
             try:
+                print(f"实际保存的响应数量: {len(ordered_responses)}")
+                # 添加响应数据调试信息
+                for i, resp in enumerate(ordered_responses):
+                    print(f"响应 {i+1}: URL类型={type(resp.get('url'))}, URL长度={len(str(resp.get('url', '')))}")
+                    print(f"响应 {i+1}: 回复类型={type(resp.get('reply'))}, 回复长度={len(str(resp.get('reply', '')))}")
+                
                 self.db_manager.add_prompt_details(
                     self.current_prompt_id, 
                     self.current_prompt_text,
@@ -506,6 +576,8 @@ class PromptSync(QObject):
                 print(f"Prompt ID {self.current_prompt_id} 的有序响应已保存到数据库。")
             except Exception as e:
                 print(f"保存 Prompt ID {self.current_prompt_id} 的有序响应到数据库时出错: {str(e)}")
+                import traceback
+                print(traceback.format_exc())
         else:
             print("数据库管理器未设置，无法保存响应。")
             
@@ -566,10 +638,28 @@ class PromptSync(QObject):
                 if key not in self.response_map or not self.response_map[key]:
                     url = f"view_{key}_safety_timeout"
                     if self.ai_view_container and key in self.ai_view_container.ai_web_views:
-                        url = self.ai_view_container.ai_web_views[key].url().toString()
+                        try:
+                            web_view = self.ai_view_container.ai_web_views.get(key)
+                            if web_view and hasattr(web_view, 'url'):
+                                url = web_view.url().toString()
+                        except Exception as e:
+                            print(f"获取视图 {key} 的URL时出错: {str(e)}")
                     self.response_map[key] = {"url": url, "reply": "安全超时机制触发"}
                     print(f"为视图 {key} 添加安全超时响应")
         
+        # 确保至少有一个响应，即使是空的
+        if not self.response_map and self.ai_view_container and hasattr(self.ai_view_container, 'ai_web_views'):
+            try:
+                for ai_key, web_view in self.ai_view_container.ai_web_views.items():
+                    if web_view and hasattr(web_view, 'url'):
+                        url = web_view.url().toString()
+                        self.response_map[ai_key] = {"url": url, "reply": "安全超时机制触发"}
+                        print(f"添加视图 {ai_key} 的基本URL信息")
+            except Exception as e:
+                print(f"添加基本URL信息时出错: {str(e)}")
+                # 如果一切都失败了，至少添加一个空响应
+                self.response_map["default"] = {"url": "安全超时无法获取URL", "reply": "安全超时机制触发"}
+                
         # 强制保存已收集的数据
         print("强制保存当前收集的响应...")
         total_views = len(self.original_view_order)

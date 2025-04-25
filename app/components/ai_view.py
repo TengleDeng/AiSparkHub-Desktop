@@ -1485,13 +1485,18 @@ class AIView(QWidget):
         # 获取高亮按钮的全局位置
         highlight_btn_pos = container.highlight_btn.mapToGlobal(container.highlight_btn.rect().bottomLeft())
         
+        # 获取WebView在屏幕上的位置和尺寸，用于确保对话框不会被遮挡
+        webview_rect = web_view.rect()
+        webview_global_pos = web_view.mapToGlobal(webview_rect.topLeft())
+        webview_width = webview_rect.width()
+        
         # 创建高亮显示对话框 - 使用无边框窗口
         dialog = QDialog(self)
         dialog.setWindowFlags(Qt.WindowType.Popup | Qt.WindowType.FramelessWindowHint)
-        dialog.setMinimumWidth(350)
+        dialog.setMinimumWidth(380)
         dialog.setMaximumWidth(450)
         
-        # 设置样式表
+        # 设置样式表 - 优化列表项样式
         dialog.setStyleSheet("""
             QDialog {
                 background-color: #FFFFFF;
@@ -1503,10 +1508,12 @@ class AIView(QWidget):
                 border: none;
                 background-color: transparent;
                 outline: none;
+                padding: 5px;
             }
             QListWidget::item {
-                padding: 8px;
+                padding: 10px 8px;
                 border-bottom: 1px solid #EEEEEE;
+                min-height: 30px;
             }
             QListWidget::item:selected {
                 background-color: #F5F5F5;
@@ -1515,13 +1522,27 @@ class AIView(QWidget):
             QListWidget::item:hover {
                 background-color: #F0F0F0;
             }
-            QLabel {
+            QLabel#titleLabel {
                 font-weight: bold;
                 padding: 10px;
+                color: #333333;
                 background-color: #F7F7F7;
                 border-bottom: 1px solid #EEEEEE;
                 border-top-left-radius: 6px;
                 border-top-right-radius: 6px;
+            }
+            QPushButton#copyButton {
+                border: none;
+                background-color: transparent;
+                color: #3366CC;
+                padding: 3px 8px;
+                border-radius: 4px;
+            }
+            QPushButton#copyButton:hover {
+                background-color: #E6E6E6;
+            }
+            QPushButton#copyButton:pressed {
+                background-color: #D6D6D6;
             }
         """)
         
@@ -1530,15 +1551,55 @@ class AIView(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
         
+        # 标题栏容器 - 使用水平布局放置标题和按钮
+        title_container = QWidget()
+        title_container.setObjectName("titleContainer")
+        title_container.setStyleSheet("background-color: #F7F7F7; border-top-left-radius: 6px; border-top-right-radius: 6px;")
+        title_layout = QHBoxLayout(title_container)
+        title_layout.setContentsMargins(10, 5, 10, 5)
+        
         # 添加标题
         title_label = QLabel(f"页面高亮内容 ({len(highlights)})")
-        title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(title_label)
+        title_label.setObjectName("titleLabel")
+        title_label.setStyleSheet("background-color: transparent; border: none;")
+        title_layout.addWidget(title_label)
+        
+        # 添加复制按钮
+        copy_btn = QPushButton("复制全部")
+        copy_btn.setObjectName("copyButton")
+        copy_btn.setToolTip("复制所有高亮内容到剪贴板")
+        copy_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        title_layout.addWidget(copy_btn)
+        
+        # 复制按钮点击事件
+        def copy_all_highlights():
+            # 收集所有高亮文本
+            all_text = []
+            for highlight in highlights:
+                text = highlight.get('text_content', '').strip()
+                if text:
+                    all_text.append(text)
+            
+            # 合并文本并复制到剪贴板
+            if all_text:
+                combined_text = "\n\n".join(all_text)
+                clipboard = QApplication.clipboard()
+                clipboard.setText(combined_text)
+                
+                # 显示复制成功提示
+                QTimer.singleShot(100, lambda: self._show_copy_success_toast(dialog))
+        
+        # 连接复制按钮信号
+        copy_btn.clicked.connect(copy_all_highlights)
+        
+        # 添加标题栏到主布局
+        layout.addWidget(title_container)
         
         # 创建列表部件
         list_widget = QListWidget()
         list_widget.setAlternatingRowColors(False)
         list_widget.setVerticalScrollMode(QListWidget.ScrollMode.ScrollPerPixel)
+        list_widget.setSpacing(2)  # 设置项之间的间距
         
         # 添加高亮项
         for highlight in highlights:
@@ -1547,57 +1608,60 @@ class AIView(QWidget):
             # 创建高亮项容器部件
             item_widget = QWidget()
             item_layout = QVBoxLayout(item_widget)
-            item_layout.setContentsMargins(3, 3, 3, 3)
+            item_layout.setContentsMargins(5, 8, 5, 8)  # 增大内边距
             
-            # 获取高亮类型对应的颜色
+            # 获取高亮类型对应的颜色和边框
             highlight_type = highlight.get('highlight_type', 'yellow')
             bg_color = highlight.get('bg_color', '')
+            border = highlight.get('border', '')
             
             if not bg_color:
-                # 默认高亮颜色映射
+                # 默认高亮颜色映射 - 使用实际注入脚本中的颜色
                 color_map = {
-                    'yellow': '#FFFF8D',
-                    'green': '#B9F6CA',
-                    'blue': '#84FFFF',
-                    'purple': '#B388FF',
-                    'pink': '#FF80AB',
-                    'red': '#FF8A80'
+                    'yellow': 'rgba(255, 255, 0, 0.3)',
+                    'green': 'rgba(0, 255, 0, 0.3)',
+                    'red': 'rgba(255, 0, 0, 0.3)',
+                    'blue': 'rgba(132, 255, 255, 0.3)',
+                    'purple': 'rgba(179, 136, 255, 0.3)',
+                    'pink': 'rgba(255, 128, 171, 0.3)'
                 }
-                bg_color = color_map.get(highlight_type, '#FFFF8D')
+                bg_color = color_map.get(highlight_type, 'rgba(255, 255, 0, 0.3)')
             
-            # 创建内容显示区域
+            if not border:
+                # 默认边框样式映射
+                border_map = {
+                    'yellow': '2px solid gold',
+                    'green': '2px solid green', 
+                    'red': '2px solid red',
+                    'blue': '2px solid cyan',
+                    'purple': '2px solid purple',
+                    'pink': '2px solid pink'
+                }
+                border = border_map.get(highlight_type, '2px solid gold')
+            
+            # 创建内容显示区域 - 不再限制行数，显示全部内容
             text_content = highlight.get('text_content', '')
-            # 将文本分割成行并限制为最多3行
-            lines = text_content.splitlines()
-            if not lines:  # 如果没有换行，则按照字符数分割
-                if len(text_content) > 150:
-                    displayed_text = text_content[:150] + '...'
-                else:
-                    displayed_text = text_content
-            else:
-                # 限制为3行
-                if len(lines) > 3:
-                    displayed_text = '\n'.join(lines[:3]) + '...'
-                else:
-                    displayed_text = '\n'.join(lines)
             
-            # 创建文本标签，带有高亮背景色
-            text_label = QLabel(displayed_text)
+            # 创建文本标签，带有高亮背景色和边框 - 改进样式
+            text_label = QLabel(text_content)
             text_label.setWordWrap(True)
             text_label.setStyleSheet(f"""
                 QLabel {{
                     background-color: {bg_color};
-                    padding: 5px;
-                    border-radius: 3px;
+                    border-bottom: {border};
+                    padding: 8px;
+                    border-radius: 4px;
                     font-size: 13px;
-                    line-height: 1.3;
+                    line-height: 1.4;
+                    color: #333333;
+                    min-height: 20px;
                 }}
             """)
             
             # 添加到布局
             item_layout.addWidget(text_label)
             
-            # 设置列表项高度
+            # 设置列表项高度 - 使用自动计算
             item.setSizeHint(item_widget.sizeHint())
             
             # 存储高亮数据用于定位
@@ -1613,19 +1677,91 @@ class AIView(QWidget):
         # 添加部件到布局
         layout.addWidget(list_widget)
         
-        # 调整对话框高度（最多显示5个项目，否则使用滚动条）
+        # 调整对话框高度，确保高亮条目有足够的空间显示
+        # 最多显示5个项目，否则使用滚动条，但确保每个项目高度足够
         max_items = min(5, len(highlights))
-        item_height = 0
+        total_item_height = 0
+        
+        # 计算前几个项目的实际高度
         for i in range(min(max_items, list_widget.count())):
-            item_height += list_widget.sizeHintForRow(i)
+            item = list_widget.item(i)
+            # 获取项目实际高度
+            item_widget = list_widget.itemWidget(item)
+            total_item_height += item_widget.sizeHint().height() + 4  # 加上一些间隔
         
         # 设置对话框的固定高度 (标题高度 + 项目高度 + 额外空间)
-        title_height = title_label.sizeHint().height()
-        dialog_height = title_height + item_height + 20  # 额外空间用于边距和滚动条
+        title_height = title_container.sizeHint().height()
+        dialog_height = title_height + total_item_height + 30  # 额外空间用于边距和滚动条
+        
+        # 设置最小高度和最大高度
+        dialog_height = max(dialog_height, 200)  # 最小高度
+        dialog_height = min(dialog_height, 600)  # 最大高度
+        
         dialog.setFixedHeight(dialog_height)
         
-        # 设置对话框位置在按钮正下方
-        dialog.move(highlight_btn_pos)
+        # 使用高亮按钮位置作为初始位置
+        dialog_x = highlight_btn_pos.x()
+        dialog_y = highlight_btn_pos.y()
+        
+        # 计算对话框宽度
+        dialog_width = dialog.minimumWidth()
+        
+        # 确保对话框在WebView内居中显示
+        # 如果对话框右侧超出WebView，则向左移动
+        if dialog_x + dialog_width > webview_global_pos.x() + webview_width:
+            # 确保对话框左侧与WebView左侧有一定间距
+            dialog_x = max(webview_global_pos.x() + 10, 
+                          webview_global_pos.x() + webview_width - dialog_width - 10)
+        
+        # 获取包含WebView的屏幕，而不是primaryScreen
+        screen = None
+        for screen_obj in QApplication.screens():
+            screen_geometry = screen_obj.geometry()
+            if screen_geometry.contains(webview_global_pos):
+                screen = screen_obj
+                break
+                
+        # 如果找不到包含WebView的屏幕，退回到包含按钮的屏幕
+        if not screen:
+            for screen_obj in QApplication.screens():
+                screen_geometry = screen_obj.geometry()
+                if screen_geometry.contains(highlight_btn_pos):
+                    screen = screen_obj
+                    break
+        
+        # 如果仍然找不到屏幕，使用当前窗口所在的屏幕
+        if not screen:
+            # 查找包含当前窗口的屏幕
+            window = self.window()
+            window_pos = window.mapToGlobal(window.rect().topLeft())
+            for screen_obj in QApplication.screens():
+                screen_geometry = screen_obj.geometry()
+                if screen_geometry.contains(window_pos):
+                    screen = screen_obj
+                    break
+        
+        # 如果还是找不到，使用主屏幕（最后的备选）
+        if not screen:
+            screen = QApplication.primaryScreen()
+            
+        # 获取正确的屏幕可用区域
+        screen_rect = screen.availableGeometry()
+        self.logger.debug(f"使用屏幕几何区域: {screen_rect}")
+        
+        # 调整X坐标
+        if dialog_x < screen_rect.left():
+            dialog_x = screen_rect.left() + 10
+        elif dialog_x + dialog_width > screen_rect.right():
+            dialog_x = screen_rect.right() - dialog_width - 10
+            
+        # 调整Y坐标
+        if dialog_y < screen_rect.top():
+            dialog_y = screen_rect.top() + 10
+        elif dialog_y + dialog_height > screen_rect.bottom():
+            dialog_y = screen_rect.bottom() - dialog_height - 10
+        
+        # 设置对话框位置
+        dialog.move(int(dialog_x), int(dialog_y))
         
         # 添加点击外部关闭功能
         dialog.installEventFilter(self)
@@ -1633,6 +1769,48 @@ class AIView(QWidget):
         # 显示对话框
         dialog.exec()
         
+    def _show_copy_success_toast(self, parent=None):
+        """显示复制成功的提示信息
+        
+        Args:
+            parent: 父窗口
+        """
+        # 创建提示窗口
+        toast = QDialog(parent)
+        toast.setWindowFlags(Qt.WindowType.Popup | Qt.WindowType.FramelessWindowHint | Qt.WindowType.Tool)
+        toast.setStyleSheet("""
+            background-color: rgba(60, 60, 60, 0.8);
+            color: white;
+            border-radius: 8px;
+            padding: 5px;
+        """)
+        
+        # 创建布局
+        layout = QVBoxLayout(toast)
+        layout.setContentsMargins(10, 8, 10, 8)
+        
+        # 添加文本
+        label = QLabel("已复制全部高亮内容")
+        label.setStyleSheet("color: white; font-size: 13px;")
+        layout.addWidget(label)
+        
+        # 设置大小和位置
+        toast.setFixedSize(label.sizeHint().width() + 30, label.sizeHint().height() + 20)
+        
+        # 如果有父窗口，则居中显示
+        if parent:
+            parent_rect = parent.geometry()
+            toast.move(
+                parent_rect.x() + (parent_rect.width() - toast.width()) // 2,
+                parent_rect.y() + (parent_rect.height() - toast.height()) // 2
+            )
+        
+        # 显示提示
+        toast.show()
+        
+        # 2秒后自动关闭
+        QTimer.singleShot(2000, toast.close)
+
     def scroll_to_highlight(self, web_view, highlight_data):
         """在网页中定位到指定的高亮位置
         
