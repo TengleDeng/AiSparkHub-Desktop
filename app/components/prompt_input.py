@@ -122,13 +122,13 @@ class PromptInput(MarkdownEditor):
         tools_layout.setSpacing(8)
         
         # 添加"每日内参"按钮
-        self.daily_briefing_button = QPushButton("生成每日内参")
+        self.daily_briefing_button = QPushButton("今日内参")
         self.daily_briefing_button.setToolTip("生成当天更新文章的内参日报")
         self.daily_briefing_button.clicked.connect(lambda: self.generate_briefing(0))  # 0表示当天
         tools_layout.addWidget(self.daily_briefing_button)
         
         # 添加"昨日内参"按钮
-        self.yesterday_briefing_button = QPushButton("生成昨日内参")
+        self.yesterday_briefing_button = QPushButton("昨日内参")
         self.yesterday_briefing_button.setToolTip("生成昨天更新文章的内参日报")
         self.yesterday_briefing_button.clicked.connect(lambda: self.generate_briefing(1))  # 1表示昨天
         tools_layout.addWidget(self.yesterday_briefing_button)
