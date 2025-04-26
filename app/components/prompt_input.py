@@ -25,6 +25,11 @@ class PromptInput(MarkdownEditor):
     def __init__(self, parent=None, db_manager=None):
         super().__init__(parent, db_manager)
         
+        # 确保使用Fusion样式，便于自定义按钮样式
+        app = QApplication.instance()
+        if app:
+            app.setStyle("Fusion")
+        
         # 删除固定最小高度设置
         self.setMinimumHeight(0)
         
@@ -166,26 +171,6 @@ class PromptInput(MarkdownEditor):
         self.send_button.clicked.connect(self.submit_prompt)
         search_layout.addWidget(self.send_button)
         
-        # 统一设置搜索和发送按钮风格为扁平、无背景色、悬浮变色
-        for btn in [self.search_button, self.send_button]:
-            btn.setFlat(True)
-            btn.setStyleSheet("""
-                QPushButton {
-                    background: transparent;
-                    border: none;
-                    color: #88C0D0;
-                    padding: 4px 8px;
-                }
-                QPushButton:hover {
-                    color: #5E81AC;
-                    background: rgba(136,192,208,0.08);
-                }
-                QPushButton:pressed {
-                    color: #81A1C1;
-                    background: rgba(136,192,208,0.15);
-                }
-            """)
-        
         # 创建搜索结果列表
         self.search_results = QListWidget()
         self.search_results.setMaximumHeight(300)  # 增加最大高度
@@ -256,31 +241,6 @@ class PromptInput(MarkdownEditor):
         self.yesterday_briefing_button.setToolTip("生成昨天更新文章的内参日报")
         self.yesterday_briefing_button.clicked.connect(lambda: self.generate_briefing(1))  # 1表示昨天
         tools_layout.addWidget(self.yesterday_briefing_button)
-
-        # 统一设置按钮风格为扁平、无背景色、悬浮变色
-        for btn in [
-            self.template_component.template_dir_button,
-            self.template_component.refresh_button,
-            self.daily_briefing_button,
-            self.yesterday_briefing_button
-        ]:
-            btn.setFlat(True)
-            btn.setStyleSheet("""
-                QPushButton {
-                    background: transparent;
-                    border: none;
-                    color: #88C0D0;
-                    padding: 4px 8px;
-                }
-                QPushButton:hover {
-                    color: #5E81AC;
-                    background: rgba(136,192,208,0.08);
-                }
-                QPushButton:pressed {
-                    color: #81A1C1;
-                    background: rgba(136,192,208,0.15);
-                }
-            """)
         
         # 添加弹性空间
         tools_layout.addStretch(1)
@@ -819,12 +779,26 @@ class PromptInput(MarkdownEditor):
         # 调用父类方法更新编辑器图标
         super()._update_icons()
         
+        print("更新按钮样式和图标...")
+        
         # 获取当前主题颜色
         icon_color = '#88C0D0'  # 默认强调色
+        btn_fg_color = '#FFFFFF'  # 默认暗色模式白色
         
         if self.theme_manager:
             theme_colors = self.theme_manager.get_current_theme_colors()
             icon_color = theme_colors.get('accent', icon_color)
+            btn_fg_color = '#FFFFFF' if theme_colors.get('is_dark', True) else '#2E3440'
+            
+            print(f"当前主题: {'深色' if theme_colors.get('is_dark', True) else '浅色'}")
+            print(f"按钮前景色: {btn_fg_color}")
+            
+            # 确保连接主题变化信号（避免重复连接）
+            try:
+                self.theme_manager.theme_changed.disconnect(self._update_icons)
+            except:
+                pass
+            self.theme_manager.theme_changed.connect(self._update_icons)
         
         # 如果处于模板模式，强制设置预览图标为编辑图标
         if self.input_stack.currentIndex() == 1:
@@ -835,29 +809,82 @@ class PromptInput(MarkdownEditor):
         # 更新搜索按钮图标
         if hasattr(self, 'search_button'):
             try:
-                self.search_button.setIcon(qta.icon("fa5s.search", color=icon_color))
+                self.search_button.setIcon(qta.icon("fa5s.search", color=btn_fg_color))
             except Exception as e:
                 print(f"更新搜索按钮图标出错: {e}")
                 
         # 更新发送按钮图标
         if hasattr(self, 'send_button'):
             try:
-                self.send_button.setIcon(qta.icon("fa5s.paper-plane", color=icon_color))
+                self.send_button.setIcon(qta.icon("fa5s.paper-plane", color=btn_fg_color))
             except Exception as e:
                 print(f"更新发送按钮图标出错: {e}")
                 
         # 更新内参按钮图标
         if hasattr(self, 'daily_briefing_button'):
             try:
-                self.daily_briefing_button.setIcon(qta.icon("fa5s.newspaper", color=icon_color))
+                self.daily_briefing_button.setIcon(qta.icon("fa5s.newspaper", color=btn_fg_color))
             except Exception as e:
                 print(f"更新每日内参按钮图标出错: {e}")
                 
         if hasattr(self, 'yesterday_briefing_button'):
             try:
-                self.yesterday_briefing_button.setIcon(qta.icon("fa5s.history", color=icon_color))
+                self.yesterday_briefing_button.setIcon(qta.icon("fa5s.history", color=btn_fg_color))
             except Exception as e:
                 print(f"更新昨日内参按钮图标出错: {e}")
+        
+        # 统一设置只有图标的按钮样式
+        icon_buttons = [
+            self.template_component.template_dir_button,
+            self.template_component.refresh_button,
+        ]
+        
+        # 统一设置带文本的按钮样式
+        text_buttons = [
+            self.daily_briefing_button,
+            self.yesterday_briefing_button,
+            self.search_button,
+            self.send_button
+        ]
+        
+        # 为图标按钮设置样式
+        for btn in icon_buttons:
+            if btn:
+                btn.setFlat(True)
+                btn.setStyleSheet(f"""
+                    QPushButton {{
+                        background: transparent;
+                        border: none;
+                        color: {btn_fg_color};
+                        padding: 4px 8px;
+                    }}
+                    QPushButton:hover {{
+                        background: rgba(136,192,208,0.08);
+                    }}
+                    QPushButton:pressed {{
+                        background: rgba(136,192,208,0.15);
+                    }}
+                """)
+        
+        # 为带文本的按钮设置不同的样式
+        for btn in text_buttons:
+            if btn:
+                btn.setFlat(True)
+                # 直接将颜色设置为主题色
+                btn.setStyleSheet(f"""
+                    QPushButton {{
+                        background: transparent;
+                        border: none;
+                        color: {btn_fg_color};
+                        padding: 4px 8px;
+                    }}
+                    QPushButton:hover {{
+                        background: rgba(136,192,208,0.08);
+                    }}
+                    QPushButton:pressed {{
+                        background: rgba(136,192,208,0.15);
+                    }}
+                """)
     
     def _toggle_preview_mode(self):
         """重写父类的预览切换方法，确保与input_stack配合"""

@@ -643,34 +643,45 @@ class FileExplorer(QWidget):
         icon_color = '#D8DEE9'  # 默认颜色
         toolbar_bg = '#3B4252'  # 默认背景色
         toolbar_hover_bg = '#4C566A'  # 默认悬停背景色
+        btn_fg_color = '#FFFFFF'  # 默认暗色模式下文字颜色
         
         if self.theme_manager:
             theme_colors = self.theme_manager.get_current_theme_colors()
             icon_color = theme_colors.get('foreground', icon_color)
             toolbar_bg = theme_colors.get('secondary_bg', toolbar_bg)
             toolbar_hover_bg = theme_colors.get('tertiary_bg', toolbar_hover_bg)
+            btn_fg_color = '#FFFFFF' if theme_colors.get('is_dark', True) else '#2E3440'
+            
+            print(f"FileExplorer - 当前主题: {'深色' if theme_colors.get('is_dark', True) else '浅色'}")
+            print(f"FileExplorer - 按钮图标颜色: {btn_fg_color}")
         
         # 更新PKM数据库按钮图标
         if hasattr(self, 'pkm_db_action') and self.pkm_db_action:
-            self.pkm_db_action.setIcon(qta.icon('fa5s.brain', color=icon_color))
+            self.pkm_db_action.setIcon(qta.icon('fa5s.brain', color=btn_fg_color))
         
         # 更新工具栏样式
         self.bottom_toolbar.setStyleSheet(f"""
             QToolBar {{
-                background-color: {toolbar_bg};
+                background: transparent;
                 border: none;
-                spacing: 5px;
+                spacing: 6px;
                 padding: 2px;
             }}
             QToolButton {{
-                background-color: transparent;
+                background: transparent;
                 border: none;
                 border-radius: 4px;
                 padding: 5px;
-                color: {icon_color};
+                color: {btn_fg_color};
             }}
             QToolButton:hover {{
-                background-color: {toolbar_hover_bg};
+                background: rgba(136,192,208,0.08);
+            }}
+            QToolButton:pressed {{
+                background: rgba(136,192,208,0.15);
+            }}
+            QToolButton::menu-indicator {{
+                image: none;
             }}
         """)
 

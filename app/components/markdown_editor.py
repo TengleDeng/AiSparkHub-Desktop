@@ -249,43 +249,73 @@ class MarkdownEditor(QWidget):
         # 获取当前主题颜色
         icon_color = '#88C0D0'  # 默认强调色
         button_bg = '#2E3440'   # 默认按钮背景色
+        btn_fg_color = '#FFFFFF'  # 默认暗色模式下文字颜色
         
         if self.theme_manager:
             theme_colors = self.theme_manager.get_current_theme_colors()
             icon_color = theme_colors.get('accent', icon_color)
             button_bg = theme_colors.get('secondary_bg', button_bg)
+            btn_fg_color = '#FFFFFF' if theme_colors.get('is_dark', True) else '#2E3440'
+            
+            print(f"MarkdownEditor - 当前主题: {'深色' if theme_colors.get('is_dark', True) else '浅色'}")
+            print(f"MarkdownEditor - 按钮图标颜色: {btn_fg_color}")
         
-        # 文件操作图标
-        self.new_action.setIcon(qta.icon("fa5s.file", color=icon_color))
-        self.open_action.setIcon(qta.icon("fa5s.folder-open", color=icon_color))
-        self.save_action.setIcon(qta.icon("fa5s.save", color=icon_color))
+        # 设置工具栏按钮样式
+        self.toolbar.setStyleSheet(f"""
+            QToolBar {{
+                background: transparent;
+                border: none;
+                spacing: 6px;
+            }}
+            QToolButton {{
+                background: transparent;
+                border: none;
+                border-radius: 4px;
+                padding: 4px;
+                color: {btn_fg_color};
+            }}
+            QToolButton:hover {{
+                background: rgba(136,192,208,0.08);
+            }}
+            QToolButton:pressed {{
+                background: rgba(136,192,208,0.15);
+            }}
+            QToolButton::menu-indicator {{
+                image: none;
+            }}
+        """)
         
-        # 工具栏图标
-        self.bold_action.setIcon(qta.icon("fa5s.bold", color=icon_color))
-        self.italic_action.setIcon(qta.icon("fa5s.italic", color=icon_color))
-        self.underline_action.setIcon(qta.icon("fa5s.underline", color=icon_color))
-        self.strikethrough_action.setIcon(qta.icon("fa5s.strikethrough", color=icon_color))
-        self.highlight_action.setIcon(qta.icon("fa5s.highlighter", color=icon_color))
+        # 文件操作图标 - 使用主题对应的文本颜色
+        self.new_action.setIcon(qta.icon("fa5s.file", color=btn_fg_color))
+        self.open_action.setIcon(qta.icon("fa5s.folder-open", color=btn_fg_color))
+        self.save_action.setIcon(qta.icon("fa5s.save", color=btn_fg_color))
         
-        self.bullet_list_action.setIcon(qta.icon("fa5s.list-ul", color=icon_color))
-        self.ordered_list_action.setIcon(qta.icon("fa5s.list-ol", color=icon_color))
-        self.task_list_action.setIcon(qta.icon("fa5s.tasks", color=icon_color))
+        # 工具栏图标 - 使用主题对应的文本颜色
+        self.bold_action.setIcon(qta.icon("fa5s.bold", color=btn_fg_color))
+        self.italic_action.setIcon(qta.icon("fa5s.italic", color=btn_fg_color))
+        self.underline_action.setIcon(qta.icon("fa5s.underline", color=btn_fg_color))
+        self.strikethrough_action.setIcon(qta.icon("fa5s.strikethrough", color=btn_fg_color))
+        self.highlight_action.setIcon(qta.icon("fa5s.highlighter", color=btn_fg_color))
         
-        self.link_action.setIcon(qta.icon("fa5s.link", color=icon_color))
-        self.image_action.setIcon(qta.icon("fa5s.image", color=icon_color))
-        self.code_action.setIcon(qta.icon("fa5s.code", color=icon_color))
-        self.code_block_action.setIcon(qta.icon("fa5s.file-code", color=icon_color))
+        self.bullet_list_action.setIcon(qta.icon("fa5s.list-ul", color=btn_fg_color))
+        self.ordered_list_action.setIcon(qta.icon("fa5s.list-ol", color=btn_fg_color))
+        self.task_list_action.setIcon(qta.icon("fa5s.tasks", color=btn_fg_color))
         
-        self.quote_action.setIcon(qta.icon("fa5s.quote-right", color=icon_color))
-        self.horizontal_rule_action.setIcon(qta.icon("fa5s.minus", color=icon_color))
-        self.table_action.setIcon(qta.icon("fa5s.table", color=icon_color))
+        self.link_action.setIcon(qta.icon("fa5s.link", color=btn_fg_color))
+        self.image_action.setIcon(qta.icon("fa5s.image", color=btn_fg_color))
+        self.code_action.setIcon(qta.icon("fa5s.code", color=btn_fg_color))
+        self.code_block_action.setIcon(qta.icon("fa5s.file-code", color=btn_fg_color))
+        
+        self.quote_action.setIcon(qta.icon("fa5s.quote-right", color=btn_fg_color))
+        self.horizontal_rule_action.setIcon(qta.icon("fa5s.minus", color=btn_fg_color))
+        self.table_action.setIcon(qta.icon("fa5s.table", color=btn_fg_color))
         
         # 更新预览/编辑切换按钮的图标和工具提示
         if self.is_preview_mode:
-            self.preview_toggle_action.setIcon(qta.icon("fa5s.edit", color=icon_color))
+            self.preview_toggle_action.setIcon(qta.icon("fa5s.edit", color=btn_fg_color))
             self.preview_toggle_action.setToolTip("切换到编辑模式")
         else:
-            self.preview_toggle_action.setIcon(qta.icon("fa5s.eye", color=icon_color))
+            self.preview_toggle_action.setIcon(qta.icon("fa5s.eye", color=btn_fg_color))
             self.preview_toggle_action.setToolTip("切换到预览模式")
     
     def _on_text_changed(self):

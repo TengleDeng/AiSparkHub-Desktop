@@ -121,12 +121,16 @@ class PromptTemplate(QWidget):
         self.template_dir_button.setIcon(qta.icon("fa5s.folder"))
         self.template_dir_button.setToolTip("设置模板目录")
         self.template_dir_button.clicked.connect(self.select_template_directory)
+        # 确保按钮默认是扁平的，无背景色
+        self.template_dir_button.setFlat(True)
         
         # 刷新按钮
         self.refresh_button = QPushButton()
         self.refresh_button.setIcon(qta.icon("fa5s.sync"))
         self.refresh_button.setToolTip("刷新模板列表")
         self.refresh_button.clicked.connect(self.loadTemplatesFromDirectory)
+        # 确保按钮默认是扁平的，无背景色
+        self.refresh_button.setFlat(True)
     
     def setup_preview_ui(self):
         """设置预览区域"""
