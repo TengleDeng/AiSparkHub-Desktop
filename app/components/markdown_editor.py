@@ -16,6 +16,7 @@ import markdown
 from markdown.extensions.tables import TableExtension
 from markdown.extensions.fenced_code import FencedCodeExtension
 from PyQt6.QtWebEngineWidgets import QWebEngineView
+from PyQt6.QtGui import QPalette
 
 class MarkdownEditor(QWidget):
     """Markdown编辑器组件，用于编辑和提交Markdown格式的提示词"""
@@ -67,6 +68,7 @@ class MarkdownEditor(QWidget):
         self.text_edit.setPlaceholderText("在此输入Markdown格式的提示词...")
         self.text_edit.setAcceptRichText(False)  # 只接受纯文本
         self.text_edit.textChanged.connect(self._on_text_changed)
+        self.text_edit.setVisible(True)  # 显式设置可见
         
         # 设置编辑器字体
         font = QFont("Consolas", 11)
@@ -93,7 +95,8 @@ class MarkdownEditor(QWidget):
         self.stacked_widget.setCurrentIndex(0)
         self.is_preview_mode = False
         
-        self.layout.addWidget(self.stacked_widget, 1)  # 1表示拉伸因子
+        # 将堆叠部件添加到主布局，占据所有剩余空间
+        self.layout.addWidget(self.stacked_widget, 1)
         
         # 设置快捷键
         self.text_edit.installEventFilter(self)
@@ -277,7 +280,7 @@ class MarkdownEditor(QWidget):
         self.horizontal_rule_action.setIcon(qta.icon("fa5s.minus", color=icon_color))
         self.table_action.setIcon(qta.icon("fa5s.table", color=icon_color))
         
-        # 预览/编辑切换按钮图标
+        # 更新预览/编辑切换按钮的图标和工具提示
         if self.is_preview_mode:
             self.preview_toggle_action.setIcon(qta.icon("fa5s.edit", color=icon_color))
             self.preview_toggle_action.setToolTip("切换到编辑模式")
@@ -675,11 +678,15 @@ class MarkdownEditor(QWidget):
         
         if self.is_preview_mode:
             # 切换到预览模式
-            self._update_preview()
+            self._update_preview()  # 先更新预览内容
             self.stacked_widget.setCurrentIndex(1)  # 显示预览视图
+            self.preview_toggle_action.setToolTip("切换到编辑模式")
         else:
             # 切换到编辑模式
             self.stacked_widget.setCurrentIndex(0)  # 显示编辑器
+            self.preview_toggle_action.setToolTip("切换到预览模式")
+            # 使用QTimer确保编辑器获得焦点
+            QTimer.singleShot(0, self.text_edit.setFocus)
         
         # 更新按钮图标
         self._update_icons()

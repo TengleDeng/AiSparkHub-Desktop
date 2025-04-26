@@ -3,7 +3,7 @@
 
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QTextEdit, QPushButton, 
                            QHBoxLayout, QLineEdit, QListWidget, QListWidgetItem, 
-                           QLabel, QFrame, QComboBox)
+                           QLabel, QFrame, QComboBox, QStackedWidget)
 from PyQt6.QtCore import Qt, pyqtSignal, QSize
 from PyQt6.QtGui import QIcon, QColor, QTextCharFormat, QFont
 import qtawesome as qta
@@ -13,6 +13,8 @@ from app.controllers.theme_manager import ThemeManager
 import os
 import re
 from app.components.markdown_editor import MarkdownEditor
+# 导入新创建的模板模块
+from app.components.prompt_template import PromptTemplate
 
 class PromptInput(MarkdownEditor):
     """提示词输入组件，带Markdown编辑功能和搜索能力"""
@@ -22,8 +24,46 @@ class PromptInput(MarkdownEditor):
     
     def __init__(self, parent=None, db_manager=None):
         super().__init__(parent, db_manager)
-        self.setup_search_ui()
-        self.setup_tools_toolbar()  # 添加新的工具栏
+        
+        # 删除固定最小高度设置
+        self.setMinimumHeight(0)
+        
+        # 创建模式切换容器（堆叠窗口）
+        self.input_stack = QStackedWidget()
+        
+        # 创建模板组件
+        self.template_component = PromptTemplate()
+        self.template_component.template_content_updated.connect(self.on_template_content_updated)
+        
+        # 重要修改: 不再直接操作text_edit和stacked_widget
+        # 而是创建一个新容器承载MarkdownEditor的功能
+        self.markdown_container = QWidget()
+        markdown_layout = QVBoxLayout(self.markdown_container)
+        markdown_layout.setContentsMargins(0, 0, 0, 0)
+        markdown_layout.setSpacing(0)
+        
+        # 将原始stacked_widget添加到新容器
+        markdown_layout.addWidget(self.stacked_widget)
+        
+        # 将markdown容器和模板组件添加到input_stack
+        self.input_stack.addWidget(self.markdown_container)
+        self.input_stack.addWidget(self.template_component)
+        
+        # 重新组织布局
+        # 找到原始布局中stacked_widget的位置
+        stacked_index = self.layout.indexOf(self.stacked_widget)
+        if stacked_index >= 0:
+            # 从原始布局中移除stacked_widget
+            self.layout.removeWidget(self.stacked_widget)
+            # 在同样的位置加入input_stack
+            self.layout.insertWidget(stacked_index, self.input_stack, 3)
+        else:
+            # 如果未找到，直接添加
+            self.layout.addWidget(self.input_stack, 3)
+        
+        # 设置UI
+        self.setup_tools_toolbar()  # 添加工具栏
+        self.setup_search_ui()      # 添加搜索UI
         
         # 获取 ThemeManager 并连接信号
         self.theme_manager = None
@@ -35,6 +75,59 @@ class PromptInput(MarkdownEditor):
         else:
             print("警告：无法在 PromptInput 中获取 ThemeManager 实例")
             QTimer.singleShot(0, self._update_icons) # 尝试用默认色
+            
+        # 确保默认显示文本编辑器并设置焦点
+        self.input_stack.setCurrentIndex(0)
+        # 使用延迟设置焦点，确保在UI完全初始化后执行
+        QTimer.singleShot(100, self.text_edit.setFocus)
+        
+    def on_template_content_updated(self, content):
+        """处理模板内容更新"""
+        if not content:  # 如果是空内容，表示选择了"直接输入"
+            # 切换到直接输入模式
+            self.input_stack.setCurrentIndex(0)  # 显示Markdown编辑器容器
+            
+            # 确保模板相关组件都隐藏
+            self.template_component.variables_container.setVisible(False)
+            self.template_component.preview_container.setVisible(False)
+            
+            # 如果之前在预览模式，现在也应保持预览模式
+            # stacked_widget的控制不变，让预览/编辑切换按钮功能正常
+            
+            # 延迟设置焦点到文本编辑器(仅在编辑模式下)
+            if not self.is_preview_mode:
+                QTimer.singleShot(100, self.text_edit.setFocus)
+        else:
+            # 设置文本编辑器内容(这样在切回直接输入模式时能看到内容)
+            self.text_edit.setPlainText(content)
+            
+            # 切换到模板视图
+            self.input_stack.setCurrentIndex(1)  # 显示模板视图
+            
+            # 确保模板相关组件可见
+            self.template_component.variables_container.setVisible(True)
+            self.template_component.preview_container.setVisible(True)
+            
+            # 更新变量UI
+            QTimer.singleShot(100, self.template_component.update_variables_ui)
+    
+    def get_text(self):
+        """获取当前文本内容，重写以支持模板模式"""
+        # 从当前活动的输入源获取文本
+        current_index = self.input_stack.currentIndex()
+        if current_index == 0:
+            # 使用父类方法获取文本编辑器内容
+            return super().get_text()
+        else:
+            # 从模板组件获取处理后的内容
+            return self.template_component.get_processed_template()
+    
+    def set_text(self, text):
+        """设置文本内容，重写以支持模板模式"""
+        # 切换到直接输入模式，并设置文本
+        self.input_stack.setCurrentIndex(0)  # 显示文本编辑器
+        self.template_component.template_combo.setCurrentIndex(0)  # 选择"直接输入"选项
+        super().set_text(text)
     
     def setup_search_ui(self):
         """设置搜索UI界面"""
@@ -72,6 +165,26 @@ class PromptInput(MarkdownEditor):
         self.send_button.setToolTip("发送提示词")
         self.send_button.clicked.connect(self.submit_prompt)
         search_layout.addWidget(self.send_button)
+        
+        # 统一设置搜索和发送按钮风格为扁平、无背景色、悬浮变色
+        for btn in [self.search_button, self.send_button]:
+            btn.setFlat(True)
+            btn.setStyleSheet("""
+                QPushButton {
+                    background: transparent;
+                    border: none;
+                    color: #88C0D0;
+                    padding: 4px 8px;
+                }
+                QPushButton:hover {
+                    color: #5E81AC;
+                    background: rgba(136,192,208,0.08);
+                }
+                QPushButton:pressed {
+                    color: #81A1C1;
+                    background: rgba(136,192,208,0.15);
+                }
+            """)
         
         # 创建搜索结果列表
         self.search_results = QListWidget()
@@ -115,11 +228,22 @@ class PromptInput(MarkdownEditor):
         self._update_icons()
     
     def setup_tools_toolbar(self):
-        """设置工具工具栏，添加特殊功能按钮"""
+        """设置工具工具栏，添加特殊功能按钮和模板选择"""
         # 创建工具栏容器
         tools_layout = QHBoxLayout()
         tools_layout.setContentsMargins(0, 5, 0, 5)
         tools_layout.setSpacing(8)
+        
+        # 添加模板选择下拉框
+        template_label = QLabel("选择模板:")
+        tools_layout.addWidget(template_label)
+        
+        # 使用模板组件的下拉框
+        tools_layout.addWidget(self.template_component.template_combo)
+        
+        # 添加模板目录和刷新按钮
+        tools_layout.addWidget(self.template_component.template_dir_button)
+        tools_layout.addWidget(self.template_component.refresh_button)
         
         # 添加"每日内参"按钮
         self.daily_briefing_button = QPushButton("今日内参")
@@ -132,6 +256,31 @@ class PromptInput(MarkdownEditor):
         self.yesterday_briefing_button.setToolTip("生成昨天更新文章的内参日报")
         self.yesterday_briefing_button.clicked.connect(lambda: self.generate_briefing(1))  # 1表示昨天
         tools_layout.addWidget(self.yesterday_briefing_button)
+
+        # 统一设置按钮风格为扁平、无背景色、悬浮变色
+        for btn in [
+            self.template_component.template_dir_button,
+            self.template_component.refresh_button,
+            self.daily_briefing_button,
+            self.yesterday_briefing_button
+        ]:
+            btn.setFlat(True)
+            btn.setStyleSheet("""
+                QPushButton {
+                    background: transparent;
+                    border: none;
+                    color: #88C0D0;
+                    padding: 4px 8px;
+                }
+                QPushButton:hover {
+                    color: #5E81AC;
+                    background: rgba(136,192,208,0.08);
+                }
+                QPushButton:pressed {
+                    color: #81A1C1;
+                    background: rgba(136,192,208,0.15);
+                }
+            """)
         
         # 添加弹性空间
         tools_layout.addStretch(1)
@@ -677,6 +826,12 @@ class PromptInput(MarkdownEditor):
             theme_colors = self.theme_manager.get_current_theme_colors()
             icon_color = theme_colors.get('accent', icon_color)
         
+        # 如果处于模板模式，强制设置预览图标为编辑图标
+        if self.input_stack.currentIndex() == 1:
+            # 在模板模式下，显示"编辑"图标
+            self.preview_toggle_action.setIcon(qta.icon("fa5s.edit", color=icon_color))
+            self.preview_toggle_action.setToolTip("切换到编辑模式")
+        
         # 更新搜索按钮图标
         if hasattr(self, 'search_button'):
             try:
@@ -703,6 +858,18 @@ class PromptInput(MarkdownEditor):
                 self.yesterday_briefing_button.setIcon(qta.icon("fa5s.history", color=icon_color))
             except Exception as e:
                 print(f"更新昨日内参按钮图标出错: {e}")
+    
+    def _toggle_preview_mode(self):
+        """重写父类的预览切换方法，确保与input_stack配合"""
+        # 判断当前是否在直接输入模式
+        if self.input_stack.currentIndex() == 0:
+            # 在直接输入模式，可以切换预览/编辑状态
+            # 调用父类方法处理预览逻辑
+            super()._toggle_preview_mode()
+        else:
+            # 在模板模式，不进行任何切换，因为模板模式有自己的预览
+            # 但我们可以更新图标状态，使图标显示正确
+            self._update_icons()
     
     def submit_current_paragraph_with_search(self):
         """
