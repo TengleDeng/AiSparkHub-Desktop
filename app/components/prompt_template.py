@@ -61,25 +61,40 @@ class PromptTemplate(QWidget):
     template_content_updated = pyqtSignal(str)  # 模板内容更新信号
     
     def __init__(self, parent=None):
+        """初始化提示词模板管理器
+        
+        Args:
+            parent: 父控件
+        """
         super().__init__(parent)
         self.layout = QVBoxLayout(self)
         self.layout.setContentsMargins(0, 0, 0, 0)
         self.layout.setSpacing(5)
         
         # 初始化变量
-        self.current_template = None
-        self.template_variables = []
+        self.current_template = None  # 保持原变量名
+        self.template_variables = []  # 保持原变量名
         self.template_examples_created = False
         
-        # 创建事件过滤器
+        # 创建事件过滤器，用于处理文本编辑器焦点和输入事件
         self.text_edit_filter = TextEditEventFilter(self)
         self.text_edit_filter.textChanged.connect(self._on_text_edit_changed)
+        
+        # 获取主题管理器引用
+        self.theme_manager = None
+        app = QApplication.instance()
+        if hasattr(app, 'theme_manager'):
+            self.theme_manager = app.theme_manager
+            self.theme_manager.theme_changed.connect(self._update_icons)
         
         # 设置UI
         self.setup_ui()
         
         # 自动加载模板
         self.loadTemplatesFromDirectory()
+        
+        # 初始化图标颜色
+        self._update_icons()
         
         # 确保初始状态正确显示
         QTimer.singleShot(0, self.update_variables_ui)
@@ -118,7 +133,6 @@ class PromptTemplate(QWidget):
         
         # 设置模板目录按钮
         self.template_dir_button = QPushButton()
-        self.template_dir_button.setIcon(qta.icon("fa5s.folder"))
         self.template_dir_button.setToolTip("设置模板目录")
         self.template_dir_button.clicked.connect(self.select_template_directory)
         # 确保按钮默认是扁平的，无背景色
@@ -126,7 +140,6 @@ class PromptTemplate(QWidget):
         
         # 刷新按钮
         self.refresh_button = QPushButton()
-        self.refresh_button.setIcon(qta.icon("fa5s.sync"))
         self.refresh_button.setToolTip("刷新模板列表")
         self.refresh_button.clicked.connect(self.loadTemplatesFromDirectory)
         # 确保按钮默认是扁平的，无背景色
@@ -143,9 +156,10 @@ class PromptTemplate(QWidget):
         preview_header.addWidget(QLabel("<b>生成结果预览</b>"))
         
         # 添加刷新预览按钮
-        self.refresh_preview_btn = QPushButton("刷新预览")
+        self.refresh_preview_btn = QPushButton()
         self.refresh_preview_btn.setToolTip("点击更新预览内容")
         self.refresh_preview_btn.clicked.connect(self.update_template_preview)
+        self.refresh_preview_btn.setFlat(True)
         preview_header.addWidget(self.refresh_preview_btn)
         
         preview_header.addStretch(1)
@@ -328,7 +342,7 @@ class PromptTemplate(QWidget):
     def on_template_selected(self, index):
         """处理模板选择变化"""
         if index == 0:  # "直接输入"选项
-            self.current_template = None
+            self.current_template = ""
             self.template_variables = []
             self.update_variables_ui()
             self.update_template_preview()  # 立即清空预览
@@ -347,13 +361,7 @@ class PromptTemplate(QWidget):
                 template_content = f.read()
             
             # 保存当前模板
-            self.current_template = {
-                'path': template_path,
-                'name': self.template_combo.itemText(index),
-                'content': template_content
-            }
-            
-            # 解析模板变量
+            self.current_template = template_content
             self.template_variables = self.parse_template_variables(template_content)
             
             # 更新变量输入区域
@@ -500,9 +508,8 @@ class PromptTemplate(QWidget):
                     if var.name == var_name:
                         # 更新变量值
                         var.value = text
-                        # 更新按钮状态
-                        self.refresh_preview_btn.setText("刷新预览 ⟳")
-                        self.refresh_preview_btn.setStyleSheet("background-color: #5E81AC; color: white;")
+                        # 更新刷新预览按钮状态
+                        self.refresh_preview_btn.setStyleSheet("background-color: rgba(94, 129, 172, 0.2);")
                         # 发送模板内容更新信号
                         self.template_content_updated.emit(self.get_processed_template())
                         break
@@ -520,9 +527,8 @@ class PromptTemplate(QWidget):
                     if var.name == var_name:
                         # 更新变量值
                         var.value = text
-                        # 更新按钮状态
-                        self.refresh_preview_btn.setText("刷新预览 ⟳")
-                        self.refresh_preview_btn.setStyleSheet("background-color: #5E81AC; color: white;")
+                        # 更新刷新预览按钮状态
+                        self.refresh_preview_btn.setStyleSheet("background-color: rgba(94, 129, 172, 0.2);")
                         # 发送模板内容更新信号
                         self.template_content_updated.emit(self.get_processed_template())
                         break
@@ -540,40 +546,41 @@ class PromptTemplate(QWidget):
                     if var.name == var_name:
                         # 更新变量值
                         var.value = current_text
-                        # 更新按钮状态
-                        self.refresh_preview_btn.setText("刷新预览 ⟳")
-                        self.refresh_preview_btn.setStyleSheet("background-color: #5E81AC; color: white;")
+                        # 更新刷新预览按钮状态
+                        self.refresh_preview_btn.setStyleSheet("background-color: rgba(94, 129, 172, 0.2);")
                         # 发送模板内容更新信号
                         self.template_content_updated.emit(self.get_processed_template())
                         break
     
     def update_template_preview(self):
-        """更新模板预览 - 只在用户明确请求时更新"""
-        # 重置按钮状态
-        self.refresh_preview_btn.setText("刷新预览")
-        self.refresh_preview_btn.setStyleSheet("")
-        
+        """更新模板预览"""
+        # 如果没有选择模板，清空预览区域
         if not self.current_template:
             self.preview_text.clear()
             self.char_count_label.setText("(0字符)")
+            # 重置刷新按钮样式
+            self.refresh_preview_btn.setStyleSheet("")
             return
+            
+        # 处理模板变量，生成预览内容
+        processed_content = self.get_processed_template()
         
-        # 获取处理后的模板
-        processed_template = self.get_processed_template()
-        
-        # 更新预览区域
-        self.preview_text.setText(processed_template)
+        # 更新预览文本
+        self.preview_text.setText(processed_content)
         
         # 更新字符计数
-        char_count = len(processed_template)
-        self.char_count_label.setText(f"({char_count}字符)")
+        count = len(processed_content)
+        self.char_count_label.setText(f"({count}字符)")
+        
+        # 重置刷新按钮样式
+        self.refresh_preview_btn.setStyleSheet("")
     
     def get_processed_template(self):
         """获取处理后的模板内容"""
         if not self.current_template:
             return ""
         
-        template_content = self.current_template['content']
+        template_content = self.current_template
         
         # 替换所有变量
         for var in self.template_variables:
@@ -586,17 +593,74 @@ class PromptTemplate(QWidget):
     def get_current_template_name(self):
         """获取当前模板名称"""
         if self.current_template:
-            return self.current_template['name']
+            return self.current_template.split('\n')[0]  # 假设模板名称在第一行
         return "直接输入"
     
     def is_using_direct_input(self):
         """是否使用直接输入模式"""
-        return self.template_combo.currentIndex() == 0 or self.current_template is None
+        return self.template_combo.currentIndex() == 0 or not self.current_template
 
     # 保留兼容性方法供外部调用
     def on_variable_value_changed(self, variable, new_value):
         """仅用于外部调用的方法，自定义UI使用其他方法"""
         variable.value = new_value
         self.template_content_updated.emit(self.get_processed_template())
-        self.refresh_preview_btn.setText("刷新预览 ⟳")
-        self.refresh_preview_btn.setStyleSheet("background-color: #5E81AC; color: white;")
+        self.refresh_preview_btn.setStyleSheet("background-color: rgba(94, 129, 172, 0.2);")
+
+    def _update_icons(self):
+        """更新图标颜色以适应当前主题"""
+        # 默认颜色（深色主题）
+        icon_color = '#D8DEE9'  # 默认深色主题前景色
+        
+        # 如果有主题管理器，获取当前主题颜色
+        if self.theme_manager:
+            theme_colors = self.theme_manager.get_current_theme_colors()
+            is_dark = theme_colors.get('is_dark', True)
+            # 根据主题设置图标颜色
+            icon_color = '#FFFFFF' if is_dark else '#2E3440'
+            print(f"PromptTemplate - 当前主题: {'深色' if is_dark else '浅色'}")
+            print(f"PromptTemplate - 按钮图标颜色: {icon_color}")
+        
+        # 更新模板目录按钮图标
+        if hasattr(self, 'template_dir_button'):
+            self.template_dir_button.setIcon(qta.icon("fa5s.folder", color=icon_color))
+        
+        # 更新刷新按钮图标
+        if hasattr(self, 'refresh_button'):
+            self.refresh_button.setIcon(qta.icon("fa5s.sync", color=icon_color))
+        
+        # 更新刷新预览按钮（如果存在）
+        if hasattr(self, 'refresh_preview_btn'):
+            self.refresh_preview_btn.setIcon(qta.icon("fa5s.sync", color=icon_color))
+            # 为刷新预览按钮添加图标（如果之前没有）
+            if not self.refresh_preview_btn.icon().isNull():
+                self.refresh_preview_btn.setText("")  # 如果有图标，可以移除文本
+                self.refresh_preview_btn.setToolTip("刷新预览")
+        
+        # 设置按钮样式
+        buttons = [self.template_dir_button, self.refresh_button]
+        for btn in buttons:
+            if btn:
+                btn.setStyleSheet(f"""
+                    QPushButton {{
+                        background: transparent;
+                        border: none;
+                        color: {icon_color};
+                        padding: 4px 8px;
+                    }}
+                    QPushButton:hover {{
+                        background: rgba(136,192,208,0.08);
+                    }}
+                    QPushButton:pressed {{
+                        background: rgba(136,192,208,0.15);
+                    }}
+                """)
+                
+        # 如果样式仍然有问题，可以尝试强制刷新
+        if hasattr(self, 'template_dir_button'):
+            self.template_dir_button.style().unpolish(self.template_dir_button)
+            self.template_dir_button.style().polish(self.template_dir_button)
+        
+        if hasattr(self, 'refresh_button'):
+            self.refresh_button.style().unpolish(self.refresh_button)
+            self.refresh_button.style().polish(self.refresh_button)

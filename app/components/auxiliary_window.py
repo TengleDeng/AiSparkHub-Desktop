@@ -1470,8 +1470,15 @@ class AuxiliaryWindow(QMainWindow):
         # 1. 更新 Ribbon 工具栏图标
         if hasattr(self, 'open_main_window_action'):
              self.open_main_window_action.setIcon(qta.icon('fa5s.window-maximize', color=icon_color))
-        # ... (如果Ribbon有其他Action，也在这里更新) ...
-
+        
+        # 更新显示模式切换按钮
+        if hasattr(self, 'display_mode_action'):
+             self.display_mode_action.setIcon(qta.icon('fa5s.desktop', color=icon_color))
+        
+        # 更新快捷键设置按钮
+        if hasattr(self, 'shortcut_settings_action'):
+             self.shortcut_settings_action.setIcon(qta.icon('fa5s.keyboard', color=icon_color))
+        
         # 2. 更新主题切换按钮
         if hasattr(self, 'theme_button'):
              is_dark = self.theme_manager.current_theme == "dark" if self.theme_manager else True
