@@ -593,15 +593,18 @@ class AuxiliaryWindow(QMainWindow):
         tab_bar.setObjectName("promptHistoryTabs")
         tab_bar.setTabPosition(QTabWidget.TabPosition.North)
         tab_bar.setDocumentMode(True)  # 使标签页更现代化
-        tab_bar.setFixedHeight(28)  # 减小高度，使其更加紧凑
+        tab_bar.setFixedHeight(30)  # 稍微增加高度，确保足够的垂直空间
         tab_bar.setStyleSheet("""
             QTabBar::tab {
                 min-width: 50px;
                 max-width: 70px;
-                padding: 4px 6px;
+                padding: 4px 10px;
                 margin-right: 2px;
                 border-top-left-radius: 3px;
                 border-top-right-radius: 3px;
+                height: 24px;
+                line-height: 24px;
+                text-align: center;
             }
             QTabBar::tab:selected {
                 background-color: #3B4252;
@@ -610,6 +613,9 @@ class AuxiliaryWindow(QMainWindow):
             QTabBar::tab:!selected {
                 background-color: #2E3440;
                 margin-top: 2px;
+            }
+            QTabWidget::pane {
+                border: none;
             }
         """)  # 设置标签页样式，限制宽度
         tab_bar.tabBar().setExpanding(False)  # 不要扩展标签填充整个宽度
