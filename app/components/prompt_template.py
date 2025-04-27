@@ -13,23 +13,28 @@
 
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QComboBox, 
                             QPushButton, QFrame, QTextEdit, QLineEdit, QFileDialog, QScrollArea, QSizePolicy, QAbstractScrollArea)
-from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QEvent, QObject
-from PyQt6.QtGui import QColor
+from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QEvent, QObject, QMimeData
+from PyQt6.QtGui import QColor, QDragEnterEvent, QDropEvent
 import qtawesome as qta
 import os
 import re
 from PyQt6.QtWidgets import QApplication
 
+# 导入文件转换器
+from app.models.converters import ConverterFactory
+
 
 class TemplateVariable:
     """模板变量类，管理单个变量的属性和值"""
     
-    def __init__(self, name, options=None, default_value="", position=0):
+    def __init__(self, name, options=None, default_value="", position=0, var_type=None):
         self.name = name
         self.options = options or []
         self.value = default_value or (options[0] if options else "")
         self.position = position
+        self.var_type = var_type  # 变量类型：None(默认)、file等
         self.ui_elements = {}  # 存储变量相关的UI元素
+        self.file_path = None  # 存储选择的文件路径（用于file类型变量）
 
 
 class PromptTemplate(QWidget):
@@ -311,6 +316,46 @@ class PromptTemplate(QWidget):
 {{下周计划}}
 
 请根据以上信息生成一份结构清晰、重点突出、语言专业的工作周报，适合向管理层汇报。周报中应包含工作内容、成果、问题及解决方案和下周计划等部分。"""
+            },
+            {
+                "name": "文件内容分析",
+                "content": """## 文件内容分析
+
+请分析以下文件中的内容：
+
+{{文档:file}}
+
+请从以下方面进行详细分析：
+
+1. 内容摘要：简要概述文件的主要内容
+2. 关键点提取：列出文件中的重要信息和关键点
+3. 结构分析：说明文件的组织结构和逻辑安排
+4. 语言风格：分析文件的语言特点和表达方式
+5. 改进建议：针对内容和结构提出具体的改进意见
+
+请确保分析全面、客观，并提供有价值的洞见。"""
+            },
+            {
+                "name": "多文件比较",
+                "content": """## 多文件内容比较
+
+请比较以下两个文件的内容：
+
+### 文件1:
+{{文件1:file}}
+
+### 文件2:
+{{文件2:file}}
+
+请提供详细的比较分析，包括：
+
+1. 共同点：两个文件包含的相同或相似内容
+2. 差异点：两个文件的主要区别和独特内容
+3. 内容质量比较：哪个文件在内容质量、完整性等方面更胜一筹
+4. 结构比较：两个文件在组织结构上的异同
+5. 建议：基于比较结果的建议和优化方向
+
+请基于事实进行客观比较，避免主观偏见。"""
             }
         ]
         
@@ -369,19 +414,21 @@ class PromptTemplate(QWidget):
     def parse_template_variables(self, template_content):
         """解析模板中的变量
         
-        变量格式: {{变量名|选项1|选项2}}
+        变量格式: {{变量名|选项1|选项2}} 或 {{变量名:类型|选项1|选项2}}
+        支持的类型: file (文件选择)
         """
         if not template_content:
             return []
         
         variables = []
         # 使用正则表达式查找变量
-        pattern = r'\{\{([^{}|]+)(?:\|([^{}]*))?\}\}'
+        pattern = r'\{\{([^{}|:]+)(?::([^{}|]+))?(?:\|([^{}]*))?\}\}'
         matches = re.finditer(pattern, template_content)
         
         for match in matches:
             var_name = match.group(1).strip()
-            options_str = match.group(2) or ''
+            var_type = match.group(2).strip() if match.group(2) else None
+            options_str = match.group(3) or ''
             
             # 分割选项
             options = [opt.strip() for opt in options_str.split('|') if opt.strip()]
@@ -390,6 +437,7 @@ class PromptTemplate(QWidget):
             if not any(var.name == var_name for var in variables):
                 variables.append(TemplateVariable(
                     name=var_name,
+                    var_type=var_type,  # 保存变量类型
                     options=options,
                     default_value=options[0] if options else '',
                     position=match.start()
@@ -436,9 +484,22 @@ class PromptTemplate(QWidget):
             var.ui_elements = {}
             var.ui_elements['label'] = label
             
-            # 根据是否有选项决定控件类型
-            if var.options:
-                # 多个选项使用下拉框
+            # 根据变量类型创建不同的输入控件
+            if var.var_type == 'file':
+                file_drop_widget = FileDropWidget()
+                file_drop_widget.setFixedHeight(42)
+                file_drop_widget.var_ref = var
+                file_drop_widget.file_dropped.connect(
+                    lambda path, widget=file_drop_widget: self._on_file_dropped(path, widget)
+                )
+                file_drop_widget.file_cleared.connect(
+                    lambda v=var: self._on_file_cleared(v)
+                )
+                if var.file_path:
+                    file_drop_widget.set_file_path(var.file_path)
+                var_layout.addWidget(file_drop_widget)
+                var.ui_elements['file_drop_widget'] = file_drop_widget
+            elif var.options:
                 if len(var.options) > 1:
                     combo = QComboBox()
                     combo.var_ref = var
@@ -447,30 +508,27 @@ class PromptTemplate(QWidget):
                     if var.value in var.options:
                         combo.setCurrentText(var.value)
                     combo.currentTextChanged.connect(self._on_combo_changed)
-                    combo.setFixedHeight(36)  # 固定高度
+                    combo.setFixedHeight(36)
                     combo.setContentsMargins(0, 0, 0, 0)
                     var_layout.addWidget(combo)
                     var.ui_elements['input'] = combo
-                
-                # 单个选项使用文本框并填入默认值
                 else:
                     line_edit = QLineEdit(var.value or var.options[0])
                     line_edit.var_ref = var
                     line_edit.editingFinished.connect(
                         lambda edit=line_edit: self._on_editing_finished(edit)
                     )
-                    line_edit.setFixedHeight(36)  # 固定高度
+                    line_edit.setFixedHeight(36)
                     line_edit.setContentsMargins(0, 0, 0, 0)
                     var_layout.addWidget(line_edit)
                     var.ui_elements['input'] = line_edit
             else:
-                # 无选项使用多行文本框
                 text_edit = QTextEdit()
                 text_edit.setMaximumHeight(100)
                 text_edit.setText(var.value)
                 text_edit.var_ref = var
                 text_edit.installEventFilter(self)
-                text_edit.setFixedHeight(100)  # 固定高度
+                text_edit.setFixedHeight(100)
                 text_edit.setContentsMargins(0, 0, 0, 0)
                 var_layout.addWidget(text_edit)
                 var.ui_elements['input'] = text_edit
@@ -504,27 +562,17 @@ class PromptTemplate(QWidget):
             self.update_template_preview()
     
     def update_template_preview(self):
-        """更新模板预览"""
+        """更新模板预览（支持富文本）"""
         try:
-            # 如果没有选择模板，清空预览区域
             if not self.current_template:
                 self.preview_text.clear()
                 self.char_count_label.setText("(0字符)")
-                # 重置刷新按钮样式
                 self.refresh_preview_btn.setStyleSheet("")
                 return
-            
-            # 处理模板变量，生成预览内容
             processed_content = self.get_processed_template()
-            
-            # 更新预览文本
-            self.preview_text.setText(processed_content)
-            
-            # 更新字符计数
-            count = len(processed_content)
+            self.preview_text.setHtml(processed_content)
+            count = len(self.preview_text.toPlainText())
             self.char_count_label.setText(f"({count}字符)")
-            
-            # 重置刷新按钮样式
             self.refresh_preview_btn.setStyleSheet("")
         except Exception as e:
             print(f"更新预览时出错: {e}")
@@ -532,18 +580,30 @@ class PromptTemplate(QWidget):
             traceback.print_exc()
     
     def get_processed_template(self):
-        """获取处理后的模板内容"""
+        """获取处理后的模板内容（变量内容用红色span包裹）"""
         if not self.current_template:
             return ""
-        
         template_content = self.current_template
-        
-        # 替换所有变量
         for var in self.template_variables:
-            var_pattern = r'\{\{' + re.escape(var.name) + r'(?:\|[^{}]*)?\}\}'
-            replacement = var.value if var.value else f"【未填写:{var.name}】"
+            # 构建变量的正则表达式模式
+            if var.var_type:
+                var_pattern = r'\{\{' + re.escape(var.name) + r':' + re.escape(var.var_type) + r'(?:\|[^{}]*)?\}\}'
+            else:
+                var_pattern = r'\{\{' + re.escape(var.name) + r'(?:\|[^{}]*)?\}\}'
+            # 变量内容
+            if var.var_type == 'file' and not var.file_path:
+                replacement = f"<span style='color:#e63946'>【请选择{var.name}文件】</span>"
+            else:
+                # 对于多行内容（如文件），每行都加span
+                if var.value:
+                    lines = var.value.split('\n')
+                    colored = '<br/>'.join([f"<span style='color:#e63946'>{line if line else '&nbsp;'}</span>" for line in lines])
+                    replacement = colored
+                else:
+                    replacement = f"<span style='color:#e63946'>【未填写:{var.name}】</span>"
             template_content = re.sub(var_pattern, replacement, template_content)
-        
+        # 保证换行显示
+        template_content = template_content.replace('\n', '<br/>')
         return template_content
     
     def get_current_template_name(self):
@@ -594,6 +654,15 @@ class PromptTemplate(QWidget):
                 self.refresh_preview_btn.setText("")  # 如果有图标，可以移除文本
                 self.refresh_preview_btn.setToolTip("刷新预览")
         
+        # 更新所有文件浏览按钮
+        for var in self.template_variables:
+            if var.var_type == 'file' and 'file_drop_widget' in var.ui_elements:
+                file_drop_widget = var.ui_elements['file_drop_widget']
+                if hasattr(file_drop_widget, 'browse_button'):
+                    file_drop_widget.browse_button.setIcon(qta.icon("fa5s.folder-open", color=icon_color))
+                    file_drop_widget.browse_button.setText("")
+                    file_drop_widget.browse_button.setToolTip("浏览文件")
+        
         # 设置按钮样式
         buttons = [self.template_dir_button, self.refresh_button]
         for btn in buttons:
@@ -612,6 +681,26 @@ class PromptTemplate(QWidget):
                         background: rgba(136,192,208,0.15);
                     }}
                 """)
+        
+        # 设置所有文件浏览按钮的样式
+        for var in self.template_variables:
+            if var.var_type == 'file' and 'file_drop_widget' in var.ui_elements:
+                file_drop_widget = var.ui_elements['file_drop_widget']
+                if hasattr(file_drop_widget, 'browse_button'):
+                    file_drop_widget.browse_button.setStyleSheet(f"""
+                        QPushButton {{
+                            background: transparent;
+                            border: none;
+                            color: {icon_color};
+                            padding: 4px 8px;
+                        }}
+                        QPushButton:hover {{
+                            background: rgba(136,192,208,0.08);
+                        }}
+                        QPushButton:pressed {{
+                            background: rgba(136,192,208,0.15);
+                        }}
+                    """)
                 
         # 如果样式仍然有问题，可以尝试强制刷新
         if hasattr(self, 'template_dir_button'):
@@ -647,3 +736,181 @@ class PromptTemplate(QWidget):
         self.variables_scroll.setMaximumHeight(max_var_height)
         self.preview_container.setMinimumHeight(min_preview_height)
         super().resizeEvent(event)
+
+    def _on_browse_file_clicked(self, file_widget):
+        """处理浏览文件按钮点击事件"""
+        if not hasattr(file_widget, 'var_ref'):
+            return
+            
+        # 打开文件选择对话框
+        file_path, _ = QFileDialog.getOpenFileName(
+            self, "选择文件", 
+            os.path.expanduser("~"), 
+            "所有文件 (*.*)"
+        )
+        
+        if file_path:
+            self._process_selected_file(file_path, file_widget.var_ref, file_widget)
+    
+    def _on_file_dropped(self, file_path, file_widget):
+        """处理文件拖放事件"""
+        if hasattr(file_widget, 'var_ref'):
+            self._process_selected_file(file_path, file_widget.var_ref, file_widget)
+    
+    def _on_file_cleared(self, variable):
+        variable.file_path = None
+        variable.value = ""
+        self.template_content_updated.emit(self.get_processed_template())
+        self.update_template_preview()
+
+    def _process_selected_file(self, file_path, variable, file_widget):
+        """处理选择的文件，读取内容并更新预览"""
+        if not os.path.isfile(file_path):
+            return
+            
+        # 更新文件路径显示
+        file_widget.set_file_path(file_path)
+        
+        # 保存文件路径到变量
+        variable.file_path = file_path
+        
+        try:
+            # 使用转换器获取文件内容
+            converter = ConverterFactory.get_converter(file_path)
+            content, _ = converter.extract_content(file_path)
+            
+            # 设置变量值为文件内容
+            variable.value = content
+            
+            # 发送模板内容更新信号
+            self.template_content_updated.emit(self.get_processed_template())
+            
+            # 更新预览
+            self.update_template_preview()
+            
+            print(f"已加载文件: {file_path}")
+        except Exception as e:
+            print(f"处理文件失败: {e}")
+            import traceback
+            traceback.print_exc()
+
+
+class FileDropWidget(QWidget):
+    """支持文件拖放、小部件双击选择和删除文件"""
+    
+    file_dropped = pyqtSignal(str)  # 文件拖放信号
+    file_cleared = pyqtSignal()      # 文件清除信号
+    
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setAcceptDrops(True)
+        self.layout = QHBoxLayout(self)
+        self.layout.setContentsMargins(0, 0, 0, 0)
+        self.layout.setSpacing(6)
+        
+        # 文件图标
+        self.icon_label = QLabel()
+        self.icon_label.setPixmap(qta.icon('fa5s.file-alt', color='#8ecae6').pixmap(28, 28))
+        self.icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.layout.addWidget(self.icon_label, 0)
+        
+        # 文件名/提示标签
+        self.file_label = QLabel("拖拽文件至此或双击选择文件")
+        self.file_label.setStyleSheet("""
+            QLabel {
+                border: 2px dashed var(--interactive-accent);
+                border-radius: 4px;
+                padding: 8px;
+                background-color: var(--background-primary-alt);
+            }
+        """)
+        self.file_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.layout.addWidget(self.file_label, 1)
+        
+        # 删除按钮（初始隐藏）
+        self.delete_button = QPushButton()
+        self.delete_button.setIcon(qta.icon('fa5s.times-circle', color='#e63946'))
+        self.delete_button.setFixedSize(28, 28)
+        self.delete_button.setStyleSheet("""
+            QPushButton {
+                background: transparent;
+                border: none;
+                border-radius: 14px;
+            }
+            QPushButton:hover {
+                background: #f8d7da;
+            }
+        """)
+        self.delete_button.setToolTip("移除文件")
+        self.delete_button.clicked.connect(self.clear_file)
+        self.delete_button.hide()
+        self.layout.addWidget(self.delete_button, 0)
+
+    def set_file_path(self, file_path):
+        """设置已选择的文件路径"""
+        if file_path:
+            file_name = os.path.basename(file_path)
+            self.file_label.setText(file_name)
+            self.file_label.setToolTip(file_path)
+            self.file_label.setStyleSheet("""
+                QLabel {
+                    border: 2px solid var(--interactive-accent);
+                    border-radius: 4px;
+                    padding: 8px;
+                    background-color: var(--background-primary-alt);
+                    color: var(--text-normal);
+
+                }
+            """)
+            self.delete_button.show()
+        else:
+            self.file_label.setText("拖拽文件至此或双击选择文件")
+            self.file_label.setToolTip("")
+            self.file_label.setStyleSheet("""
+                QLabel {
+                    border: 2px dashed var(--interactive-accent);
+                    border-radius: 4px;
+                    padding: 8px;
+                    background-color: var(--background-primary-alt);
+                }
+            """)
+            self.delete_button.hide()
+
+    def clear_file(self):
+        self.set_file_path("")
+        self.file_cleared.emit()
+
+    def dragEnterEvent(self, event: QDragEnterEvent):
+        if event.mimeData().hasUrls():
+            event.acceptProposedAction()
+            self.file_label.setStyleSheet("""
+                QLabel {
+                    border: 2px dashed var(--interactive-accent-hover);
+                    border-radius: 4px;
+                    padding: 8px;
+                    background-color: var(--background-modifier-hover);
+                }
+            """)
+    def dragLeaveEvent(self, event):
+        if not self.file_label.toolTip():
+            self.file_label.setStyleSheet("""
+                QLabel {
+                    border: 2px dashed var(--interactive-accent);
+                    border-radius: 4px;
+                    padding: 8px;
+                    background-color: var(--background-primary-alt);
+                }
+            """)
+    def dropEvent(self, event: QDropEvent):
+        if event.mimeData().hasUrls():
+            file_path = event.mimeData().urls()[0].toLocalFile()
+            self.set_file_path(file_path)
+            self.file_dropped.emit(file_path)
+            event.acceptProposedAction()
+    def mouseDoubleClickEvent(self, event):
+        # 双击弹出文件选择
+        file_path, _ = QFileDialog.getOpenFileName(self, "选择文件", os.path.expanduser("~"), "所有文件 (*.*)")
+        if file_path:
+            self.set_file_path(file_path)
+            self.file_dropped.emit(file_path)
+        super().mouseDoubleClickEvent(event)
