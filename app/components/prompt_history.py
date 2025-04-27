@@ -4,9 +4,9 @@
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QListWidget, QListWidgetItem,
                            QLineEdit, QLabel, QHBoxLayout, QPushButton, QMenu,
                            QScrollArea, QFrame, QToolButton, QSizePolicy,
-                           QMessageBox, QApplication)
+                           QMessageBox, QApplication, QTabWidget)
 from PyQt6.QtCore import Qt, pyqtSignal, QSize, QTimer
-from PyQt6.QtGui import QIcon, QColor, QAction, QPalette, QFont, QPixmap
+from PyQt6.QtGui import QIcon, QColor, QAction, QPalette, QFont, QPixmap, QImage
 import qtawesome as qta
 from datetime import datetime
 import webbrowser
@@ -15,6 +15,16 @@ import os
 import sys
 from app.controllers.theme_manager import ThemeManager
 import re
+import json
+import time
+import jieba  # 用于中文分词
+import numpy as np
+from matplotlib.figure import Figure
+from matplotlib.backends.backend_agg import FigureCanvasAgg as FigureCanvas
+import matplotlib.pyplot as plt
+from wordcloud import WordCloud, STOPWORDS
+import io
+import tempfile
 
 class PromptItemWidget(QWidget):
     """自定义提示词历史记录小部件"""
@@ -563,17 +573,44 @@ class PromptHistory(QWidget):
         if hasattr(app, 'theme_manager') and isinstance(app.theme_manager, ThemeManager):
              self.theme_manager = app.theme_manager
              self.theme_manager.theme_changed.connect(self._update_icons) # 更新自身图标
-             # QTimer.singleShot(0, self._update_icons) # 初始调用
         else:
              print("警告: PromptHistory 无法获取 ThemeManager")
-             # QTimer.singleShot(0, self._update_icons) # 尝试用默认色
         # 初始调用放这里确保按钮已创建
         QTimer.singleShot(0, self._update_icons)
     
     def setup_ui(self):
         """设置UI界面"""
+        # 创建主布局
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(0)
+        
+        # 创建标签页控件
+        self.tab_widget = QTabWidget()
+        self.tab_widget.setObjectName("promptHistoryTabs")
+        self.tab_widget.setTabPosition(QTabWidget.TabPosition.North)
+        self.tab_widget.setDocumentMode(True)  # 使标签页更现代化
+        
+        # 创建历史标签页
+        self.history_tab = QWidget()
+        self.setup_history_tab()
+        self.tab_widget.addTab(self.history_tab, "历史")
+        
+        # 创建统计标签页
+        self.stats_tab = QWidget()
+        self.setup_stats_tab()
+        self.tab_widget.addTab(self.stats_tab, "统计")
+        
+        # 将标签页控件添加到主布局
+        main_layout.addWidget(self.tab_widget)
+        
+        # 初始化记录收藏过滤状态
+        self.show_favorites_only = False
+    
+    def setup_history_tab(self):
+        """设置历史标签页UI"""
         # 创建布局
-        layout = QVBoxLayout(self)
+        layout = QVBoxLayout(self.history_tab)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(8)
         
@@ -592,25 +629,16 @@ class PromptHistory(QWidget):
         # 添加收藏过滤按钮 - 使用自定义图标
         self.favorite_filter_btn = QPushButton(self)
         self.favorite_filter_btn.setObjectName("favoriteFilterBtn") # 添加 objectName
-        
-        # 创建星形图标
-        # self.filter_star_normal = qta.icon('fa5s.star', color='#D8DEE9') # 颜色动态
-        # self.filter_star_active = qta.icon('fa5s.star', color='#EBCB8B') # 颜色动态
-        
-        # self.favorite_filter_btn.setIcon(self.filter_star_normal) # 初始在 _update_icons 设置
         self.favorite_filter_btn.setToolTip("显示收藏的提示词")
         self.favorite_filter_btn.setCheckable(True)
         self.favorite_filter_btn.clicked.connect(self.toggle_favorite_filter)
-        # self.favorite_filter_btn.setStyleSheet(\"\"\" ... \"\"\") # 移除
         toolbar.addWidget(self.favorite_filter_btn)
         
         # 添加刷新按钮
         self.refresh_btn = QPushButton(self)
         self.refresh_btn.setObjectName("refreshBtn") # 添加 objectName
-        # self.refresh_btn.setIcon(qta.icon('fa5s.sync')) # 初始在 _update_icons 设置
         self.refresh_btn.setToolTip("刷新历史记录")
         self.refresh_btn.clicked.connect(self.refresh_history)
-        # self.refresh_btn.setStyleSheet(\"\"\" ... \"\"\") # 移除
         toolbar.addWidget(self.refresh_btn)
         
         # 添加工具栏到主布局
@@ -632,10 +660,250 @@ class PromptHistory(QWidget):
         
         self.scroll_area.setWidget(self.content_widget)
         layout.addWidget(self.scroll_area)
-        
-        # 初始化记录收藏过滤状态
-        self.show_favorites_only = False
     
+    def setup_stats_tab(self):
+        """设置统计标签页UI"""
+        # 创建布局
+        layout = QVBoxLayout(self.stats_tab)
+        layout.setContentsMargins(3, 3, 3, 3)  # 进一步减小边距
+        layout.setSpacing(3)  # 进一步减小间距
+        
+        # 基本统计部分
+        stats_header = QLabel("基本统计")
+        stats_header.setObjectName("statsHeader")
+        stats_header.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        stats_header.setStyleSheet("font-weight: bold; font-size: 14px; border-bottom: 1px solid #ccc; padding-bottom: 3px;")
+        layout.addWidget(stats_header)
+        
+        # 四个统计方块容器
+        stats_blocks = QHBoxLayout()
+        stats_blocks.setSpacing(3)  # 进一步减小间距
+        
+        # 今日统计
+        daily_block = QFrame()
+        daily_block.setObjectName("dailyStatsBlock")
+        daily_block.setFrameShape(QFrame.Shape.StyledPanel)
+        daily_block.setStyleSheet("border: 1px solid #ccc; border-radius: 4px;")
+        daily_layout = QVBoxLayout(daily_block)
+        daily_layout.setContentsMargins(2, 2, 2, 2)  # 进一步减小内边距
+        
+        self.daily_count = QLabel("0")  # 修改为实例变量
+        self.daily_count.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.daily_count.setStyleSheet("font-size: 20px; font-weight: bold; color: #8FBCBB;")
+        
+        daily_label = QLabel("今日")
+        daily_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        daily_label.setStyleSheet("font-size: 11px;")
+        
+        daily_layout.addWidget(self.daily_count)
+        daily_layout.addWidget(daily_label)
+        stats_blocks.addWidget(daily_block)
+        
+        # 本周统计
+        weekly_block = QFrame()
+        weekly_block.setObjectName("weeklyStatsBlock")
+        weekly_block.setFrameShape(QFrame.Shape.StyledPanel)
+        weekly_block.setStyleSheet("border: 1px solid #ccc; border-radius: 4px;")
+        weekly_layout = QVBoxLayout(weekly_block)
+        weekly_layout.setContentsMargins(2, 2, 2, 2)  # 进一步减小内边距
+        
+        self.weekly_count = QLabel("0")  # 修改为实例变量
+        self.weekly_count.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.weekly_count.setStyleSheet("font-size: 20px; font-weight: bold; color: #81A1C1;")
+        
+        weekly_label = QLabel("本周")
+        weekly_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        weekly_label.setStyleSheet("font-size: 11px;")
+        
+        weekly_layout.addWidget(self.weekly_count)
+        weekly_layout.addWidget(weekly_label)
+        stats_blocks.addWidget(weekly_block)
+        
+        # 本月统计
+        monthly_block = QFrame()
+        monthly_block.setObjectName("monthlyStatsBlock")
+        monthly_block.setFrameShape(QFrame.Shape.StyledPanel)
+        monthly_block.setStyleSheet("border: 1px solid #ccc; border-radius: 4px;")
+        monthly_layout = QVBoxLayout(monthly_block)
+        monthly_layout.setContentsMargins(2, 2, 2, 2)  # 进一步减小内边距
+        
+        self.monthly_count = QLabel("0")  # 修改为实例变量，设置初始值为0
+        self.monthly_count.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.monthly_count.setStyleSheet("font-size: 20px; font-weight: bold; color: #D08770;")
+        
+        monthly_label = QLabel("本月")
+        monthly_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        monthly_label.setStyleSheet("font-size: 11px;")
+        
+        monthly_layout.addWidget(self.monthly_count)
+        monthly_layout.addWidget(monthly_label)
+        stats_blocks.addWidget(monthly_block)
+        
+        # 总计统计
+        total_block = QFrame()
+        total_block.setObjectName("totalStatsBlock")
+        total_block.setFrameShape(QFrame.Shape.StyledPanel)
+        total_block.setStyleSheet("border: 1px solid #ccc; border-radius: 4px;")
+        total_layout = QVBoxLayout(total_block)
+        total_layout.setContentsMargins(2, 2, 2, 2)  # 进一步减小内边距
+        
+        self.total_count = QLabel("0")  # 修改为实例变量，设置初始值为0
+        self.total_count.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.total_count.setStyleSheet("font-size: 20px; font-weight: bold; color: #B48EAD;")
+        
+        total_label = QLabel("总计")
+        total_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        total_label.setStyleSheet("font-size: 11px;")
+        
+        total_layout.addWidget(self.total_count)
+        total_layout.addWidget(total_label)
+        stats_blocks.addWidget(total_block)
+        
+        layout.addLayout(stats_blocks)
+        
+        # 对话趋势部分
+        trends_header = QLabel("对话趋势")
+        trends_header.setObjectName("trendsHeader")
+        trends_header.setAlignment(Qt.AlignmentFlag.AlignCenter)  # 确保标题居中
+        trends_header.setStyleSheet("font-weight: bold; font-size: 14px; padding: 3px 0;")
+        layout.addWidget(trends_header)
+        
+        # 时间范围选择按钮组
+        time_range_layout = QHBoxLayout()
+        time_range_layout.setSpacing(1)  # 进一步减小按钮间距
+        
+        button_style = "QPushButton { padding: 2px 4px; font-size: 11px; }"
+        active_style = "QPushButton { background-color: #5A9F5A; color: white; padding: 2px 4px; font-size: 11px; }"
+        
+        self.day_btn = QPushButton("日")  # 修改为实例变量
+        self.day_btn.setObjectName("dayRangeBtn")
+        self.day_btn.setCheckable(True)
+        self.day_btn.setStyleSheet(button_style)
+        self.day_btn.clicked.connect(lambda: self.update_trend_chart('day'))  # 连接更新图表方法
+        time_range_layout.addWidget(self.day_btn)
+        
+        self.week_btn = QPushButton("周")  # 修改为实例变量
+        self.week_btn.setObjectName("weekRangeBtn")
+        self.week_btn.setCheckable(True)
+        self.week_btn.setStyleSheet(button_style)
+        self.week_btn.clicked.connect(lambda: self.update_trend_chart('week'))  # 连接更新图表方法
+        time_range_layout.addWidget(self.week_btn)
+        
+        self.month_btn = QPushButton("月")  # 修改为实例变量
+        self.month_btn.setObjectName("monthRangeBtn")
+        self.month_btn.setCheckable(True)
+        self.month_btn.setChecked(True)
+        self.month_btn.setStyleSheet(active_style)
+        self.month_btn.clicked.connect(lambda: self.update_trend_chart('month'))  # 连接更新图表方法
+        time_range_layout.addWidget(self.month_btn)
+        
+        self.all_btn = QPushButton("全部")  # 修改为实例变量
+        self.all_btn.setObjectName("allRangeBtn")
+        self.all_btn.setCheckable(True)
+        self.all_btn.setStyleSheet(button_style)
+        self.all_btn.clicked.connect(lambda: self.update_trend_chart('all'))  # 连接更新图表方法
+        time_range_layout.addWidget(self.all_btn)
+        
+        # 添加刷新按钮
+        self.refresh_stats_btn = QPushButton()  # 修改为实例变量
+        self.refresh_stats_btn.setObjectName("refreshStatsBtn")
+        self.refresh_stats_btn.setToolTip("刷新统计数据")
+        self.refresh_stats_btn.setFixedSize(20, 20)  # 减小按钮尺寸
+        self.refresh_stats_btn.clicked.connect(self.refresh_statistics)  # 连接刷新方法
+        time_range_layout.addWidget(self.refresh_stats_btn)
+        
+        layout.addLayout(time_range_layout)
+        
+        # 趋势图表占位符
+        self.trends_chart = QLabel("加载中...")  # 修改为实例变量
+        self.trends_chart.setObjectName("trendsChart")
+        self.trends_chart.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.trends_chart.setStyleSheet("border: 1px solid #ccc; border-radius: 6px; padding: 5px; background-color: #f5f5f5;")
+        self.trends_chart.setMinimumHeight(120)  # 进一步减小最小高度
+        self.trends_chart.setMinimumWidth(0)  # 允许完全缩小宽度
+        layout.addWidget(self.trends_chart)
+        
+        # 历史对话词云部分
+        wordcloud_header = QLabel("历史对话词云")
+        wordcloud_header.setObjectName("wordcloudHeader")
+        wordcloud_header.setAlignment(Qt.AlignmentFlag.AlignCenter)  # 确保标题居中
+        wordcloud_header.setStyleSheet("font-weight: bold; font-size: 14px; padding: 3px 0;")
+        layout.addWidget(wordcloud_header)
+        
+        # 时间范围选择按钮组 (词云)
+        wc_time_range_layout = QHBoxLayout()
+        wc_time_range_layout.setSpacing(1)  # 减小按钮间距
+        
+        self.wc_day_btn = QPushButton("日")  # 修改为实例变量
+        self.wc_day_btn.setObjectName("wcDayRangeBtn")
+        self.wc_day_btn.setCheckable(True)
+        self.wc_day_btn.setStyleSheet(button_style)
+        self.wc_day_btn.clicked.connect(lambda: self.update_word_cloud('day'))  # 连接更新方法
+        wc_time_range_layout.addWidget(self.wc_day_btn)
+        
+        self.wc_week_btn = QPushButton("周")  # 修改为实例变量
+        self.wc_week_btn.setObjectName("wcWeekRangeBtn")
+        self.wc_week_btn.setCheckable(True)
+        self.wc_week_btn.setStyleSheet(button_style)
+        self.wc_week_btn.clicked.connect(lambda: self.update_word_cloud('week'))  # 连接更新方法
+        wc_time_range_layout.addWidget(self.wc_week_btn)
+        
+        self.wc_month_btn = QPushButton("月")  # 修改为实例变量
+        self.wc_month_btn.setObjectName("wcMonthRangeBtn")
+        self.wc_month_btn.setCheckable(True)
+        self.wc_month_btn.setStyleSheet(button_style)
+        self.wc_month_btn.clicked.connect(lambda: self.update_word_cloud('month'))  # 连接更新方法
+        wc_time_range_layout.addWidget(self.wc_month_btn)
+        
+        self.wc_all_btn = QPushButton("全部")  # 修改为实例变量
+        self.wc_all_btn.setObjectName("wcAllRangeBtn")
+        self.wc_all_btn.setCheckable(True)
+        self.wc_all_btn.setChecked(True)
+        self.wc_all_btn.setStyleSheet(active_style)
+        self.wc_all_btn.clicked.connect(lambda: self.update_word_cloud('all'))  # 连接更新方法
+        wc_time_range_layout.addWidget(self.wc_all_btn)
+        
+        # 添加刷新按钮
+        self.refresh_wordcloud_btn = QPushButton()  # 修改为实例变量
+        self.refresh_wordcloud_btn.setObjectName("refreshWordcloudBtn")
+        self.refresh_wordcloud_btn.setToolTip("刷新词云数据")
+        self.refresh_wordcloud_btn.setFixedSize(20, 20)  # 减小按钮尺寸
+        self.refresh_wordcloud_btn.clicked.connect(self.refresh_word_cloud)  # 连接刷新词云方法
+        wc_time_range_layout.addWidget(self.refresh_wordcloud_btn)
+        
+        layout.addLayout(wc_time_range_layout)
+        
+        # 创建词云图占位符
+        self.word_cloud = QLabel("加载中...")  # 修改变量名为 word_cloud
+        self.word_cloud.setObjectName("wordcloudChart")
+        self.word_cloud.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.word_cloud.setStyleSheet("border: 1px solid #ccc; border-radius: 6px; padding: 5px; background-color: #f5f5f5;")
+        self.word_cloud.setMinimumHeight(120)  # 进一步减小最小高度
+        self.word_cloud.setMinimumWidth(0)  # 允许完全缩小宽度
+        layout.addWidget(self.word_cloud)
+        
+        # 设置图标
+        QTimer.singleShot(0, self.update_stats_icons)
+        
+        # 初始加载统计数据
+        QTimer.singleShot(100, self.refresh_statistics)
+    
+    def update_stats_icons(self):
+        """更新统计页面的图标"""
+        icon_color = '#D8DEE9'  # 默认颜色
+        if self.theme_manager:
+            theme_colors = self.theme_manager.get_current_theme_colors()
+            icon_color = theme_colors.get('foreground', icon_color)
+        
+        # 为统计页面的刷新按钮设置图标
+        refresh_stats_btn = self.stats_tab.findChild(QPushButton, "refreshStatsBtn")
+        if refresh_stats_btn:
+            refresh_stats_btn.setIcon(qta.icon('fa5s.sync', color=icon_color))
+        
+        refresh_wordcloud_btn = self.stats_tab.findChild(QPushButton, "refreshWordcloudBtn")
+        if refresh_wordcloud_btn:
+            refresh_wordcloud_btn.setIcon(qta.icon('fa5s.sync', color=icon_color))
+
     def refresh_history(self):
         """刷新历史记录"""
         # 清除旧的历史记录项
@@ -980,5 +1248,730 @@ class PromptHistory(QWidget):
                 self.favorite_filter_btn.setIcon(qta.icon('fa5s.star', color=active_color))
             else:
                  self.favorite_filter_btn.setIcon(qta.icon('fa5s.star', color=icon_color))
+        
+        # 更新统计页面图标
+        self.update_stats_icons()
                  
         print("PromptHistory: 自身图标颜色更新完成")
+
+    def refresh_statistics(self):
+        """刷新所有统计数据"""
+        print("刷新统计数据...")
+        try:
+            self.update_basic_stats()
+            self.update_trend_chart('month')  # 默认显示月视图
+            self.update_word_cloud('all')     # 默认显示全部词云
+        except Exception as e:
+            print(f"刷新统计数据出错: {e}")
+            import traceback
+            traceback.print_exc()
+            
+    def update_basic_stats(self):
+        """更新基本统计数据"""
+        try:
+            # 获取今日、本周、本月和总计的统计数据
+            daily, weekly, monthly, total = self.get_prompt_stats()
+            
+            # 更新显示
+            self.daily_count.setText(str(daily))
+            self.weekly_count.setText(str(weekly))
+            self.monthly_count.setText(str(monthly))
+            self.total_count.setText(str(total))
+            
+            print(f"统计数据已更新: 今日={daily}, 本周={weekly}, 本月={monthly}, 总计={total}")
+        except Exception as e:
+            print(f"更新基本统计数据出错: {e}")
+            
+    def get_prompt_stats(self):
+        """获取提示词统计数据
+        
+        Returns:
+            tuple: (今日数量, 本周数量, 本月数量, 总计数量)
+        """
+        try:
+            cursor = self.db_manager.conn.cursor()
+            
+            # 获取今日数量
+            cursor.execute("""
+                SELECT COUNT(*) as count 
+                FROM prompt_details 
+                WHERE date(datetime(timestamp, 'unixepoch')) = date('now')
+            """)
+            daily = cursor.fetchone()['count']
+            
+            # 获取本周数量
+            cursor.execute("""
+                SELECT COUNT(*) as count 
+                FROM prompt_details 
+                WHERE strftime('%Y-%W', datetime(timestamp, 'unixepoch')) = strftime('%Y-%W', 'now')
+            """)
+            weekly = cursor.fetchone()['count']
+            
+            # 获取本月数量
+            cursor.execute("""
+                SELECT COUNT(*) as count 
+                FROM prompt_details 
+                WHERE strftime('%Y-%m', datetime(timestamp, 'unixepoch')) = strftime('%Y-%m', 'now')
+            """)
+            monthly = cursor.fetchone()['count']
+            
+            # 获取总计数量
+            cursor.execute("SELECT COUNT(*) as count FROM prompt_details")
+            total = cursor.fetchone()['count']
+            
+            return daily, weekly, monthly, total
+            
+        except Exception as e:
+            print(f"获取提示词统计数据出错: {e}")
+            import traceback
+            traceback.print_exc()
+            return 0, 0, 0, 0
+            
+    def update_trend_chart(self, time_range):
+        """更新趋势图表
+        
+        Args:
+            time_range (str): 'day', 'week', 'month', 'all'
+        """
+        try:
+            title, data = None, None
+            
+            # 根据选择的时间范围获取不同的趋势数据
+            if time_range == 'day':
+                title, data = self.get_daily_trend()
+                x_label = '小时'
+                x_values = [item['hour'] for item in data]
+                y_values = [item['count'] for item in data]
+            elif time_range == 'week':
+                title, data = self.get_weekly_trend()
+                x_label = '星期'
+                x_values = [item['day'] for item in data]
+                y_values = [item['count'] for item in data]
+            elif time_range == 'month':
+                title, data = self.get_monthly_trend()
+                x_label = '日期'
+                x_values = [item['day'] for item in data]
+                y_values = [item['count'] for item in data]
+            elif time_range == 'all':
+                title, data = self.get_all_time_trend()
+                x_label = '月份'
+                x_values = [item['month'] for item in data]
+                y_values = [item['count'] for item in data]
+            else:
+                # 默认显示月视图
+                title, data = self.get_monthly_trend()
+                x_label = '日期'
+                x_values = [item['day'] for item in data]
+                y_values = [item['count'] for item in data]
+                
+            # 更新趋势按钮状态
+            self._update_trend_buttons(time_range)
+                
+            # 创建趋势图表
+            if title and data:
+                self._create_trend_chart(title, x_label, x_values, y_values, time_range)
+            
+        except Exception as e:
+            print(f"更新趋势图表出错: {e}")
+            import traceback
+            traceback.print_exc()
+    
+    def _create_trend_chart(self, title, x_label, x_values, y_values, time_range):
+        """创建趋势图表
+        
+        Args:
+            title (str): 图表标题
+            x_label (str): x轴标签
+            x_values (list): x轴数据
+            y_values (list): y轴数据
+            time_range (str): 时间范围('day', 'week', 'month', 'all')
+        """
+        try:
+            # 如果没有数据，显示提示信息
+            if not x_values or not y_values:
+                self.trends_chart.setText(f"没有{title}的趋势数据")
+                return
+                
+            # 设置中文字体
+            plt.rcParams['font.sans-serif'] = ['SimHei']  # 设置字体为黑体
+            plt.rcParams['axes.unicode_minus'] = False    # 正常显示负号
+            
+            # 使用主题颜色并确保正确应用
+            theme_colors = self.theme_manager.get_current_theme_colors() if self.theme_manager else {}
+            
+            # 直接检查主题，不使用条件判断
+            is_dark_theme = False
+            if self.theme_manager:
+                is_dark_theme = self.theme_manager.current_theme == "dark"
+            
+            # 明确设置颜色
+            text_color = '#ECEFF4' if is_dark_theme else '#2E3440'  # 深色用白字，浅色用黑字
+            line_color = theme_colors.get('accent', '#5E81AC')
+            highlight_color = theme_colors.get('warning', '#EBCB8B')
+            
+            # 创建图表 - 使用更小的宽度
+            fig = Figure(figsize=(4.5, 2.4), dpi=90)
+            fig.patch.set_facecolor('none')  # 透明背景
+            canvas = FigureCanvas(fig)
+            ax = fig.add_subplot(111)
+            
+            # 数据点
+            x_indices = range(len(x_values))
+            
+            # 优化横坐标显示 - 仅显示部分刻度
+            show_indices = []
+            show_labels = []
+            
+            # 根据数据量确定采样间隔
+            if time_range == 'month' and len(x_values) > 15:
+                # 月视图：每5天显示一个刻度
+                interval = 5
+            elif time_range == 'day' and len(x_values) > 12:
+                # 日视图：每4小时显示一个刻度
+                interval = 4
+            elif len(x_values) > 20:
+                # 数据量大时增加间隔
+                interval = 5
+            elif len(x_values) > 10:
+                # 中等数据量
+                interval = 3
+            else:
+                # 数据量小时显示所有
+                interval = 1
+            
+            # 生成要显示的刻度和标签
+            for i, x in enumerate(x_values):
+                # 始终显示第一个和最后一个，以及符合间隔的刻度
+                if i == 0 or i == len(x_values) - 1 or i % interval == 0:
+                    show_indices.append(i)
+                    
+                    # 将数字去掉前导零
+                    if time_range == 'month' and len(x) == 2 and x.isdigit():
+                        show_labels.append(str(int(x)))
+                    elif time_range == 'day' and len(x) == 2 and x.isdigit():
+                        show_labels.append(str(int(x)))
+                    else:
+                        show_labels.append(x)
+            
+            # 绘制折线图
+            ax.plot(x_indices, y_values, marker='o', markersize=3, 
+                   linewidth=1.5, color=line_color, alpha=0.8)
+            
+            # 添加数据点标记
+            for i, v in enumerate(y_values):
+                if v > 0:  # 只标记非零值
+                    # 找出最大值进行高亮
+                    if v == max(y_values):
+                        ax.plot(i, v, marker='o', markersize=5, 
+                               color=highlight_color, alpha=1.0)
+            
+            # 设置标题和轴标签 - 增大字体提高可读性
+            ax.set_title(title, fontsize=11, color=text_color)
+            ax.set_xlabel(x_label, fontsize=9, color=text_color)
+            ax.set_ylabel('对话数量', fontsize=9, color=text_color)
+            
+            # 设置x轴刻度和标签 - 增大字体
+            ax.set_xticks(show_indices)
+            ax.set_xticklabels(show_labels, rotation=45 if len(show_labels) > 10 else 0, 
+                              fontsize=8, color=text_color, ha='right')
+            
+            # 减少y轴刻度数量
+            if max(y_values) > 10:
+                ax.yaxis.set_major_locator(plt.MaxNLocator(5))  # 最多显示5个刻度
+            
+            # 设置网格和调整布局
+            ax.grid(True, linestyle='--', alpha=0.2, color=text_color)  # 添加浅色网格线提高可读性
+            ax.tick_params(axis='both', colors=text_color, labelsize=8)  # 调整刻度标签大小
+            ax.spines['top'].set_visible(False)
+            ax.spines['right'].set_visible(False)
+            ax.spines['bottom'].set_color(text_color)
+            ax.spines['left'].set_color(text_color)
+            
+            # 调整y轴起始位置为0
+            if min(y_values) >= 0:
+                ax.set_ylim(bottom=0)
+                
+            fig.tight_layout(pad=0.3)  # 内边距适当增加
+            
+            # 保存到临时文件
+            tmp_dir = tempfile.gettempdir()
+            tmp_file = os.path.join(tmp_dir, f'trend_chart_{os.getpid()}.png')
+            fig.savefig(tmp_file, transparent=True, bbox_inches='tight', pad_inches=0.05)
+            plt.close(fig)
+            
+            # 设置图表显示
+            pixmap = QPixmap(tmp_file)
+            self.trends_chart.setPixmap(pixmap)
+            self.trends_chart.setScaledContents(True)  # 设置为自动缩放内容
+            self.trends_chart.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            
+            # 删除临时文件
+            try:
+                os.remove(tmp_file)
+            except:
+                pass
+                
+        except Exception as e:
+            print(f"创建趋势图表出错: {e}")
+            import traceback
+            traceback.print_exc()
+            self.trends_chart.setText(f"创建{title}图表出错: {str(e)}")
+    
+    def update_word_cloud(self, time_range):
+        """更新词云图表
+        
+        Args:
+            time_range (str): 'day', 'week', 'month', 'all'
+        """
+        try:
+            # 更新按钮状态
+            self._update_wordcloud_buttons(time_range)
+            
+            # 获取指定时间范围内的提示词文本
+            cursor = self.db_manager.conn.cursor()
+            
+            if time_range == 'day':
+                cursor.execute("""
+                    SELECT prompt 
+                    FROM prompt_details 
+                    WHERE date(datetime(timestamp, 'unixepoch')) = date('now')
+                """)
+                title = "今日词云"
+            elif time_range == 'week':
+                cursor.execute("""
+                    SELECT prompt 
+                    FROM prompt_details 
+                    WHERE strftime('%Y-%W', datetime(timestamp, 'unixepoch')) = strftime('%Y-%W', 'now')
+                """)
+                title = "本周词云"
+            elif time_range == 'month':
+                cursor.execute("""
+                    SELECT prompt 
+                    FROM prompt_details 
+                    WHERE strftime('%Y-%m', datetime(timestamp, 'unixepoch')) = strftime('%Y-%m', 'now')
+                """)
+                title = "本月词云"
+            else:  # 'all'
+                cursor.execute("SELECT prompt FROM prompt_details")
+                title = "全部词云"
+                
+            # 获取所有提示词文本
+            prompts = cursor.fetchall()
+            all_text = " ".join([p['prompt'] for p in prompts if p['prompt']])
+            
+            # 创建并显示词云
+            self._create_word_cloud(title, all_text)
+            
+        except Exception as e:
+            print(f"更新词云出错: {e}")
+            import traceback
+            traceback.print_exc()
+            
+    def _create_word_cloud(self, title, text):
+        """创建词云图表
+        
+        Args:
+            title (str): 词云标题
+            text (str): 用于生成词云的文本
+        """
+        try:
+            # 如果没有文本，显示提示信息
+            if not text or len(text.strip()) < 10:
+                self.word_cloud.setText(f"没有足够的文本生成{title}")
+                return
+                
+            # 设置中文字体和停用词
+            plt.rcParams['font.sans-serif'] = ['SimHei']
+            plt.rcParams['axes.unicode_minus'] = False
+            
+            # 使用主题颜色
+            theme_colors = self.theme_manager.get_current_theme_colors() if self.theme_manager else {}
+            
+            # 直接检查主题
+            is_dark_theme = False
+            if self.theme_manager:
+                is_dark_theme = self.theme_manager.current_theme == "dark"
+                
+            # 设置颜色
+            background_color = 'black' if is_dark_theme else 'white'
+            text_color = '#ECEFF4' if is_dark_theme else '#2E3440'  # 深色用白字，浅色用黑字
+            
+            # 中文分词
+            words = jieba.cut(text)
+            word_text = " ".join(words)
+            
+            # 添加停用词
+            stopwords = set(STOPWORDS)
+            stopwords.update(['的', '了', '和', '是', '在', '我', '你', '他', '她', '它', '们',
+                              '这', '那', '有', '就', '不', '人', '都', '一', '啊', '吗',
+                              '可以', '什么', '为什么', '怎么', '如何', '请', '需要'])
+            
+            # 生成词云 - 适应容器宽度
+            wordcloud = WordCloud(
+                font_path='simhei.ttf',  # 设置中文字体，根据系统可用字体调整
+                background_color=background_color,
+                max_words=50,  # 词数量保持适中
+                width=600,  # 增加宽度使其更加填充
+                height=300,  # 调整高度
+                stopwords=stopwords,
+                contour_width=1,
+                contour_color=text_color,
+                colormap='viridis',
+                min_font_size=8,  # 设置最小字体大小
+                max_font_size=36  # 限制最大字体大小
+            ).generate(word_text)
+            
+            # 创建图表 - 调整宽度
+            fig = Figure(figsize=(4.5, 2.8), dpi=90)
+            fig.patch.set_facecolor('none')
+            canvas = FigureCanvas(fig)
+            ax = fig.add_subplot(111)
+            
+            # 显示词云
+            ax.imshow(wordcloud, interpolation='bilinear')
+            ax.set_title(title, fontsize=11, color=text_color)  # 增大字体
+            ax.axis('off')  # 隐藏坐标轴
+            fig.tight_layout(pad=0.2)  # 减少内边距
+            
+            # 保存到临时文件
+            tmp_dir = tempfile.gettempdir()
+            tmp_file = os.path.join(tmp_dir, f'wordcloud_{os.getpid()}.png')
+            fig.savefig(tmp_file, transparent=True, bbox_inches='tight', pad_inches=0.05)
+            plt.close(fig)
+            
+            # 设置图表显示
+            pixmap = QPixmap(tmp_file)
+            self.word_cloud.setPixmap(pixmap)
+            self.word_cloud.setScaledContents(True)  # 设置为自动缩放内容
+            self.word_cloud.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            
+            # 删除临时文件
+            try:
+                os.remove(tmp_file)
+            except:
+                pass
+                
+        except Exception as e:
+            print(f"创建词云出错: {e}")
+            import traceback
+            traceback.print_exc()
+            self.word_cloud.setText(f"创建{title}出错: {str(e)}")
+
+    def _update_trend_buttons(self, selected):
+        """更新趋势按钮选中状态
+        
+        Args:
+            selected (str): 选中的按钮，'day', 'week', 'month', 或 'all'
+        """
+        buttons = {
+            'day': self.day_btn,
+            'week': self.week_btn,
+            'month': self.month_btn,
+            'all': self.all_btn
+        }
+        
+        # 更新所有按钮的样式
+        for name, btn in buttons.items():
+            if name == selected:
+                btn.setChecked(True)
+                btn.setStyleSheet("background-color: #5A9F5A; color: white;")
+            else:
+                btn.setChecked(False)
+                btn.setStyleSheet("")
+                
+    def get_daily_trend(self):
+        """获取今日趋势数据（按小时）
+        
+        Returns:
+            tuple: (标题, 数据列表)
+        """
+        try:
+            cursor = self.db_manager.conn.cursor()
+            
+            # 查询今日每小时的对话数量
+            cursor.execute("""
+                SELECT strftime('%H', datetime(timestamp, 'unixepoch')) as hour,
+                       COUNT(*) as count
+                FROM prompt_details
+                WHERE date(datetime(timestamp, 'unixepoch')) = date('now')
+                GROUP BY hour
+                ORDER BY hour
+            """)
+            
+            results = cursor.fetchall()
+            
+            # 格式化结果，确保24小时都有数据
+            data = []
+            for hour in range(24):
+                hour_str = f"{hour:02d}"
+                count = 0
+                
+                # 查找当前小时的数据
+                for row in results:
+                    if row['hour'] == hour_str:
+                        count = row['count']
+                        break
+                
+                data.append({
+                    'hour': hour_str,
+                    'count': count
+                })
+            
+            return "今日对话趋势", data
+            
+        except Exception as e:
+            print(f"获取今日趋势数据出错: {e}")
+            import traceback
+            traceback.print_exc()
+            return "今日对话趋势", []
+    
+    def get_weekly_trend(self):
+        """获取本周趋势数据（按天）
+        
+        Returns:
+            tuple: (标题, 数据列表)
+        """
+        try:
+            cursor = self.db_manager.conn.cursor()
+            
+            # 查询本周每天的对话数量
+            cursor.execute("""
+                SELECT strftime('%w', datetime(timestamp, 'unixepoch')) as day_of_week,
+                       COUNT(*) as count
+                FROM prompt_details
+                WHERE strftime('%Y-%W', datetime(timestamp, 'unixepoch')) = strftime('%Y-%W', 'now')
+                GROUP BY day_of_week
+                ORDER BY day_of_week
+            """)
+            
+            results = cursor.fetchall()
+            
+            # 星期几的中文表示
+            weekday_names = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"]
+            
+            # 格式化结果，确保一周七天都有数据
+            data = []
+            for day in range(7):
+                day_str = str(day)
+                count = 0
+                
+                # 查找当前日期的数据
+                for row in results:
+                    if row['day_of_week'] == day_str:
+                        count = row['count']
+                        break
+                
+                data.append({
+                    'day': weekday_names[day],
+                    'count': count
+                })
+            
+            return "本周对话趋势", data
+            
+        except Exception as e:
+            print(f"获取本周趋势数据出错: {e}")
+            import traceback
+            traceback.print_exc()
+            return "本周对话趋势", []
+    
+    def get_monthly_trend(self):
+        """获取本月趋势数据（按天）
+        
+        Returns:
+            tuple: (标题, 数据列表)
+        """
+        try:
+            cursor = self.db_manager.conn.cursor()
+            
+            # 获取当前月份的天数
+            cursor.execute("SELECT strftime('%d', 'now', 'start of month', '+1 month', '-1 day') as days_in_month")
+            days_in_month = int(cursor.fetchone()['days_in_month'])
+            
+            # 查询本月每天的对话数量
+            cursor.execute("""
+                SELECT strftime('%d', datetime(timestamp, 'unixepoch')) as day,
+                       COUNT(*) as count
+                FROM prompt_details
+                WHERE strftime('%Y-%m', datetime(timestamp, 'unixepoch')) = strftime('%Y-%m', 'now')
+                GROUP BY day
+                ORDER BY day
+            """)
+            
+            results = cursor.fetchall()
+            
+            # 格式化结果，确保本月每天都有数据
+            data = []
+            for day in range(1, days_in_month + 1):
+                day_str = f"{day:02d}"
+                count = 0
+                
+                # 查找当前日期的数据
+                for row in results:
+                    if row['day'] == day_str:
+                        count = row['count']
+                        break
+                
+                data.append({
+                    'day': day_str,
+                    'count': count
+                })
+            
+            return "本月对话趋势", data
+            
+        except Exception as e:
+            print(f"获取本月趋势数据出错: {e}")
+            import traceback
+            traceback.print_exc()
+            return "本月对话趋势", []
+    
+    def get_all_time_trend(self):
+        """获取所有时间趋势数据（按月）
+        
+        Returns:
+            tuple: (标题, 数据列表)
+        """
+        try:
+            cursor = self.db_manager.conn.cursor()
+            
+            # 查询每月的对话数量
+            cursor.execute("""
+                SELECT strftime('%Y-%m', datetime(timestamp, 'unixepoch')) as month,
+                       COUNT(*) as count
+                FROM prompt_details
+                GROUP BY month
+                ORDER BY month
+            """)
+            
+            results = cursor.fetchall()
+            
+            # 格式化结果
+            data = []
+            for row in results:
+                data.append({
+                    'month': row['month'],
+                    'count': row['count']
+                })
+            
+            return "全部对话趋势", data
+            
+        except Exception as e:
+            print(f"获取全部趋势数据出错: {e}")
+            import traceback
+            traceback.print_exc()
+            return "全部对话趋势", []
+
+    def _update_wordcloud_buttons(self, selected):
+        """更新词云按钮选中状态
+        
+        Args:
+            selected (str): 选中的按钮，'day', 'week', 'month', 或  'all'
+        """
+        buttons = {
+            'day': self.wc_day_btn,
+            'week': self.wc_week_btn,
+            'month': self.wc_month_btn,
+            'all': self.wc_all_btn
+        }
+        
+        # 更新所有按钮的样式
+        for name, btn in buttons.items():
+            if name == selected:
+                btn.setChecked(True)
+                btn.setStyleSheet("background-color: #5A9F5A; color: white;")
+            else:
+                btn.setChecked(False)
+                btn.setStyleSheet("")
+                
+    def refresh_word_cloud(self):
+        """刷新词云数据"""
+        # 获取当前选中的时间范围
+        if self.wc_day_btn.isChecked():
+            time_range = 'day'
+        elif self.wc_week_btn.isChecked():
+            time_range = 'week'
+        elif self.wc_month_btn.isChecked():
+            time_range = 'month'
+        else:
+            time_range = 'all'
+            
+        self.update_word_cloud(time_range)
+
+    def get_statistics(self):
+        """获取对话统计数据
+        
+        Returns:
+            dict: 包含今日、本周、本月和总计的对话数量
+        """
+        try:
+            cursor = self.db_manager.conn.cursor()
+            stats = {
+                'today': 0,
+                'week': 0,
+                'month': 0,
+                'total': 0
+            }
+            
+            # 获取今日对话数量
+            cursor.execute("""
+                SELECT COUNT(*) as count
+                FROM prompt_details
+                WHERE date(datetime(timestamp, 'unixepoch')) = date('now')
+            """)
+            stats['today'] = cursor.fetchone()['count']
+            
+            # 获取本周对话数量
+            cursor.execute("""
+                SELECT COUNT(*) as count
+                FROM prompt_details
+                WHERE strftime('%Y-%W', datetime(timestamp, 'unixepoch')) = strftime('%Y-%W', 'now')
+            """)
+            stats['week'] = cursor.fetchone()['count']
+            
+            # 获取本月对话数量
+            cursor.execute("""
+                SELECT COUNT(*) as count
+                FROM prompt_details
+                WHERE strftime('%Y-%m', datetime(timestamp, 'unixepoch')) = strftime('%Y-%m', 'now')
+            """)
+            stats['month'] = cursor.fetchone()['count']
+            
+            # 获取总对话数量
+            cursor.execute("SELECT COUNT(*) as count FROM prompt_details")
+            stats['total'] = cursor.fetchone()['count']
+            
+            return stats
+            
+        except Exception as e:
+            print(f"获取统计数据出错: {e}")
+            import traceback
+            traceback.print_exc()
+            return {'today': 0, 'week': 0, 'month': 0, 'total': 0}
+            
+    def update_statistics(self):
+        """更新统计信息显示"""
+        try:
+            # 获取统计数据
+            stats = self.get_statistics()
+            
+            # 更新显示
+            self.today_count.setText(str(stats['today']))
+            self.week_count.setText(str(stats['week']))
+            self.month_count.setText(str(stats['month']))
+            self.total_count.setText(str(stats['total']))
+            
+            # 如果数据为0，添加特殊样式
+            for widget, count in [
+                (self.today_count, stats['today']),
+                (self.week_count, stats['week']),
+                (self.month_count, stats['month']),
+                (self.total_count, stats['total'])
+            ]:
+                if count == 0:
+                    widget.setStyleSheet("color: #888;")
+                else:
+                    widget.setStyleSheet("")
+                    
+        except Exception as e:
+            print(f"更新统计信息出错: {e}")
+            import traceback
+            traceback.print_exc()

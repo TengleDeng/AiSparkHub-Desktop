@@ -572,14 +572,99 @@ class AuxiliaryWindow(QMainWindow):
         # A将标签页直接添加到布局，它会成为"标题栏"
         middle_layout.addWidget(self.tabs)
         
-        # 提示词历史记录（设置为控制面板，移回窗口控制按钮）
+        # 提示词历史记录
         self.prompt_history = PromptHistory(self.db_manager)
-        history_panel = PanelWidget("历史记录", self.prompt_history, self, is_control_panel=True)
         
-        # 添加面板到分割器 - 直接添加文件浏览器，不使用PanelWidget包装
+        # 创建历史记录容器
+        history_container = QWidget()
+        history_layout = QVBoxLayout(history_container)
+        history_layout.setContentsMargins(0, 0, 0, 0)
+        history_layout.setSpacing(0)
+        
+        # 创建自定义标题栏
+        title_bar = QWidget()
+        title_bar.setFixedHeight(30)
+        title_bar.setObjectName("panelTitleBar")
+        title_layout = QHBoxLayout(title_bar)
+        title_layout.setContentsMargins(8, 0, 8, 0)
+        
+        # 创建标签控件和连接
+        tab_bar = QTabWidget()
+        tab_bar.setObjectName("promptHistoryTabs")
+        tab_bar.setTabPosition(QTabWidget.TabPosition.North)
+        tab_bar.setDocumentMode(True)  # 使标签页更现代化
+        tab_bar.setFixedHeight(28)  # 减小高度，使其更加紧凑
+        tab_bar.setStyleSheet("""
+            QTabBar::tab {
+                min-width: 50px;
+                max-width: 70px;
+                padding: 4px 6px;
+                margin-right: 2px;
+                border-top-left-radius: 3px;
+                border-top-right-radius: 3px;
+            }
+            QTabBar::tab:selected {
+                background-color: #3B4252;
+                border-bottom: 2px solid #81A1C1;
+            }
+            QTabBar::tab:!selected {
+                background-color: #2E3440;
+                margin-top: 2px;
+            }
+        """)  # 设置标签页样式，限制宽度
+        tab_bar.tabBar().setExpanding(False)  # 不要扩展标签填充整个宽度
+        tab_bar.addTab(QWidget(), "历史")  # 添加空的占位标签
+        tab_bar.addTab(QWidget(), "统计")  # 添加空的占位标签
+        
+        # 标签控件添加到标题栏左侧
+        title_layout.addWidget(tab_bar, 1)
+        
+        # 创建窗口控制按钮
+        # 最小化按钮
+        minimize_button = QPushButton()
+        minimize_button.setIcon(qta.icon('fa5s.window-minimize'))
+        minimize_button.clicked.connect(self.showMinimized)
+        minimize_button.setObjectName("minimizeButton")
+        minimize_button.setFixedSize(24, 24)
+        
+        # 最大化/还原按钮
+        maximize_button = QPushButton()
+        maximize_button.setIcon(qta.icon('fa5s.window-maximize'))
+        maximize_button.clicked.connect(self.toggle_maximize)
+        maximize_button.setObjectName("maximizeButton")
+        maximize_button.setFixedSize(24, 24)
+        
+        # 关闭按钮
+        close_button = QPushButton()
+        close_button.setIcon(qta.icon('fa5s.times'))
+        close_button.clicked.connect(self.close)
+        close_button.setObjectName("closeButton")
+        close_button.setFixedSize(24, 24)
+        
+        # 添加按钮到标题栏右侧
+        title_layout.addWidget(minimize_button)
+        title_layout.addWidget(maximize_button)
+        title_layout.addWidget(close_button)
+        
+        # 保存按钮引用便于后续访问
+        self.minimize_button = minimize_button
+        self.maximize_button = maximize_button
+        self.close_button = close_button
+        self.history_tab_bar = tab_bar
+        
+        # 标记标题栏用于拖动窗口
+        title_bar.installEventFilter(self)
+        
+        # 添加标题栏
+        history_layout.addWidget(title_bar)
+        
+        # 直接添加PromptHistory到布局中（保留完整功能）
+        history_layout.addWidget(self.prompt_history, 1)
+        
+        # 添加面板到分割器
         self.splitter.addWidget(self.file_explorer)
-        self.splitter.addWidget(middle_container)  # 直接添加容器，不使用PanelWidget包装
-        self.splitter.addWidget(history_panel)
+        self.splitter.addWidget(middle_container)
+        self.splitter.addWidget(history_container)
         
         # 设置初始比例 (3:4:3)
         self.splitter.setSizes([300, 400, 300])
@@ -620,6 +705,15 @@ class AuxiliaryWindow(QMainWindow):
         
         # 连接历史记录的提示词直接发送请求信号
         self.prompt_history.request_send_prompt.connect(self.on_request_send_prompt)
+        
+        # 连接标签切换信号 - 相互同步
+        tab_bar.currentChanged.connect(lambda index: self.sync_tab_selection(tab_bar, self.prompt_history.tab_widget, index))
+        
+        # 监听PromptHistory的标签变化
+        self.prompt_history.tab_widget.currentChanged.connect(lambda index: self.sync_tab_selection(self.prompt_history.tab_widget, tab_bar, index))
+        
+        # 隐藏PromptHistory内部的选项卡，只显示自定义选项卡
+        self.prompt_history.tab_widget.tabBar().hide()
     
     def load_search_page(self):
         """加载搜索页面"""
@@ -1462,10 +1556,53 @@ class AuxiliaryWindow(QMainWindow):
         if not self.theme_manager:
             print("警告: ThemeManager 未初始化，无法更新辅助窗口图标")
             icon_color = '#D8DEE9' # 使用默认深色前景色
+            is_dark = True
         else:
             theme_colors = self.theme_manager.get_current_theme_colors()
             icon_color = theme_colors.get('foreground', '#D8DEE9')
+            is_dark = self.theme_manager.current_theme == "dark"
             print(f"AuxiliaryWindow: 当前主题图标颜色: {icon_color}")
+            
+            # 更新标签栏样式适应当前主题
+            if hasattr(self, 'history_tab_bar'):
+                if is_dark:
+                    self.history_tab_bar.setStyleSheet("""
+                        QTabBar::tab {
+                            min-width: 50px;
+                            max-width: 70px;
+                            padding: 4px 6px;
+                            margin-right: 2px;
+                            border-top-left-radius: 3px;
+                            border-top-right-radius: 3px;
+                        }
+                        QTabBar::tab:selected {
+                            background-color: #3B4252;
+                            border-bottom: 2px solid #81A1C1;
+                        }
+                        QTabBar::tab:!selected {
+                            background-color: #2E3440;
+                            margin-top: 2px;
+                        }
+                    """)
+                else:
+                    self.history_tab_bar.setStyleSheet("""
+                        QTabBar::tab {
+                            min-width: 50px;
+                            max-width: 70px;
+                            padding: 4px 6px;
+                            margin-right: 2px;
+                            border-top-left-radius: 3px;
+                            border-top-right-radius: 3px;
+                        }
+                        QTabBar::tab:selected {
+                            background-color: #E5E9F0;
+                            border-bottom: 2px solid #5E81AC;
+                        }
+                        QTabBar::tab:!selected {
+                            background-color: #ECEFF4;
+                            margin-top: 2px;
+                        }
+                    """)
 
         # 1. 更新 Ribbon 工具栏图标
         if hasattr(self, 'open_main_window_action'):
@@ -1627,3 +1764,57 @@ class AuxiliaryWindow(QMainWindow):
             print(f"切换显示模式时出错: {e}")
             import traceback
             traceback.print_exc()
+
+    def update_history_content(self, container, index):
+        """更新历史记录内容，根据标签索引切换显示的内容
+        
+        Args:
+            container (QWidget): 内容容器
+            index (int): 标签索引
+        """
+        # 清除容器中的所有小部件
+        layout = container.layout()
+        while layout.count():
+            item = layout.takeAt(0)
+            if item.widget():
+                item.widget().setParent(None)
+                
+        # 根据索引添加相应的内容
+        if index == 0:  # 历史标签
+            layout.addWidget(self.prompt_history.history_tab)
+        elif index == 1:  # 统计标签
+            layout.addWidget(self.prompt_history.stats_tab)
+
+    def switch_history_view(self, index):
+        """根据标签切换历史记录视图
+        
+        Args:
+            index (int): 标签索引
+        """
+        if not hasattr(self, 'prompt_history') or not self.prompt_history:
+            return
+            
+        # 切换PromptHistory中的标签页
+        if hasattr(self.prompt_history, 'tab_widget'):
+            self.prompt_history.tab_widget.setCurrentIndex(index)
+        print(f"已切换历史记录视图到索引: {index}")
+
+    def sync_tab_selection(self, source_tab, target_tab, index):
+        """同步标签页选择
+        
+        Args:
+            source_tab (QTabWidget): 源标签控件
+            target_tab (QTabWidget): 目标标签控件
+            index (int): 标签索引
+        """
+        # 防止循环调用
+        if hasattr(target_tab, 'blockSignals'):
+            target_tab.blockSignals(True)
+            
+        if hasattr(target_tab, 'setCurrentIndex'):
+            target_tab.setCurrentIndex(index)
+            
+        if hasattr(target_tab, 'blockSignals'):
+            target_tab.blockSignals(False)
+            
+        print(f"标签选择已同步: {index}")
