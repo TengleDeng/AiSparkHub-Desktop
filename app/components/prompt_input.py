@@ -764,7 +764,7 @@ class PromptInput(MarkdownEditor):
             self.set_text(prompt)
             
             # 自动发送到AI平台
-            self.prompt_submitted.emit(prompt)
+            # self.prompt_submitted.emit(prompt)
             
             print(f"已生成{date_str}内参日报，共包含{article_count}篇文章")
             
