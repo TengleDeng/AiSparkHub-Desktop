@@ -19,6 +19,7 @@ import qtawesome as qta
 import os
 import re
 from PyQt6.QtWidgets import QApplication
+import datetime
 
 # 导入文件转换器
 from app.models.converters import ConverterFactory
@@ -593,6 +594,22 @@ class PromptTemplate(QWidget):
             # 变量内容
             if var.var_type == 'file' and not var.file_path:
                 replacement = f"<span style='color:#e63946'>【请选择{var.name}文件】</span>"
+            elif var.var_type == 'file' and var.file_path:
+                # 获取文件名和修改时间
+                file_name = os.path.basename(var.file_path)
+                try:
+                    mtime = os.path.getmtime(var.file_path)
+                    mtime_str = datetime.datetime.fromtimestamp(mtime).strftime('%Y-%m-%d %H:%M:%S')
+                except Exception:
+                    mtime_str = ''
+                header = f"<span style='color:#e63946'>{file_name}（{mtime_str}）</span>"
+                # 文件内容
+                if var.value:
+                    lines = var.value.split('\n')
+                    colored = '<br/>'.join([f"<span style='color:#e63946'>{line if line else '&nbsp;'}</span>" for line in lines])
+                else:
+                    colored = f"<span style='color:#e63946'>【文件无内容】</span>"
+                replacement = header + '<br/>' + colored
             else:
                 # 对于多行内容（如文件），每行都加span
                 if var.value:
@@ -601,9 +618,38 @@ class PromptTemplate(QWidget):
                     replacement = colored
                 else:
                     replacement = f"<span style='color:#e63946'>【未填写:{var.name}】</span>"
-            template_content = re.sub(var_pattern, replacement, template_content)
+            template_content = re.sub(var_pattern, lambda m: replacement, template_content)
         # 保证换行显示
         template_content = template_content.replace('\n', '<br/>')
+        return template_content
+    
+    def get_plaintext_template(self):
+        """获取处理后的模板内容（纯文本，无HTML标记，变量内容为纯文本）"""
+        if not self.current_template:
+            return ""
+        template_content = self.current_template
+        for var in self.template_variables:
+            if var.var_type:
+                var_pattern = r'\{\{' + re.escape(var.name) + r':' + re.escape(var.var_type) + r'(?:\|[^{}]*)?\}\}'
+            else:
+                var_pattern = r'\{\{' + re.escape(var.name) + r'(?:\|[^{}]*)?\}\}'
+            if var.var_type == 'file' and not var.file_path:
+                replacement = f"【请选择{var.name}文件】"
+            elif var.var_type == 'file' and var.file_path:
+                file_name = os.path.basename(var.file_path)
+                try:
+                    mtime = os.path.getmtime(var.file_path)
+                    mtime_str = datetime.datetime.fromtimestamp(mtime).strftime('%Y-%m-%d %H:%M:%S')
+                except Exception:
+                    mtime_str = ''
+                header = f"{file_name}（{mtime_str}）"
+                if var.value:
+                    replacement = header + '\n' + var.value
+                else:
+                    replacement = header + '\n【文件无内容】'
+            else:
+                replacement = var.value if var.value else f"【未填写:{var.name}】"
+            template_content = re.sub(var_pattern, lambda m: replacement, template_content)
         return template_content
     
     def get_current_template_name(self):

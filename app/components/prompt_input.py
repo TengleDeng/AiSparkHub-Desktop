@@ -124,8 +124,8 @@ class PromptInput(MarkdownEditor):
             # 使用父类方法获取文本编辑器内容
             return super().get_text()
         else:
-            # 从模板组件获取处理后的内容
-            return self.template_component.get_processed_template()
+            # 从模板组件获取处理后的内容（纯文本，无HTML标记）
+            return self.template_component.get_plaintext_template()
     
     def set_text(self, text):
         """设置文本内容，重写以支持模板模式"""
