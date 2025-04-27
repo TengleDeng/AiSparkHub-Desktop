@@ -132,6 +132,7 @@ class PromptTemplate(QWidget):
         
         # 添加刷新预览按钮
         self.refresh_preview_btn = QPushButton()
+        self.refresh_preview_btn.setObjectName("refreshPreviewBtn")
         self.refresh_preview_btn.setToolTip("点击立即更新预览内容")
         self.refresh_preview_btn.clicked.connect(self.force_update_preview)
         self.refresh_preview_btn.setFlat(True)

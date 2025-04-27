@@ -214,6 +214,19 @@ class ThemeManager(QObject):
             QPushButton:pressed {
                 background-color: #81A1C1;
             }
+            /* 刷新按钮专属样式 */
+            QPushButton#refreshPreviewBtn {
+                background: transparent;
+                border: none;
+                color: #ECEFF4;
+                padding: 4px 8px;
+            }
+            QPushButton#refreshPreviewBtn:hover {
+                background: rgba(136,192,208,0.08);
+            }
+            QPushButton#refreshPreviewBtn:pressed {
+                background: rgba(136,192,208,0.15);
+            }
             
             /* 文本框样式 */
             QLineEdit, QTextEdit, QPlainTextEdit {
@@ -713,6 +726,19 @@ class ThemeManager(QObject):
             }
             QPushButton:pressed {
                 background-color: #a8bdd5; /* Slightly darker pressed */
+            }
+            /* 刷新按钮专属样式 */
+            QPushButton#refreshPreviewBtn {
+                background: transparent;
+                border: none;
+                color: #2E3440;
+                padding: 4px 8px;
+            }
+            QPushButton#refreshPreviewBtn:hover {
+                background: rgba(136,192,208,0.08);
+            }
+            QPushButton#refreshPreviewBtn:pressed {
+                background: rgba(136,192,208,0.15);
             }
             
             /* 文本框样式 */
