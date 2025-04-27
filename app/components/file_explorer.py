@@ -184,7 +184,15 @@ class FileExplorer(QWidget):
         self.tab_widget.setMovable(True)
         
         # 设置标签页高度
-        self.tab_widget.setStyleSheet("QTabBar::tab { height: 30px; }")
+        self.tab_widget.setStyleSheet("""
+            QTabBar::tab {
+                height: 30px;
+                min-width: 30px;
+                padding-left: 8px;
+                padding-right: 8px;
+                /* 不设置固定宽度，靠padding和内容撑开 */
+            }
+        """)
         
         main_layout.addWidget(self.tab_widget, 1)  # 让标签页占据更多空间
         
