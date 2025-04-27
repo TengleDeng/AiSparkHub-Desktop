@@ -12,7 +12,7 @@
 """
 
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QComboBox, 
-                            QPushButton, QFrame, QTextEdit, QLineEdit, QFileDialog)
+                            QPushButton, QFrame, QTextEdit, QLineEdit, QFileDialog, QScrollArea, QSizePolicy, QAbstractScrollArea)
 from PyQt6.QtCore import Qt, pyqtSignal, QTimer, QEvent, QObject
 from PyQt6.QtGui import QColor
 import qtawesome as qta
@@ -79,11 +79,15 @@ class PromptTemplate(QWidget):
         # 创建顶部控件，但不添加到布局，由外部控制显示位置
         self.setup_header_ui()
         
-        # 变量输入区域
+        # 变量输入区域（用QScrollArea包裹）
+        self.variables_scroll = QScrollArea()
+        self.variables_scroll.setWidgetResizable(True)
         self.variables_container = QWidget()
         self.variables_layout = QVBoxLayout(self.variables_container)
-        self.variables_layout.setContentsMargins(0, 5, 0, 5)
-        self.layout.addWidget(self.variables_container, 1)
+        self.variables_layout.setSpacing(4)  # 控件间距更小
+        self.variables_layout.setContentsMargins(0, 2, 0, 2)  # 上下边距更小
+        self.variables_scroll.setWidget(self.variables_container)
+        self.layout.addWidget(self.variables_scroll)
         
         # 分隔线
         separator = QFrame()
@@ -94,9 +98,14 @@ class PromptTemplate(QWidget):
         
         # 预览区域
         self.setup_preview_ui()
+        self.layout.addWidget(self.preview_container)
         
         # 确保初始状态下变量区域和预览区域可见
         self.variables_container.setVisible(True)
+        self.preview_container.setVisible(True)
+        
+        self.variables_container.setSizePolicy(QSizePolicy.Policy.Minimum, QSizePolicy.Policy.Minimum)
+        self.variables_scroll.setSizeAdjustPolicy(QAbstractScrollArea.SizeAdjustPolicy.AdjustToContents)
     
     def setup_header_ui(self):
         """设置顶部区域控件 - 模板选择和管理"""
@@ -417,6 +426,10 @@ class PromptTemplate(QWidget):
             # 变量标签
             label = QLabel(var.name)
             label.setStyleSheet("font-weight: bold; color: var(--text-normal);")
+            label.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
+            label.setMinimumHeight(0)
+            label.setFixedHeight(24)
+            label.setContentsMargins(0, 0, 0, 0)
             var_layout.addWidget(label)
             
             # 清空之前的UI引用
@@ -428,33 +441,26 @@ class PromptTemplate(QWidget):
                 # 多个选项使用下拉框
                 if len(var.options) > 1:
                     combo = QComboBox()
-                    # 存储变量引用
                     combo.var_ref = var
-                    
                     for option in var.options:
                         combo.addItem(option)
-                    
-                    # 设置初始值
                     if var.value in var.options:
                         combo.setCurrentText(var.value)
-                    
-                    # 下拉框没有输入过程，可以直接更新预览
                     combo.currentTextChanged.connect(self._on_combo_changed)
-                    
+                    combo.setFixedHeight(36)  # 固定高度
+                    combo.setContentsMargins(0, 0, 0, 0)
                     var_layout.addWidget(combo)
                     var.ui_elements['input'] = combo
                 
                 # 单个选项使用文本框并填入默认值
                 else:
                     line_edit = QLineEdit(var.value or var.options[0])
-                    # 存储变量引用
                     line_edit.var_ref = var
-                    
-                    # 连接完成编辑信号，只在编辑完成时更新
                     line_edit.editingFinished.connect(
                         lambda edit=line_edit: self._on_editing_finished(edit)
                     )
-                    
+                    line_edit.setFixedHeight(36)  # 固定高度
+                    line_edit.setContentsMargins(0, 0, 0, 0)
                     var_layout.addWidget(line_edit)
                     var.ui_elements['input'] = line_edit
             else:
@@ -462,21 +468,19 @@ class PromptTemplate(QWidget):
                 text_edit = QTextEdit()
                 text_edit.setMaximumHeight(100)
                 text_edit.setText(var.value)
-                # 存储变量引用
                 text_edit.var_ref = var
-                
-                # 安装事件过滤器，监听焦点离开事件
                 text_edit.installEventFilter(self)
-                
+                text_edit.setFixedHeight(100)  # 固定高度
+                text_edit.setContentsMargins(0, 0, 0, 0)
                 var_layout.addWidget(text_edit)
                 var.ui_elements['input'] = text_edit
+            
+            # 添加底部弹性空间，防止控件间距被拉伸
+            var_layout.addStretch(1)
             
             # 添加到变量布局
             self.variables_layout.addWidget(var_container)
         
-        # 添加底部空白
-        self.variables_layout.addStretch(1)
-    
     def _on_combo_changed(self, text):
         """处理下拉框选择变化"""
         # 获取发送者
@@ -635,3 +639,11 @@ class PromptTemplate(QWidget):
         
         # 继续处理事件
         return super().eventFilter(obj, event)
+
+    def resizeEvent(self, event):
+        total_height = self.height()
+        max_var_height = int(total_height * 0.7)
+        min_preview_height = int(total_height * 0.3)
+        self.variables_scroll.setMaximumHeight(max_var_height)
+        self.preview_container.setMinimumHeight(min_preview_height)
+        super().resizeEvent(event)
