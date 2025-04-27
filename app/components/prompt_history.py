@@ -1399,21 +1399,19 @@ class PromptHistory(QWidget):
             # 使用主题颜色并确保正确应用
             theme_colors = self.theme_manager.get_current_theme_colors() if self.theme_manager else {}
             
-            # 直接检查主题，不使用条件判断
-            is_dark_theme = False
-            if self.theme_manager:
-                is_dark_theme = self.theme_manager.current_theme == "dark"
-            
-            # 明确设置颜色
-            text_color = '#ECEFF4' if is_dark_theme else '#2E3440'  # 深色用白字，浅色用黑字
-            line_color = theme_colors.get('accent', '#5E81AC')
-            highlight_color = theme_colors.get('warning', '#EBCB8B')
+            # 背景始终为白色，所以文字始终使用黑色
+            text_color = '#000000'  # 始终使用黑色文字
+            line_color = '#5E81AC'  # 线条颜色
+            highlight_color = '#EBCB8B'  # 高亮色保持醒目
+            axis_color = '#2E3440'  # 轴线颜色
+            grid_color = '#CCCCCC'  # 网格线颜色
             
             # 创建图表 - 使用更小的宽度
             fig = Figure(figsize=(4.5, 2.4), dpi=90)
             fig.patch.set_facecolor('none')  # 透明背景
             canvas = FigureCanvas(fig)
             ax = fig.add_subplot(111)
+            ax.set_facecolor('white')  # 始终使用白色背景
             
             # 数据点
             x_indices = range(len(x_values))
@@ -1453,45 +1451,56 @@ class PromptHistory(QWidget):
                     else:
                         show_labels.append(x)
             
-            # 绘制折线图
-            ax.plot(x_indices, y_values, marker='o', markersize=3, 
-                   linewidth=1.5, color=line_color, alpha=0.8)
+            # 绘制折线图 - 增加线条粗细和对比度
+            ax.plot(x_indices, y_values, marker='o', markersize=4, 
+                   linewidth=2.0, color=line_color, alpha=0.9)
             
             # 添加数据点标记
             for i, v in enumerate(y_values):
                 if v > 0:  # 只标记非零值
                     # 找出最大值进行高亮
                     if v == max(y_values):
-                        ax.plot(i, v, marker='o', markersize=5, 
+                        ax.plot(i, v, marker='o', markersize=6, 
                                color=highlight_color, alpha=1.0)
             
-            # 设置标题和轴标签 - 增大字体提高可读性
-            ax.set_title(title, fontsize=11, color=text_color)
-            ax.set_xlabel(x_label, fontsize=9, color=text_color)
-            ax.set_ylabel('对话数量', fontsize=9, color=text_color)
+            # 设置标题和轴标签 - 进一步增大字体提高可读性
+            ax.set_title(title, fontsize=12, color=text_color, fontweight='bold')
+            ax.set_xlabel(x_label, fontsize=10, color=text_color)
+            ax.set_ylabel('对话数量', fontsize=10, color=text_color)
             
-            # 设置x轴刻度和标签 - 增大字体
+            # 设置x轴刻度和标签 - 增大字体，加粗
             ax.set_xticks(show_indices)
             ax.set_xticklabels(show_labels, rotation=45 if len(show_labels) > 10 else 0, 
-                              fontsize=8, color=text_color, ha='right')
+                              fontsize=9, color=text_color, ha='right', fontweight='bold')
+            
+            # 设置y轴刻度字体更大更粗
+            for label in ax.get_yticklabels():
+                label.set_fontsize(9)
+                label.set_fontweight('bold')
+                label.set_color(text_color)
             
             # 减少y轴刻度数量
             if max(y_values) > 10:
                 ax.yaxis.set_major_locator(plt.MaxNLocator(5))  # 最多显示5个刻度
             
             # 设置网格和调整布局
-            ax.grid(True, linestyle='--', alpha=0.2, color=text_color)  # 添加浅色网格线提高可读性
-            ax.tick_params(axis='both', colors=text_color, labelsize=8)  # 调整刻度标签大小
+            ax.grid(True, linestyle='--', alpha=0.3, color=grid_color, linewidth=0.8)  # 使用灰色网格线
+            
+            # 增强坐标轴线的粗细和颜色
+            ax.tick_params(axis='both', colors=text_color, labelsize=9, width=1.2, length=5)
             ax.spines['top'].set_visible(False)
             ax.spines['right'].set_visible(False)
-            ax.spines['bottom'].set_color(text_color)
-            ax.spines['left'].set_color(text_color)
+            
+            # 增强可见轴线的粗细
+            for spine in ['bottom', 'left']:
+                ax.spines[spine].set_linewidth(1.5)
+                ax.spines[spine].set_color(axis_color)
             
             # 调整y轴起始位置为0
             if min(y_values) >= 0:
                 ax.set_ylim(bottom=0)
                 
-            fig.tight_layout(pad=0.3)  # 内边距适当增加
+            fig.tight_layout(pad=0.4)  # 内边距稍微增加
             
             # 保存到临时文件
             tmp_dir = tempfile.gettempdir()
@@ -1587,14 +1596,9 @@ class PromptHistory(QWidget):
             # 使用主题颜色
             theme_colors = self.theme_manager.get_current_theme_colors() if self.theme_manager else {}
             
-            # 直接检查主题
-            is_dark_theme = False
-            if self.theme_manager:
-                is_dark_theme = self.theme_manager.current_theme == "dark"
-                
-            # 设置颜色
-            background_color = 'black' if is_dark_theme else 'white'
-            text_color = '#ECEFF4' if is_dark_theme else '#2E3440'  # 深色用白字，浅色用黑字
+            # 始终使用白色背景和黑色文字
+            background_color = 'white'
+            text_color = '#000000'  # 使用黑色文字
             
             # 中文分词
             words = jieba.cut(text)
@@ -1626,10 +1630,11 @@ class PromptHistory(QWidget):
             fig.patch.set_facecolor('none')
             canvas = FigureCanvas(fig)
             ax = fig.add_subplot(111)
+            ax.set_facecolor('white')  # 始终使用白色背景
             
             # 显示词云
             ax.imshow(wordcloud, interpolation='bilinear')
-            ax.set_title(title, fontsize=11, color=text_color)  # 增大字体
+            ax.set_title(title, fontsize=11, color=text_color, fontweight='bold')  # 增大字体
             ax.axis('off')  # 隐藏坐标轴
             fig.tight_layout(pad=0.2)  # 减少内边距
             
