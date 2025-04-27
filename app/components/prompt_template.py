@@ -20,28 +20,6 @@ import os
 import re
 from PyQt6.QtWidgets import QApplication
 
-# 添加事件过滤器，避免焦点问题
-class TextEditEventFilter(QObject):
-    textChanged = pyqtSignal(QTextEdit)
-    
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.typing_timer = QTimer()
-        self.typing_timer.setSingleShot(True)
-        self.typing_timer.setInterval(300)  # 300ms防抖
-        self.current_edit = None
-    
-    def eventFilter(self, obj, event):
-        if isinstance(obj, QTextEdit):
-            if event.type() == QEvent.Type.KeyPress:
-                self.current_edit = obj
-                # 重启计时器
-                self.typing_timer.stop()
-                self.typing_timer.timeout.connect(lambda: self.textChanged.emit(self.current_edit))
-                self.typing_timer.start()
-            
-        return False  # 继续处理事件
-
 
 class TemplateVariable:
     """模板变量类，管理单个变量的属性和值"""
@@ -75,10 +53,7 @@ class PromptTemplate(QWidget):
         self.current_template = None  # 保持原变量名
         self.template_variables = []  # 保持原变量名
         self.template_examples_created = False
-        
-        # 创建事件过滤器，用于处理文本编辑器焦点和输入事件
-        self.text_edit_filter = TextEditEventFilter(self)
-        self.text_edit_filter.textChanged.connect(self._on_text_edit_changed)
+        self.disable_preview_update = False  # 控制是否禁用预览更新
         
         # 获取主题管理器引用
         self.theme_manager = None
@@ -157,8 +132,8 @@ class PromptTemplate(QWidget):
         
         # 添加刷新预览按钮
         self.refresh_preview_btn = QPushButton()
-        self.refresh_preview_btn.setToolTip("点击更新预览内容")
-        self.refresh_preview_btn.clicked.connect(self.update_template_preview)
+        self.refresh_preview_btn.setToolTip("点击立即更新预览内容")
+        self.refresh_preview_btn.clicked.connect(self.force_update_preview)
         self.refresh_preview_btn.setFlat(True)
         preview_header.addWidget(self.refresh_preview_btn)
         
@@ -345,7 +320,7 @@ class PromptTemplate(QWidget):
             self.current_template = ""
             self.template_variables = []
             self.update_variables_ui()
-            self.update_template_preview()  # 立即清空预览
+            self.force_update_preview()  # 立即更新预览
             self.template_content_updated.emit("")  # 发送空白内容表示使用直接输入
             return
         
@@ -368,7 +343,7 @@ class PromptTemplate(QWidget):
             self.update_variables_ui()
             
             # 初始更新一次预览
-            self.update_template_preview()
+            self.force_update_preview()  # 立即更新预览
             
             # 发送模板内容更新信号
             self.template_content_updated.emit(self.get_processed_template())
@@ -452,8 +427,9 @@ class PromptTemplate(QWidget):
                 # 多个选项使用下拉框
                 if len(var.options) > 1:
                     combo = QComboBox()
-                    # 设置标签，用于在回调中识别关联的变量
-                    combo.setProperty("var_name", var.name)
+                    # 存储变量引用
+                    combo.var_ref = var
+                    
                     for option in var.options:
                         combo.addItem(option)
                     
@@ -461,18 +437,23 @@ class PromptTemplate(QWidget):
                     if var.value in var.options:
                         combo.setCurrentText(var.value)
                     
-                    # 为了避免lambda问题，使用自定义处理方法
+                    # 下拉框没有输入过程，可以直接更新预览
                     combo.currentTextChanged.connect(self._on_combo_changed)
+                    
                     var_layout.addWidget(combo)
                     var.ui_elements['input'] = combo
                 
                 # 单个选项使用文本框并填入默认值
                 else:
                     line_edit = QLineEdit(var.value or var.options[0])
-                    # 设置标签，用于在回调中识别关联的变量
-                    line_edit.setProperty("var_name", var.name)
-                    # 不使用直接连接
-                    line_edit.textChanged.connect(self._on_line_edit_changed)
+                    # 存储变量引用
+                    line_edit.var_ref = var
+                    
+                    # 连接完成编辑信号，只在编辑完成时更新
+                    line_edit.editingFinished.connect(
+                        lambda edit=line_edit: self._on_editing_finished(edit)
+                    )
+                    
                     var_layout.addWidget(line_edit)
                     var.ui_elements['input'] = line_edit
             else:
@@ -480,11 +461,11 @@ class PromptTemplate(QWidget):
                 text_edit = QTextEdit()
                 text_edit.setMaximumHeight(100)
                 text_edit.setText(var.value)
-                # 设置标签，用于在回调中识别关联的变量
-                text_edit.setProperty("var_name", var.name)
+                # 存储变量引用
+                text_edit.var_ref = var
                 
-                # 使用事件过滤器代替信号连接
-                text_edit.installEventFilter(self.text_edit_filter)
+                # 安装事件过滤器，监听焦点离开事件
+                text_edit.installEventFilter(self)
                 
                 var_layout.addWidget(text_edit)
                 var.ui_elements['input'] = text_edit
@@ -496,84 +477,54 @@ class PromptTemplate(QWidget):
         self.variables_layout.addStretch(1)
     
     def _on_combo_changed(self, text):
-        """处理下拉框值变化"""
+        """处理下拉框选择变化"""
         # 获取发送者
-        sender = self.sender()
-        if sender:
-            # 获取关联的变量名称
-            var_name = sender.property("var_name")
-            if var_name:
-                # 查找对应的变量
-                for var in self.template_variables:
-                    if var.name == var_name:
-                        # 更新变量值
-                        var.value = text
-                        # 更新刷新预览按钮状态
-                        self.refresh_preview_btn.setStyleSheet("background-color: rgba(94, 129, 172, 0.2);")
-                        # 发送模板内容更新信号
-                        self.template_content_updated.emit(self.get_processed_template())
-                        break
-
-    def _on_line_edit_changed(self, text):
-        """处理单行文本框值变化"""
-        # 获取发送者
-        sender = self.sender()
-        if sender:
-            # 获取关联的变量名称
-            var_name = sender.property("var_name")
-            if var_name:
-                # 查找对应的变量
-                for var in self.template_variables:
-                    if var.name == var_name:
-                        # 更新变量值
-                        var.value = text
-                        # 更新刷新预览按钮状态
-                        self.refresh_preview_btn.setStyleSheet("background-color: rgba(94, 129, 172, 0.2);")
-                        # 发送模板内容更新信号
-                        self.template_content_updated.emit(self.get_processed_template())
-                        break
-
-    def _on_text_edit_changed(self, text_edit):
-        """处理多行文本框值变化"""
-        if text_edit:
-            # 获取关联的变量名称
-            var_name = text_edit.property("var_name")
-            if var_name:
-                # 获取当前文本
-                current_text = text_edit.toPlainText()
-                # 查找对应的变量
-                for var in self.template_variables:
-                    if var.name == var_name:
-                        # 更新变量值
-                        var.value = current_text
-                        # 更新刷新预览按钮状态
-                        self.refresh_preview_btn.setStyleSheet("background-color: rgba(94, 129, 172, 0.2);")
-                        # 发送模板内容更新信号
-                        self.template_content_updated.emit(self.get_processed_template())
-                        break
+        combo = self.sender()
+        if combo and hasattr(combo, 'var_ref'):
+            # 更新变量值
+            combo.var_ref.value = text
+            # 发送模板内容更新信号
+            self.template_content_updated.emit(self.get_processed_template())
+            # 下拉框没有连续输入问题，可以直接更新预览
+            self.update_template_preview()
+    
+    def _on_editing_finished(self, line_edit):
+        """处理行编辑完成事件"""
+        if line_edit and hasattr(line_edit, 'var_ref'):
+            # 更新变量值
+            line_edit.var_ref.value = line_edit.text()
+            # 发送模板内容更新信号
+            self.template_content_updated.emit(self.get_processed_template())
+            # 编辑完成后更新预览
+            self.update_template_preview()
     
     def update_template_preview(self):
         """更新模板预览"""
-        # 如果没有选择模板，清空预览区域
-        if not self.current_template:
-            self.preview_text.clear()
-            self.char_count_label.setText("(0字符)")
+        try:
+            # 如果没有选择模板，清空预览区域
+            if not self.current_template:
+                self.preview_text.clear()
+                self.char_count_label.setText("(0字符)")
+                # 重置刷新按钮样式
+                self.refresh_preview_btn.setStyleSheet("")
+                return
+            
+            # 处理模板变量，生成预览内容
+            processed_content = self.get_processed_template()
+            
+            # 更新预览文本
+            self.preview_text.setText(processed_content)
+            
+            # 更新字符计数
+            count = len(processed_content)
+            self.char_count_label.setText(f"({count}字符)")
+            
             # 重置刷新按钮样式
             self.refresh_preview_btn.setStyleSheet("")
-            return
-            
-        # 处理模板变量，生成预览内容
-        processed_content = self.get_processed_template()
-        
-        # 更新预览文本
-        self.preview_text.setText(processed_content)
-        
-        # 更新字符计数
-        count = len(processed_content)
-        self.char_count_label.setText(f"({count}字符)")
-        
-        # 重置刷新按钮样式
-        self.refresh_preview_btn.setStyleSheet("")
+        except Exception as e:
+            print(f"更新预览时出错: {e}")
+            import traceback
+            traceback.print_exc()
     
     def get_processed_template(self):
         """获取处理后的模板内容"""
@@ -605,7 +556,8 @@ class PromptTemplate(QWidget):
         """仅用于外部调用的方法，自定义UI使用其他方法"""
         variable.value = new_value
         self.template_content_updated.emit(self.get_processed_template())
-        self.refresh_preview_btn.setStyleSheet("background-color: rgba(94, 129, 172, 0.2);")
+        # 直接更新预览，无需设置按钮样式
+        self.update_template_preview()
 
     def _update_icons(self):
         """更新图标颜色以适应当前主题"""
@@ -664,3 +616,21 @@ class PromptTemplate(QWidget):
         if hasattr(self, 'refresh_button'):
             self.refresh_button.style().unpolish(self.refresh_button)
             self.refresh_button.style().polish(self.refresh_button)
+
+    def force_update_preview(self):
+        """立即强制更新预览"""
+        self.update_template_preview()
+
+    def eventFilter(self, obj, event):
+        """事件过滤器，用于处理QTextEdit的焦点离开事件"""
+        if isinstance(obj, QTextEdit) and hasattr(obj, 'var_ref'):
+            if event.type() == QEvent.Type.FocusOut:
+                # 焦点离开，更新变量值和预览
+                obj.var_ref.value = obj.toPlainText()
+                # 发送模板内容更新信号
+                self.template_content_updated.emit(self.get_processed_template())
+                # 更新预览
+                self.update_template_preview()
+        
+        # 继续处理事件
+        return super().eventFilter(obj, event)
