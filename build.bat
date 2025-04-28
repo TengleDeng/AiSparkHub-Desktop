@@ -3,7 +3,7 @@ setlocal enabledelayedexpansion
 
 REM 设置应用信息
 set APP_NAME=AiSparkHub
-set APP_VERSION=0.25
+set APP_VERSION=1.0.0
 
 REM 检查Python安装
 echo 检查Python安装...
@@ -26,54 +26,30 @@ del temp.txt
 if "%conda_env%"=="conda" (
     echo 检测到Conda环境
     
-    REM 检查pathlib包（可能会导致PyInstaller冲突）
-    python -c "import importlib.util; print('installed' if importlib.util.find_spec('pathlib') else 'not-installed')" > temp.txt
-    set /p pathlib_status=<temp.txt
-    del temp.txt
-    
-    if "!pathlib_status!"=="installed" (
-        echo.
-        echo 警告: 检测到pathlib包，它可能与PyInstaller不兼容
-        echo 如果在打包过程中遇到pathlib相关错误，请在继续之前运行:
-        echo conda remove pathlib
-        echo.
-        choice /C YN /M "是否继续? (Y=是, N=否)"
-        if errorlevel 2 (
-            echo 操作已取消
-            exit /b 1
-        )
-    )
+    REM 放弃检测pathlib包，直接继续
+    echo.
+    echo 注意: 如果在打包过程中遇到pathlib相关错误，请运行:
+    echo conda remove pathlib
+    echo.
 )
 
-REM 检查必要依赖
-echo 检查必要的包...
-set REQUIRED_PACKAGES=PyQt6 qtawesome pyinstaller pynput
-
-set MISSING_PACKAGES=
-for %%p in (%REQUIRED_PACKAGES%) do (
-    python -c "import importlib.util; print('installed' if importlib.util.find_spec('%%p') else 'not-installed')" > temp.txt
-    set /p package_status=<temp.txt
-    del temp.txt
-    
-    if "!package_status!"=="not-installed" (
-        set MISSING_PACKAGES=!MISSING_PACKAGES! %%p
-    )
-)
-
-if not "!MISSING_PACKAGES!"=="" (
-    echo 错误: 缺少以下必要包:!MISSING_PACKAGES!
-    echo 请使用以下命令安装它们:
-    echo pip install!MISSING_PACKAGES!
-    pause
-    exit /b 1
-)
+REM 不再检查必要依赖
+echo 继续打包过程...
 
 REM 检查Inno Setup安装
 echo 检查Inno Setup安装...
-reg query "HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Inno Setup 6_is1" /v "DisplayName" >nul 2>nul
+where ISCC.exe >nul 2>nul
 if %ERRORLEVEL% neq 0 (
-    reg query "HKLM\SOFTWARE\Wow6432Node\Microsoft\Windows\CurrentVersion\Uninstall\Inno Setup 6_is1" /v "DisplayName" >nul 2>nul
-    if %ERRORLEVEL% neq 0 (
+    REM 尝试在默认安装路径查找
+    if exist "%ProgramFiles(x86)%\Inno Setup 6\ISCC.exe" (
+        set "PATH=%PATH%;%ProgramFiles(x86)%\Inno Setup 6"
+        set SKIP_INSTALLER=
+        echo 已找到Inno Setup在默认路径。
+    ) else if exist "%ProgramFiles%\Inno Setup 6\ISCC.exe" (
+        set "PATH=%PATH%;%ProgramFiles%\Inno Setup 6"
+        set SKIP_INSTALLER=
+        echo 已找到Inno Setup在默认路径。
+    ) else (
         echo 警告: 未找到Inno Setup安装.
         echo 如果您想创建安装程序, 请从以下网址下载并安装Inno Setup:
         echo https://jrsoftware.org/isdl.php
@@ -81,11 +57,10 @@ if %ERRORLEVEL% neq 0 (
         echo 按任意键继续，将只执行PyInstaller打包...
         pause >nul
         set SKIP_INSTALLER=--skip-installer
-    ) else (
-        set SKIP_INSTALLER=
     )
 ) else (
     set SKIP_INSTALLER=
+    echo 已找到Inno Setup。
 )
 
 REM 开始打包过程
