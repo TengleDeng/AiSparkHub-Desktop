@@ -1,6 +1,19 @@
 #!/usr/bin/env python
 # -*- coding: utf-8 -*-
 
+"""
+辅助窗口模块 - 包含提示词输入、历史记录和文件浏览功能
+负责提供AI交互的辅助功能
+"""
+
+import os
+import sys
+import json
+import re
+import http.server
+import socketserver
+import threading
+
 # auxiliary_window.py: 定义 AuxiliaryWindow 类
 # 该窗口作为辅助窗口，包含文件浏览器、提示词输入框和提示词历史记录。
 # 用于管理和同步提示词到主窗口的 AI 对话页面。
@@ -9,13 +22,8 @@ from PyQt6.QtWidgets import QMainWindow, QWidget, QHBoxLayout, QPushButton, QVBo
 from PyQt6.QtCore import Qt, QPoint, pyqtSignal, QSize, QTimer, QUrl, QSettings
 from PyQt6.QtGui import QIcon
 import qtawesome as qta
-import os
 from datetime import datetime
 import sqlite3
-import http.server
-import socketserver
-import threading
-import re
 from app.controllers.theme_manager import ThemeManager # 导入ThemeManager
 from app.components.shortcut_settings_dialog import ShortcutSettingsDialog
 
@@ -279,37 +287,253 @@ class AuxiliaryWindow(QMainWindow):
     
     def start_local_server(self):
         """启动本地HTTP服务器，以便加载本地HTML文件"""
+        # 保存当前工作目录，以便稍后恢复
+        original_cwd = os.getcwd()
+        
         # 确定搜索页面所在目录
-        current_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        server_dir = os.path.join(current_dir, "search")
-        if not os.path.exists(server_dir):
-            os.makedirs(server_dir, exist_ok=True)
+        if getattr(sys, 'frozen', False):
+            # 打包环境
+            exe_dir = os.path.dirname(sys.executable)
+            server_dir = os.path.join(exe_dir, "_internal", "app", "search")
             
+            # 检查服务器目录是否存在
+            if os.path.exists(server_dir):
+                print(f"搜索服务器目录已存在: {server_dir}")
+                # 检查是否有index.html
+                if not os.path.exists(os.path.join(server_dir, "index.html")):
+                    print(f"警告: 服务器目录中没有index.html")
+            else:
+                print(f"服务器目录不存在: {server_dir}")
+            
+            # 尝试在_internal/app/search中创建目录
+            try:
+                if not os.path.exists(server_dir):
+                    os.makedirs(server_dir, exist_ok=True)
+                    print(f"创建搜索服务器目录: {server_dir}")
+            except Exception as e:
+                print(f"警告: 无法创建搜索服务器目录 '{server_dir}': {e}")
+                # 回退到临时目录
+                import tempfile
+                server_dir = os.path.join(tempfile.gettempdir(), "AiSparkHub_search")
+                os.makedirs(server_dir, exist_ok=True)
+                print(f"搜索服务器回退到临时目录: {server_dir}")
+                
+                # 复制搜索页面所需文件到临时目录
+                try:
+                    # 尝试不同可能的源目录
+                    possible_source_dirs = [
+                        os.path.join(exe_dir, "_internal", "app", "resources", "app", "search"),
+                        os.path.join(exe_dir, "_internal", "app", "search"),
+                        os.path.join(exe_dir, "app", "search")
+                    ]
+                    
+                    search_files = ["index.html", "styles.css", "script.js", "README.md"]
+                    files_copied = False
+                    
+                    for resource_dir in possible_source_dirs:
+                        if os.path.exists(resource_dir) and os.path.exists(os.path.join(resource_dir, "index.html")):
+                            print(f"找到源目录: {resource_dir}")
+                            import shutil
+                            for file in search_files:
+                                src_file = os.path.join(resource_dir, file)
+                                dst_file = os.path.join(server_dir, file)
+                                if os.path.exists(src_file):
+                                    shutil.copy2(src_file, dst_file)
+                                    print(f"复制搜索文件到临时目录: {file}")
+                            files_copied = True
+                            break
+                    
+                    if not files_copied:
+                        print("警告: 未能从任何可能的源目录复制文件")
+                except Exception as e:
+                    print(f"复制搜索文件到临时目录时出错: {e}")
+        else:
+            # 开发环境
+            current_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            server_dir = os.path.join(current_dir, "search")
+            if not os.path.exists(server_dir):
+                os.makedirs(server_dir, exist_ok=True)
+        
         # 确保index.html存在于搜索目录
         index_path = os.path.join(server_dir, "index.html")
         if not os.path.exists(index_path):
-            # 如果搜索目录中不存在index.html，尝试从项目根目录复制
-            app_dir = os.path.dirname(current_dir)
-            src_index_path = os.path.join(app_dir, "app", "search", "index.html")
-            if os.path.exists(src_index_path):
+            # 在打包环境中
+            if getattr(sys, 'frozen', False):
+                # 尝试从不同可能的源目录复制
+                exe_dir = os.path.dirname(sys.executable)
+                possible_src_paths = [
+                    os.path.join(exe_dir, "_internal", "app", "resources", "app", "search", "index.html"),
+                    os.path.join(exe_dir, "_internal", "app", "search", "index.html"),
+                    os.path.join(exe_dir, "app", "search", "index.html")
+                ]
+                
+                src_index_path = None
+                for path in possible_src_paths:
+                    if os.path.exists(path):
+                        src_index_path = path
+                        print(f"找到源index.html: {path}")
+                        break
+            else:
+                # 开发环境，尝试从项目根目录复制
+                app_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+                src_index_path = os.path.join(app_dir, "app", "search", "index.html")
+            
+            if src_index_path and os.path.exists(src_index_path):
                 import shutil
                 try:
                     shutil.copy2(src_index_path, index_path)
                     print(f"已复制index.html到搜索目录: {index_path}")
                 except Exception as e:
                     print(f"复制index.html时出错: {e}")
+            else:
+                print(f"警告: 找不到源index.html文件")
+                
+                # 紧急措施：创建一个简单的index.html
+                try:
+                    with open(index_path, 'w', encoding='utf-8') as f:
+                        f.write("""
+                        <!DOCTYPE html>
+                        <html>
+                        <head>
+                            <meta charset="UTF-8">
+                            <title>AiSparkHub搜索</title>
+                            <style>
+                                body { font-family: Arial, sans-serif; margin: 20px; }
+                                h1 { color: #5E81AC; }
+                            </style>
+                        </head>
+                        <body>
+                            <h1>AiSparkHub搜索</h1>
+                            <p>搜索页面内容加载失败。请检查应用程序安装是否完整。</p>
+                        </body>
+                        </html>
+                        """)
+                    print("已创建应急index.html文件")
+                except Exception as e:
+                    print(f"创建应急index.html失败: {e}")
+        
+        # 检查index.html文件是否真的存在
+        if os.path.exists(index_path):
+            print(f"确认index.html存在: {index_path}")
+            try:
+                with open(index_path, 'r', encoding='utf-8') as f:
+                    content_preview = f.read(100)
+                    print(f"index.html内容预览: {content_preview}...")
+            except Exception as e:
+                print(f"读取index.html内容失败: {e}")
+        else:
+            print(f"警告: index.html仍然不存在: {index_path}")
                     
         # 设置服务器目录
-        os.chdir(server_dir)
+        try:
+            # 确保工作目录是server_dir
+            os.chdir(server_dir)
+            print(f"HTTP服务器工作目录: {server_dir}")
+        except Exception as e:
+            print(f"切换到服务器目录时出错: {e}")
+            # 回退到当前目录
+            server_dir = os.getcwd()
+            print(f"回退到当前目录: {server_dir}")
         
-        # 创建自定义的HTTP处理器，添加API支持
+        # 创建自定义的HTTP处理器，添加调试输出
         class CustomHTTPHandler(http.server.SimpleHTTPRequestHandler):
             """自定义HTTP处理器，支持API请求处理"""
             
             def __init__(self, *args, **kwargs):
                 # 存储对辅助窗口的引用，以便访问prompt_sync
                 self.auxiliary_window = None
+                # 添加日志记录
+                print(f"创建HTTP处理器，工作目录: {os.getcwd()}")
+                print(f"目录内容: {os.listdir('.') if os.path.exists('.') else '无法列出'}")
                 super().__init__(*args, **kwargs)
+            
+            def do_GET(self):
+                """处理GET请求"""
+                # 添加请求日志
+                print(f"收到GET请求: {self.path}")
+                
+                # 如果请求根路径但没有指定index.html，重定向到index.html
+                if self.path == "/" or self.path == "":
+                    self.path = "/index.html"
+                    print(f"重定向到: {self.path}")
+                
+                # 特殊处理index.html文件
+                if self.path == "/index.html":
+                    index_file = os.path.join(os.getcwd(), "index.html")
+                    if os.path.exists(index_file):
+                        print(f"找到index.html: {index_file}")
+                        try:
+                            self.send_response(200)
+                            self.send_header('Content-type', 'text/html; charset=utf-8')
+                            self.end_headers()
+                            with open(index_file, 'rb') as f:
+                                self.wfile.write(f.read())
+                            return
+                        except Exception as e:
+                            print(f"发送index.html时出错: {e}")
+                    else:
+                        print(f"警告: 找不到index.html: {index_file}")
+                
+                # 处理URL参数方式的提示词API
+                if self.path.startswith('/api/prompt-url'):
+                    try:
+                        # 解析URL参数
+                        from urllib.parse import urlparse, parse_qs
+                        query = parse_qs(urlparse(self.path).query)
+                        prompt = query.get('prompt', [''])[0]
+                        
+                        if prompt:
+                            print(f"收到URL参数提示词请求: {prompt[:50]}...")
+                            
+                            # 转发到prompt_sync
+                            if self.auxiliary_window and hasattr(self.auxiliary_window, 'prompt_sync'):
+                                self.auxiliary_window.prompt_sync.sync_prompt(prompt)
+                                
+                                # 返回成功响应
+                                self.send_response(200)
+                                self.send_header('Content-type', 'text/html; charset=utf-8')
+                                self.end_headers()
+                                response = """
+                                <html>
+                                <head>
+                                <title>Prompt Sent</title>
+                                <meta charset="utf-8">
+                                </head>
+                                <body>
+                                <h1>Prompt has been sent to AI assistant</h1>
+                                <p>You can close this page now.</p>
+                                <script>
+                                setTimeout(function() {
+                                    window.close();
+                                }, 2000);
+                                </script>
+                                </body>
+                                </html>
+                                """.encode('utf-8')
+                                self.wfile.write(response)
+                                return
+                        
+                        # 参数缺失或prompt_sync不可用
+                        self.send_response(400)
+                        self.send_header('Content-type', 'text/html')
+                        self.end_headers()
+                        self.wfile.write(b'Bad Request: Missing prompt parameter or prompt_sync not available')
+                    except Exception as e:
+                        # 返回错误响应
+                        self.send_response(500)
+                        self.send_header('Content-type', 'text/html')
+                        self.end_headers()
+                        self.wfile.write(f'Error: {str(e)}'.encode('utf-8'))
+                else:
+                    # 其他GET请求使用标准处理
+                    try:
+                        super().do_GET()
+                    except Exception as e:
+                        print(f"处理GET请求时出错: {e}")
+                        self.send_response(500)
+                        self.send_header('Content-type', 'text/html')
+                        self.end_headers()
+                        self.wfile.write(f'内部服务器错误: {str(e)}'.encode('utf-8'))
             
             def do_POST(self):
                 """处理POST请求"""
@@ -424,62 +648,6 @@ class AuxiliaryWindow(QMainWindow):
                         print("HTTP响应: 500 错误")
                         print("="*80 + "\n")
 
-            def do_GET(self):
-                """处理GET请求"""
-                # 处理URL参数方式的提示词API
-                if self.path.startswith('/api/prompt-url'):
-                    try:
-                        # 解析URL参数
-                        from urllib.parse import urlparse, parse_qs
-                        query = parse_qs(urlparse(self.path).query)
-                        prompt = query.get('prompt', [''])[0]
-                        
-                        if prompt:
-                            print(f"收到URL参数提示词请求: {prompt[:50]}...")
-                            
-                            # 转发到prompt_sync
-                            if self.auxiliary_window and hasattr(self.auxiliary_window, 'prompt_sync'):
-                                self.auxiliary_window.prompt_sync.sync_prompt(prompt)
-                                
-                                # 返回成功响应
-                                self.send_response(200)
-                                self.send_header('Content-type', 'text/html; charset=utf-8')
-                                self.end_headers()
-                                response = """
-                                <html>
-                                <head>
-                                <title>Prompt Sent</title>
-                                <meta charset="utf-8">
-                                </head>
-                                <body>
-                                <h1>Prompt has been sent to AI assistant</h1>
-                                <p>You can close this page now.</p>
-                                <script>
-                                setTimeout(function() {
-                                    window.close();
-                                }, 2000);
-                                </script>
-                                </body>
-                                </html>
-                                """.encode('utf-8')
-                                self.wfile.write(response)
-                                return
-                        
-                        # 参数缺失或prompt_sync不可用
-                        self.send_response(400)
-                        self.send_header('Content-type', 'text/html')
-                        self.end_headers()
-                        self.wfile.write(b'Bad Request: Missing prompt parameter or prompt_sync not available')
-                    except Exception as e:
-                        # 返回错误响应
-                        self.send_response(500)
-                        self.send_header('Content-type', 'text/html')
-                        self.end_headers()
-                        self.wfile.write(f'Error: {str(e)}'.encode('utf-8'))
-                else:
-                    # 其他GET请求使用标准处理
-                    super().do_GET()
-
             def do_OPTIONS(self):
                 """处理OPTIONS请求，支持CORS"""
                 self.send_response(200)
@@ -487,14 +655,13 @@ class AuxiliaryWindow(QMainWindow):
                 self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
                 self.send_header('Access-Control-Allow-Headers', 'Content-Type')
                 self.end_headers()
-        
+
         # 创建自定义处理器并设置对辅助窗口的引用
         handler_class = CustomHTTPHandler
         # 使用闭包传递self引用
         def handler_factory(*args, **kwargs):
-            CustomHTTPHandler._auxiliary_window_ref = self  # 设置类级别引用
             handler = handler_class(*args, **kwargs)
-            handler.auxiliary_window = self  # 仍然设置实例级别引用
+            handler.auxiliary_window = self  # 设置实例级别引用
             return handler
         
         # 尝试在8080端口启动服务器，如果被占用则尝试8081
@@ -503,7 +670,7 @@ class AuxiliaryWindow(QMainWindow):
         
         while self.port < 8090 and not self.server:
             try:
-                self.server = socketserver.TCPServer(("", self.port), handler_factory)
+                self.server = socketserver.TCPServer(("localhost", self.port), handler_factory)
                 print(f"本地HTTP服务器已启动在端口 {self.port}")
                 break
             except OSError:
@@ -516,7 +683,26 @@ class AuxiliaryWindow(QMainWindow):
             self.server_thread.start()
         else:
             print("无法启动本地HTTP服务器，所有尝试的端口都被占用")
+        
+        # 恢复原始工作目录
+        try:
+            os.chdir(original_cwd)
+            print(f"已恢复原始工作目录: {original_cwd}")
+        except Exception as e:
+            print(f"恢复原始工作目录时出错: {e}")
             
+    def load_search_page(self):
+        """加载搜索页面"""
+        # 检查HTTP服务器是否已启动
+        if not hasattr(self, 'port') or not self.server:
+            print("HTTP服务器未启动，无法加载搜索页面")
+            return
+            
+        # 加载本地搜索页面
+        url = f"http://localhost:{self.port}/index.html"
+        print(f"正在加载本地搜索页面: {url}")
+        self.search_view.web_view.load(QUrl(url))
+    
     def init_components(self):
         """初始化窗口组件"""
         # 移除全局滚动条样式表
@@ -721,17 +907,6 @@ class AuxiliaryWindow(QMainWindow):
         # 隐藏PromptHistory内部的选项卡，只显示自定义选项卡
         self.prompt_history.tab_widget.tabBar().hide()
     
-    def load_search_page(self):
-        """加载搜索页面"""
-        # 检查HTTP服务器是否已启动
-        if not hasattr(self, 'port') or not self.server:
-            print("HTTP服务器未启动，无法加载搜索页面")
-            return
-            
-        # 加载本地搜索页面
-        self.search_view.web_view.load(QUrl(f"http://localhost:{self.port}/index.html"))
-        print(f"正在加载本地搜索页面: http://localhost:{self.port}/index.html")
-
     def on_prompt_submitted(self, prompt_text):
         """处理提示词提交
         
@@ -1522,17 +1697,6 @@ class AuxiliaryWindow(QMainWindow):
         
         print(f"===== HTTP提示词处理结束 =====\n")
     
-    def load_search_page(self):
-        """加载搜索页面"""
-        # 检查HTTP服务器是否已启动
-        if not hasattr(self, 'port') or not self.server:
-            print("HTTP服务器未启动，无法加载搜索页面")
-            return
-            
-        # 加载本地搜索页面
-        self.search_view.web_view.load(QUrl(f"http://localhost:{self.port}/index.html"))
-        print(f"正在加载本地搜索页面: http://localhost:{self.port}/index.html")
-
     def toggle_theme(self):
         """切换应用主题"""
         try:

@@ -25,10 +25,20 @@ args = parse_arguments()
 # 应用程序信息
 APP_NAME = args.app_name
 APP_VERSION = args.app_version
-APP_PUBLISHER = "AiSparkHub Team"
+APP_PUBLISHER = "Tengle Deng"
 APP_URL = "https://github.com/your-username/AiSparkHub-Desktop"
 APP_EXE_NAME = f"{APP_NAME}.exe"
-APP_ICON = args.icon if args.icon else "app/resources/icon.ico" if os.path.exists("app/resources/icon.ico") else ""
+
+# 图标优先级：命令行参数 > icons\app.ico > app/resources/icon.ico
+if args.icon:
+    APP_ICON = args.icon
+elif os.path.exists("icons/app.ico"):
+    APP_ICON = "icons/app.ico"
+elif os.path.exists("app/resources/icon.ico"):
+    APP_ICON = "app/resources/icon.ico"
+else:
+    APP_ICON = ""
+    
 APP_ID = "com.aisparkhub.desktop"
 
 # 目录配置
@@ -105,7 +115,12 @@ def run_pyinstaller():
     print("开始使用PyInstaller打包应用...")
     
     # 图标参数，如果图标文件存在则使用
-    icon_param = f"--icon={APP_ICON}" if APP_ICON else ""
+    if APP_ICON and os.path.exists(APP_ICON):
+        icon_param = f"--icon={APP_ICON}"
+        print(f"使用图标: {APP_ICON}")
+    else:
+        icon_param = ""
+        print("警告: 未找到有效的图标文件")
     
     # 根据操作系统选择合适的路径分隔符
     path_sep = ";" if platform.system() == "Windows" else ":"
@@ -123,6 +138,7 @@ def run_pyinstaller():
         # 添加所需的数据文件
         "--add-data", f"app/resources{path_sep}app/resources",
         "--add-data", f"app/static{path_sep}app/static",
+        "--add-data", f"app/search{path_sep}app/search",  # 添加搜索页面文件
         "--add-data", f"icons{path_sep}icons",
         # 添加所需的隐藏导入模块
         "--hidden-import", "PyQt6.QtCore",
@@ -176,6 +192,18 @@ def run_pyinstaller():
     
     # 复制额外的文件和配置
     try:
+        # 创建目标data目录
+        data_dir = os.path.join(OUTPUT_DIR, "data")
+        if not os.path.exists(data_dir):
+            os.makedirs(data_dir, exist_ok=True)
+            print(f"创建data目录: {data_dir}")
+        
+        # 创建数据库目录
+        db_dir = os.path.join(data_dir, "database")
+        if not os.path.exists(db_dir):
+            os.makedirs(db_dir, exist_ok=True)
+            print(f"创建数据库目录: {db_dir}")
+        
         # 复制数据库文件(如果存在)
         if os.path.exists("database"):
             for file in os.listdir("database"):
@@ -184,6 +212,22 @@ def run_pyinstaller():
                     dst = os.path.join(db_dir, file)
                     shutil.copy2(src, dst)
                     print(f"复制数据库文件: {src} -> {dst}")
+        
+        # 确保搜索目录存在
+        search_dir = os.path.join(OUTPUT_DIR, "_internal", "app", "search")
+        if not os.path.exists(search_dir):
+            os.makedirs(search_dir, exist_ok=True)
+            print(f"创建搜索目录: {search_dir}")
+            
+        # 复制搜索相关文件
+        src_search_dir = "app/search"
+        if os.path.exists(src_search_dir):
+            for file in os.listdir(src_search_dir):
+                src = os.path.join(src_search_dir, file)
+                dst = os.path.join(search_dir, file)
+                if os.path.isfile(src):
+                    shutil.copy2(src, dst)
+                    print(f"复制搜索文件: {src} -> {dst}")
         
         # 确保图标目录存在
         icons_dir = os.path.join(OUTPUT_DIR, "icons")
@@ -214,6 +258,12 @@ def create_inno_setup_script():
     """创建Inno Setup脚本"""
     print("创建Inno Setup脚本...")
     
+    # 确定安装程序图标路径 - 但不在脚本中使用它，避免编译错误
+    if APP_ICON and os.path.exists(APP_ICON):
+        print(f"注意: 安装程序图标 {APP_ICON} 存在，但不会在脚本中使用")
+    else:
+        print("注意: 未指定安装程序图标")
+    
     # 由于Inno Setup将大括号视为常量标记，我们需要对APP_ID进行特殊处理
     # 在Inno Setup脚本中大括号使用双大括号转义
     app_id_escaped = APP_ID.replace("{", "{{").replace("}", "}}")
@@ -238,8 +288,8 @@ AppUpdatesURL={{#MyAppURL}}
 DefaultDirName={{autopf}}\\{{#MyAppName}}
 DefaultGroupName={{#MyAppName}}
 AllowNoIcons=yes
-; 如果存在，使用图标
-SetupIconFile={APP_ICON if APP_ICON else ""}
+; 不使用图标，避免编译错误
+; SetupIconFile={APP_ICON}
 UninstallDisplayIcon={{app}}\\{{#MyAppExeName}}
 Compression=lzma
 SolidCompression=yes

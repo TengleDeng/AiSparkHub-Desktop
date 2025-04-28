@@ -1,7 +1,7 @@
 # -*- mode: python ; coding: utf-8 -*-
 from PyInstaller.utils.hooks import collect_all
 
-datas = [('app/resources', 'app/resources'), ('app/static', 'app/static'), ('icons', 'icons')]
+datas = [('app/resources', 'app/resources'), ('app/static', 'app/static'), ('app/search', 'app/search'), ('icons', 'icons')]
 binaries = []
 hiddenimports = ['PyQt6.QtCore', 'PyQt6.QtWidgets', 'PyQt6.QtGui', 'PyQt6.QtWebEngineWidgets', 'PyQt6.QtWebEngineCore', 'qtawesome', 'qtpy', 'sqlite3', 'pynput', 'pynput.keyboard', 'pynput.keyboard._win32', 'pynput.mouse', 'pynput.mouse._win32']
 tmp_ret = collect_all('qtawesome')
@@ -40,6 +40,7 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+    icon=['icons\\app.ico'],
 )
 coll = COLLECT(
     exe,

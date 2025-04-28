@@ -106,22 +106,73 @@ def ensure_app_directories():
         data_dir = os.path.abspath("data")
     
     # 创建主数据目录
-    os.makedirs(data_dir, exist_ok=True)
-    print(f"确保主数据目录存在: {data_dir}")  # 保留这个print，因为logger尚未初始化
+    try:
+        os.makedirs(data_dir, exist_ok=True)
+        print(f"确保主数据目录存在: {data_dir}")  # 保留这个print，因为logger尚未初始化
+    except PermissionError as e:
+        print(f"警告: 无法创建数据目录 '{data_dir}': {e}")
+        # 尝试回退到用户临时目录
+        import tempfile
+        data_dir = os.path.join(tempfile.gettempdir(), app_name)
+        os.makedirs(data_dir, exist_ok=True)
+        print(f"已回退到临时目录: {data_dir}")
     
     # 创建各种子目录
     subdirs = ["database", "cache", "webdata", "temp", "logs"]
     for subdir in subdirs:
         subdir_path = os.path.join(data_dir, subdir)
-        os.makedirs(subdir_path, exist_ok=True)
-        print(f"确保子目录存在: {subdir_path}")  # 保留这个print，因为logger尚未初始化
+        try:
+            os.makedirs(subdir_path, exist_ok=True)
+            print(f"确保子目录存在: {subdir_path}")  # 保留这个print，因为logger尚未初始化
+        except Exception as e:
+            print(f"创建子目录 {subdir_path} 时出错: {e}")
+    
+    # 确保search目录创建并复制文件 - 在打包环境下
+    if getattr(sys, 'frozen', False):
+        try:
+            # 确定_internal/app/search目录
+            if sys.platform == 'win32':
+                # 获取可执行文件所在目录
+                exe_dir = os.path.dirname(sys.executable)
+                internal_app_dir = os.path.join(exe_dir, "_internal", "app")
+                search_dest_dir = os.path.join(internal_app_dir, "search")
+                
+                # 创建search目录
+                os.makedirs(search_dest_dir, exist_ok=True)
+                print(f"确保搜索目录存在: {search_dest_dir}")
+                
+                # 源搜索文件目录
+                search_src_dir = os.path.join(internal_app_dir, "resources", "app", "search")
+                if os.path.exists(search_src_dir):
+                    import shutil
+                    # 复制所有搜索相关文件
+                    search_files = ["index.html", "styles.css", "script.js", "README.md"]
+                    for file in search_files:
+                        src_file = os.path.join(search_src_dir, file)
+                        dest_file = os.path.join(search_dest_dir, file)
+                        if os.path.exists(src_file):
+                            try:
+                                shutil.copy2(src_file, dest_file)
+                                print(f"已复制搜索文件: {file}")
+                            except Exception as e:
+                                print(f"复制搜索文件 {file} 时出错: {e}")
+                else:
+                    print(f"警告: 搜索源文件目录不存在: {search_src_dir}")
+        except Exception as e:
+            print(f"处理搜索目录时出错: {e}")
     
     return data_dir
 
 def setup_tray_icon(app, main_window, auxiliary_window):
     """设置系统托盘图标和菜单"""
-    # 创建托盘图标
-    tray_icon = QSystemTrayIcon(qta.icon('fa5s.robot', color='#1D0BE3'), app)
+    # 优先使用应用程序图标
+    if hasattr(app, 'windowIcon') and not app.windowIcon().isNull():
+        tray_icon = QSystemTrayIcon(app.windowIcon(), app)
+        logger.info("系统托盘使用应用程序图标")
+    else:
+        # 后备使用FA图标
+        tray_icon = QSystemTrayIcon(qta.icon('fa5s.robot', color='#1D0BE3'), app)
+        logger.info("系统托盘使用备用图标")
     
     # 创建托盘菜单
     tray_menu = QMenu()
@@ -411,6 +462,37 @@ def main():
     # 创建应用实例
     app = QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(False)  # 关闭所有窗口时不退出应用
+    
+    # 设置应用程序图标
+    app_icon_path = ""
+    if getattr(sys, 'frozen', False):
+        # 打包环境
+        exe_dir = os.path.dirname(sys.executable)
+        possible_icon_paths = [
+            os.path.join(exe_dir, "icons", "app.ico"),
+            os.path.join(exe_dir, "app.ico")
+        ]
+        for path in possible_icon_paths:
+            if os.path.exists(path):
+                app_icon_path = path
+                break
+    else:
+        # 开发环境
+        possible_icon_paths = [
+            os.path.join("icons", "app.ico"),
+            os.path.join("app", "resources", "icon.ico")
+        ]
+        for path in possible_icon_paths:
+            if os.path.exists(path):
+                app_icon_path = path
+                break
+    
+    if app_icon_path:
+        app_icon = QIcon(app_icon_path)
+        app.setWindowIcon(app_icon)
+        logger.info(f"已设置应用程序图标: {app_icon_path}")
+    else:
+        logger.warning("未找到应用程序图标文件")
     
     # 应用主题设置
     theme_manager = ThemeManager()
