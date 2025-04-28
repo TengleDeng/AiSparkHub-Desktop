@@ -518,6 +518,12 @@ def main():
     auxiliary_window = AuxiliaryWindow(db_manager)
     logger.info("应用窗口已创建")
     
+    # 确保窗口使用正确的图标
+    if app_icon_path:
+        main_window.setWindowIcon(app_icon)
+        auxiliary_window.setWindowIcon(app_icon)
+        logger.info("已设置窗口图标")
+    
     # 初始化窗口管理器
     window_manager = WindowManager(main_window, auxiliary_window)
     

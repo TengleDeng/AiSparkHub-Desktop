@@ -1,7 +1,8 @@
+
 #define MyAppName "AiSparkHub"
 #define MyAppVersion "1.0.0"
-#define MyAppPublisher "Tengle Deng"
-#define MyAppURL "https://github.com/your-username/AiSparkHub-Desktop"
+#define MyAppPublisher "墅梯智选（苏州）科技有限公司"
+#define MyAppURL "https://github.com/TengleDeng/AiSparkHub"
 #define MyAppExeName "AiSparkHub.exe"
 #define MyAppId "com.aisparkhub.desktop"
 
@@ -17,8 +18,7 @@ AppUpdatesURL={#MyAppURL}
 DefaultDirName={autopf}\{#MyAppName}
 DefaultGroupName={#MyAppName}
 AllowNoIcons=yes
-; 如果存在，使用图标
-; 注释掉图标设置以解决编译问题
+; 不使用图标，避免编译错误
 ; SetupIconFile=icons/app.ico
 UninstallDisplayIcon={app}\{#MyAppExeName}
 Compression=lzma
