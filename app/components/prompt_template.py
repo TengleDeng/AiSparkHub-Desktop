@@ -179,9 +179,9 @@ class PromptTemplate(QWidget):
         # 从设置中获取，如果没有则使用默认值
         app = QApplication.instance()
         if hasattr(app, 'settings_manager'):
-            template_dir = app.settings_manager.get_value("template_directory", "AI/prompt")
+            template_dir = app.settings_manager.get_value("template_directory", "app/static/prompt")
         else:
-            template_dir = "AI/prompt"  # 默认目录
+            template_dir = "app/static/prompt"  # 默认目录
         
         # 确保是绝对路径
         if not os.path.isabs(template_dir):
