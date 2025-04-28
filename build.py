@@ -118,14 +118,34 @@ def run_pyinstaller():
     if APP_ICON and os.path.exists(APP_ICON):
         icon_param = f"--icon={APP_ICON}"
         print(f"使用图标: {APP_ICON}")
+        
+        # 验证图标文件
+        try:
+            from PIL import Image
+            with Image.open(APP_ICON) as img:
+                print(f"图标尺寸信息: {img.info}")
+                if hasattr(img, 'n_frames'):
+                    print(f"图标包含 {img.n_frames} 个尺寸变体")
+        except ImportError:
+            print("警告: 未安装Pillow库，无法验证图标文件")
+        except Exception as e:
+            print(f"警告: 验证图标文件时出错: {e}")
     else:
         icon_param = ""
         print("警告: 未找到有效的图标文件")
     
+    # 版本文件参数
+    version_file_param = []
+    if os.path.exists("version.txt"):
+        version_file_param = ["--version-file", "version.txt"]
+        print(f"使用版本信息文件: version.txt")
+    else:
+        print("警告: 未找到版本信息文件 version.txt")
+    
     # 根据操作系统选择合适的路径分隔符
     path_sep = ";" if platform.system() == "Windows" else ":"
     
-    # PyInstaller命令 - 使用python -m PyInstaller替代直接调用
+    # PyInstaller命令
     cmd = [
         "python", "-m", "PyInstaller",
         "--name", APP_NAME,
@@ -134,11 +154,24 @@ def run_pyinstaller():
         "--clean",  # 清理临时文件
         "--log-level", "INFO",
         "--onedir",  # 生成文件夹模式，不是单文件
-        icon_param,
+        # 使用uac-admin确保管理员权限，这可能有助于保持资源完整性
+        "--uac-admin",
+    ]
+    
+    # 添加版本文件参数（如果存在）
+    if version_file_param:
+        cmd.extend(version_file_param)
+    
+    # 添加图标参数（如果存在）
+    if icon_param:
+        cmd.append(icon_param)
+    
+    # 继续添加其他参数
+    cmd.extend([
         # 添加所需的数据文件
         "--add-data", f"app/resources{path_sep}app/resources",
         "--add-data", f"app/static{path_sep}app/static",
-        "--add-data", f"app/search{path_sep}app/search",  # 添加搜索页面文件
+        "--add-data", f"app/search{path_sep}app/search",
         "--add-data", f"icons{path_sep}icons",
         # 添加所需的隐藏导入模块
         "--hidden-import", "PyQt6.QtCore",
@@ -158,9 +191,9 @@ def run_pyinstaller():
         "--collect-all", "pynput",
         # 添加主脚本
         "main.py"
-    ]
+    ])
     
-    # 过滤掉空字符串
+    # 过滤掉None值和空字符串
     cmd = [item for item in cmd if item]
     
     print(f"执行命令: {' '.join(cmd)}")

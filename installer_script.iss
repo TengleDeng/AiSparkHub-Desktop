@@ -1,4 +1,3 @@
-
 #define MyAppName "AiSparkHub"
 #define MyAppVersion "1.0.0"
 #define MyAppPublisher "墅梯智选（苏州）科技有限公司"
@@ -21,7 +20,7 @@ AllowNoIcons=yes
 ; 设置图标
 SetupIconFile=icons/app.ico
 UninstallDisplayIcon={app}\{#MyAppExeName}
-Compression=lzma
+Compression=lzma2/ultra64
 SolidCompression=yes
 WizardStyle=modern
 ; 需要管理员权限安装
@@ -41,11 +40,14 @@ Name: "desktopicon"; Description: "创建桌面图标"; GroupDescription: "附�
 [Files]
 ; 导入所有程序文件
 Source: "dist\AiSparkHub\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+; 确保图标文件被正确复制
+Source: "icons\app.ico"; DestDir: "{app}\icons"; Flags: ignoreversion
 
 [Icons]
-Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
+; 使用完整路径的图标文件
+Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\icons\app.ico"; IconIndex: 0
 Name: "{group}\卸载 {#MyAppName}"; Filename: "{uninstallexe}"
-Name: "{commondesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
+Name: "{commondesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\icons\app.ico"; IconIndex: 0; Tasks: desktopicon
 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
