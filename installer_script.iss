@@ -18,8 +18,8 @@ AppUpdatesURL={#MyAppURL}
 DefaultDirName={autopf}\{#MyAppName}
 DefaultGroupName={#MyAppName}
 AllowNoIcons=yes
-; 不使用图标，避免编译错误
-; SetupIconFile=icons/app.ico
+; 设置图标
+SetupIconFile=icons/app.ico
 UninstallDisplayIcon={app}\{#MyAppExeName}
 Compression=lzma
 SolidCompression=yes
