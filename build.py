@@ -258,10 +258,12 @@ def create_inno_setup_script():
     """创建Inno Setup脚本"""
     print("创建Inno Setup脚本...")
     
-    # 确定安装程序图标路径 - 但不在脚本中使用它，避免编译错误
+    # 确定安装程序图标路径
     if APP_ICON and os.path.exists(APP_ICON):
-        print(f"注意: 安装程序图标 {APP_ICON} 存在，但不会在脚本中使用")
+        setup_icon = APP_ICON.replace("\\", "/")  # 确保使用正斜杠
+        print(f"使用安装程序图标: {setup_icon}")
     else:
+        setup_icon = ""
         print("注意: 未指定安装程序图标")
     
     # 由于Inno Setup将大括号视为常量标记，我们需要对APP_ID进行特殊处理
@@ -288,8 +290,8 @@ AppUpdatesURL={{#MyAppURL}}
 DefaultDirName={{autopf}}\\{{#MyAppName}}
 DefaultGroupName={{#MyAppName}}
 AllowNoIcons=yes
-; 不使用图标，避免编译错误
-; SetupIconFile={APP_ICON}
+; 设置图标
+SetupIconFile={setup_icon}
 UninstallDisplayIcon={{app}}\\{{#MyAppExeName}}
 Compression=lzma
 SolidCompression=yes
@@ -311,11 +313,13 @@ Name: "desktopicon"; Description: "创建桌面图标"; GroupDescription: "附�
 [Files]
 ; 导入所有程序文件
 Source: "{OUTPUT_DIR}\\*"; DestDir: "{{app}}"; Flags: ignoreversion recursesubdirs createallsubdirs
+; 确保图标文件被复制
+Source: "{APP_ICON}"; DestDir: "{{app}}\\icons"; Flags: ignoreversion
 
 [Icons]
-Name: "{{group}}\\{{#MyAppName}}"; Filename: "{{app}}\\{{#MyAppExeName}}"
+Name: "{{group}}\\{{#MyAppName}}"; Filename: "{{app}}\\{{#MyAppExeName}}"; IconFilename: "{{app}}\\icons\\app.ico"
 Name: "{{group}}\\卸载 {{#MyAppName}}"; Filename: "{{uninstallexe}}"
-Name: "{{commondesktop}}\\{{#MyAppName}}"; Filename: "{{app}}\\{{#MyAppExeName}}"; Tasks: desktopicon
+Name: "{{commondesktop}}\\{{#MyAppName}}"; Filename: "{{app}}\\{{#MyAppExeName}}"; IconFilename: "{{app}}\\icons\\app.ico"; Tasks: desktopicon
 
 [Run]
 Filename: "{{app}}\\{{#MyAppExeName}}"; Description: "{{cm:LaunchProgram,{{#StringChange(MyAppName, '&', '&&')}}}}"; Flags: nowait postinstall skipifsilent
@@ -349,13 +353,15 @@ end;
         print(f"创建Inno Setup脚本失败: {e}")
         return None
 
-def compile_installer(script_path):
+def compile_installer(script_path=None):
     """编译Inno Setup安装包"""
     if args.skip_installer:
         print("跳过生成安装包...")
         return True
-        
-    if not script_path:
+    
+    # 直接使用现有的installer_script.iss文件
+    script_path = "installer_script.iss"
+    if not os.path.exists(script_path):
         print("错误: 无法找到Inno Setup脚本文件")
         return False
         
@@ -422,11 +428,8 @@ def main():
         print("打包失败，终止后续操作")
         sys.exit(1)
     
-    # 创建Inno Setup脚本
-    inno_script = create_inno_setup_script()
-    
     # 编译安装包
-    if not compile_installer(inno_script) and not args.skip_installer:
+    if not compile_installer() and not args.skip_installer:
         print("安装包生成失败")
         sys.exit(1)
         
