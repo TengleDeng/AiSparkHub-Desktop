@@ -16,6 +16,7 @@ def parse_arguments():
     parser.add_argument('app_version', nargs='?', default="1.0.0", help='应用版本号')
     parser.add_argument('--skip-clean', action='store_true', help='跳过清理构建文件夹')
     parser.add_argument('--skip-installer', action='store_true', help='跳过生成安装包')
+    parser.add_argument('--regenerate-iss', action='store_true', help='重新生成Inno Setup脚本')
     parser.add_argument('--icon', help='自定义图标路径')
     return parser.parse_args()
 
@@ -25,8 +26,8 @@ args = parse_arguments()
 # 应用程序信息
 APP_NAME = args.app_name
 APP_VERSION = args.app_version
-APP_PUBLISHER = "Tengle Deng"
-APP_URL = "https://github.com/your-username/AiSparkHub-Desktop"
+APP_PUBLISHER = "Tengle.deng@gmail.com"
+APP_URL = "https://github.com/TengleDeng/AiSparkHub/"
 APP_EXE_NAME = f"{APP_NAME}.exe"
 
 # 图标优先级：命令行参数 > icons\app.ico > app/resources/icon.ico
@@ -154,7 +155,7 @@ def run_pyinstaller():
         "--clean",  # 清理临时文件
         "--log-level", "INFO",
         "--onedir",  # 生成文件夹模式，不是单文件
-        # 使用uac-admin确保管理员权限，这可能有助于保持资源完整性
+        # 创建清单文件，请求管理员权限
         "--uac-admin",
     ]
     
@@ -330,7 +331,7 @@ Compression=lzma
 SolidCompression=yes
 WizardStyle=modern
 ; 需要管理员权限安装
-PrivilegesRequiredOverridesAllowed=dialog
+PrivilegesRequired=admin
 OutputDir={INSTALLER_DIR}
 OutputBaseFilename={APP_NAME}_Setup_v{APP_VERSION}
 ; 创建应用程序目录
@@ -355,7 +356,7 @@ Name: "{{group}}\\卸载 {{#MyAppName}}"; Filename: "{{uninstallexe}}"
 Name: "{{commondesktop}}\\{{#MyAppName}}"; Filename: "{{app}}\\{{#MyAppExeName}}"; IconFilename: "{{app}}\\icons\\app.ico"; Tasks: desktopicon
 
 [Run]
-Filename: "{{app}}\\{{#MyAppExeName}}"; Description: "{{cm:LaunchProgram,{{#StringChange(MyAppName, '&', '&&')}}}}"; Flags: nowait postinstall skipifsilent
+Filename: "{{app}}\\{{#MyAppExeName}}"; Description: "{{cm:LaunchProgram,{{#StringChange(MyAppName, '&', '&&')}}}}"; Flags: nowait postinstall skipifsilent runasoriginaluser shellexec
 
 [Code]
 // 自定义卸载程序
@@ -392,11 +393,19 @@ def compile_installer(script_path=None):
         print("跳过生成安装包...")
         return True
     
-    # 直接使用现有的installer_script.iss文件
-    script_path = "installer_script.iss"
-    if not os.path.exists(script_path):
-        print("错误: 无法找到Inno Setup脚本文件")
-        return False
+    # 根据参数决定是否重新生成脚本
+    if args.regenerate_iss:
+        print("根据参数重新生成Inno Setup脚本...")
+        script_path = create_inno_setup_script()
+        if not script_path:
+            print("生成Inno Setup脚本失败")
+            return False
+    else:
+        # 直接使用现有的installer_script.iss文件
+        script_path = "installer_script.iss"
+        if not os.path.exists(script_path):
+            print("错误: 无法找到Inno Setup脚本文件，请使用--regenerate-iss参数生成")
+            return False
         
     print("使用Inno Setup编译安装包...")
     
