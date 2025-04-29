@@ -65,3 +65,6 @@ desktop.ini
 # 其他
 .coverage
 htmlcov/ 
+tools/upx-5.0.0-win64/
+backup_dlls/
+
