@@ -13,17 +13,32 @@ import re
 import http.server
 import socketserver
 import threading
+import logging  # 添加logging模块导入
+import traceback
+from pathlib import Path
+
+from PyQt6.QtCore import QSize, QPoint, Qt, pyqtSignal, QEvent, QUrl, QTimer, QSettings
+from PyQt6.QtGui import QIcon, QAction, QFont, QFontDatabase, QMouseEvent, QCursor, QDrag, QPixmap
+from PyQt6.QtWidgets import (
+    QMainWindow, QToolBar, QWidget, QLabel, QLineEdit, QVBoxLayout, QHBoxLayout, 
+    QPushButton, QSplitter, QStackedWidget, QTabWidget, QFileDialog, QSizePolicy,
+    QApplication, QScrollArea, QTextEdit, QListWidget, QListWidgetItem, QMenu,
+    QTreeWidget, QTreeWidgetItem, QFrame, QToolButton, QMessageBox
+)
+import qtawesome as qta
+
+from app.components.file_explorer import FileExplorer
+from app.components.prompt_input import PromptInput
+from app.components.prompt_history import PromptHistory
+from app.components.web_view import WebView
+
+# 获取logger实例
+logger = logging.getLogger("AiSparkHub")
 
 # auxiliary_window.py: 定义 AuxiliaryWindow 类
 # 该窗口作为辅助窗口，包含文件浏览器、提示词输入框和提示词历史记录。
 # 用于管理和同步提示词到主窗口的 AI 对话页面。
 
-from PyQt6.QtWidgets import QMainWindow, QWidget, QHBoxLayout, QPushButton, QVBoxLayout, QLabel, QSplitter, QFrame, QToolBar, QStackedWidget, QTabWidget, QApplication, QMessageBox, QSizePolicy
-from PyQt6.QtCore import Qt, QPoint, pyqtSignal, QSize, QTimer, QUrl, QSettings
-from PyQt6.QtGui import QIcon
-import qtawesome as qta
-from datetime import datetime
-import sqlite3
 from app.controllers.theme_manager import ThemeManager # 导入ThemeManager
 from app.components.shortcut_settings_dialog import ShortcutSettingsDialog
 
@@ -298,25 +313,25 @@ class AuxiliaryWindow(QMainWindow):
             
             # 检查服务器目录是否存在
             if os.path.exists(server_dir):
-                print(f"搜索服务器目录已存在: {server_dir}")
+                logger.info(f"搜索服务器目录已存在: {server_dir}")
                 # 检查是否有index.html
                 if not os.path.exists(os.path.join(server_dir, "index.html")):
-                    print(f"警告: 服务器目录中没有index.html")
+                    logger.warning(f"服务器目录中没有index.html")
             else:
-                print(f"服务器目录不存在: {server_dir}")
+                logger.warning(f"服务器目录不存在: {server_dir}")
             
             # 尝试在_internal/app/search中创建目录
             try:
                 if not os.path.exists(server_dir):
                     os.makedirs(server_dir, exist_ok=True)
-                    print(f"创建搜索服务器目录: {server_dir}")
+                    logger.info(f"创建搜索服务器目录: {server_dir}")
             except Exception as e:
-                print(f"警告: 无法创建搜索服务器目录 '{server_dir}': {e}")
+                logger.error(f"无法创建搜索服务器目录 '{server_dir}': {e}")
                 # 回退到临时目录
                 import tempfile
                 server_dir = os.path.join(tempfile.gettempdir(), "AiSparkHub_search")
                 os.makedirs(server_dir, exist_ok=True)
-                print(f"搜索服务器回退到临时目录: {server_dir}")
+                logger.info(f"搜索服务器回退到临时目录: {server_dir}")
                 
                 # 复制搜索页面所需文件到临时目录
                 try:
@@ -332,27 +347,28 @@ class AuxiliaryWindow(QMainWindow):
                     
                     for resource_dir in possible_source_dirs:
                         if os.path.exists(resource_dir) and os.path.exists(os.path.join(resource_dir, "index.html")):
-                            print(f"找到源目录: {resource_dir}")
+                            logger.info(f"找到源目录: {resource_dir}")
                             import shutil
                             for file in search_files:
                                 src_file = os.path.join(resource_dir, file)
                                 dst_file = os.path.join(server_dir, file)
                                 if os.path.exists(src_file):
                                     shutil.copy2(src_file, dst_file)
-                                    print(f"复制搜索文件到临时目录: {file}")
+                                    logger.info(f"复制搜索文件到临时目录: {file}")
                             files_copied = True
                             break
                     
                     if not files_copied:
-                        print("警告: 未能从任何可能的源目录复制文件")
+                        logger.warning("未能从任何可能的源目录复制文件")
                 except Exception as e:
-                    print(f"复制搜索文件到临时目录时出错: {e}")
+                    logger.error(f"复制搜索文件到临时目录时出错: {e}")
         else:
             # 开发环境
             current_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
             server_dir = os.path.join(current_dir, "search")
             if not os.path.exists(server_dir):
                 os.makedirs(server_dir, exist_ok=True)
+                logger.info(f"创建开发环境搜索目录: {server_dir}")
         
         # 确保index.html存在于搜索目录
         index_path = os.path.join(server_dir, "index.html")
@@ -371,7 +387,7 @@ class AuxiliaryWindow(QMainWindow):
                 for path in possible_src_paths:
                     if os.path.exists(path):
                         src_index_path = path
-                        print(f"找到源index.html: {path}")
+                        logger.info(f"找到源index.html: {path}")
                         break
             else:
                 # 开发环境，尝试从项目根目录复制
@@ -382,11 +398,11 @@ class AuxiliaryWindow(QMainWindow):
                 import shutil
                 try:
                     shutil.copy2(src_index_path, index_path)
-                    print(f"已复制index.html到搜索目录: {index_path}")
+                    logger.info(f"已复制index.html到搜索目录: {index_path}")
                 except Exception as e:
-                    print(f"复制index.html时出错: {e}")
+                    logger.error(f"复制index.html时出错: {e}")
             else:
-                print(f"警告: 找不到源index.html文件")
+                logger.warning(f"找不到源index.html文件")
                 
                 # 紧急措施：创建一个简单的index.html
                 try:
@@ -408,60 +424,76 @@ class AuxiliaryWindow(QMainWindow):
                         </body>
                         </html>
                         """)
-                    print("已创建应急index.html文件")
+                    logger.info("已创建应急index.html文件")
                 except Exception as e:
-                    print(f"创建应急index.html失败: {e}")
+                    logger.error(f"创建应急index.html失败: {e}")
         
         # 检查index.html文件是否真的存在
         if os.path.exists(index_path):
-            print(f"确认index.html存在: {index_path}")
+            logger.info(f"确认index.html存在: {index_path}")
             try:
                 with open(index_path, 'r', encoding='utf-8') as f:
                     content_preview = f.read(100)
-                    print(f"index.html内容预览: {content_preview}...")
+                    logger.debug(f"index.html内容预览: {content_preview}...")
             except Exception as e:
-                print(f"读取index.html内容失败: {e}")
+                logger.error(f"读取index.html内容失败: {e}")
         else:
-            print(f"警告: index.html仍然不存在: {index_path}")
+            logger.warning(f"警告: index.html仍然不存在: {index_path}")
                     
         # 设置服务器目录
         try:
             # 确保工作目录是server_dir
             os.chdir(server_dir)
-            print(f"HTTP服务器工作目录: {server_dir}")
+            logger.info(f"HTTP服务器工作目录: {server_dir}")
         except Exception as e:
-            print(f"切换到服务器目录时出错: {e}")
+            logger.error(f"切换到服务器目录时出错: {e}")
             # 回退到当前目录
             server_dir = os.getcwd()
-            print(f"回退到当前目录: {server_dir}")
+            logger.info(f"回退到当前目录: {server_dir}")
         
         # 创建自定义的HTTP处理器，添加调试输出
         class CustomHTTPHandler(http.server.SimpleHTTPRequestHandler):
             """自定义HTTP处理器，支持API请求处理"""
             
+            # 类级别变量，存储正确的服务器目录路径
+            search_dir = None
+            
             def __init__(self, *args, **kwargs):
                 # 存储对辅助窗口的引用，以便访问prompt_sync
                 self.auxiliary_window = None
+                
                 # 添加日志记录
-                print(f"创建HTTP处理器，工作目录: {os.getcwd()}")
-                print(f"目录内容: {os.listdir('.') if os.path.exists('.') else '无法列出'}")
+                logger.debug(f"创建HTTP处理器，配置的搜索目录: {self.search_dir}")
                 super().__init__(*args, **kwargs)
+            
+            def translate_path(self, path):
+                """重写路径转换方法，确保使用正确的服务器目录"""
+                if not self.search_dir:
+                    logger.error("错误：没有设置搜索目录路径")
+                    return super().translate_path(path)
+                
+                # 移除前导的'/'
+                path = path.lstrip('/')
+                # 使用正确的搜索目录构建完整路径
+                full_path = os.path.join(self.search_dir, path)
+                logger.debug(f"请求路径: {path} -> 完整路径: {full_path}")
+                return full_path
             
             def do_GET(self):
                 """处理GET请求"""
                 # 添加请求日志
-                print(f"收到GET请求: {self.path}")
+                logger.info(f"收到GET请求: {self.path}")
                 
                 # 如果请求根路径但没有指定index.html，重定向到index.html
                 if self.path == "/" or self.path == "":
                     self.path = "/index.html"
-                    print(f"重定向到: {self.path}")
+                    logger.info(f"重定向到: {self.path}")
                 
                 # 特殊处理index.html文件
                 if self.path == "/index.html":
-                    index_file = os.path.join(os.getcwd(), "index.html")
+                    index_file = os.path.join(self.search_dir, "index.html")
                     if os.path.exists(index_file):
-                        print(f"找到index.html: {index_file}")
+                        logger.info(f"找到index.html: {index_file}")
                         try:
                             self.send_response(200)
                             self.send_header('Content-type', 'text/html; charset=utf-8')
@@ -470,9 +502,9 @@ class AuxiliaryWindow(QMainWindow):
                                 self.wfile.write(f.read())
                             return
                         except Exception as e:
-                            print(f"发送index.html时出错: {e}")
+                            logger.error(f"发送index.html时出错: {e}")
                     else:
-                        print(f"警告: 找不到index.html: {index_file}")
+                        logger.warning(f"找不到index.html: {index_file}")
                 
                 # 处理URL参数方式的提示词API
                 if self.path.startswith('/api/prompt-url'):
@@ -483,7 +515,7 @@ class AuxiliaryWindow(QMainWindow):
                         prompt = query.get('prompt', [''])[0]
                         
                         if prompt:
-                            print(f"收到URL参数提示词请求: {prompt[:50]}...")
+                            logger.info(f"收到URL参数提示词请求: {prompt[:50]}...")
                             
                             # 转发到prompt_sync
                             if self.auxiliary_window and hasattr(self.auxiliary_window, 'prompt_sync'):
@@ -529,7 +561,7 @@ class AuxiliaryWindow(QMainWindow):
                     try:
                         super().do_GET()
                     except Exception as e:
-                        print(f"处理GET请求时出错: {e}")
+                        logger.error(f"处理GET请求时出错: {e}")
                         self.send_response(500)
                         self.send_header('Content-type', 'text/html')
                         self.end_headers()
@@ -546,38 +578,38 @@ class AuxiliaryWindow(QMainWindow):
                         # 解析JSON数据
                         import json
                         import traceback
-                        print("\n" + "="*80)
-                        print("【接收到网页提示词请求】")
-                        print(f"收到原始POST数据: {post_data[:100]}...")
+                        logger.info("\n" + "="*80)
+                        logger.info("【接收到网页提示词请求】")
+                        logger.info(f"收到原始POST数据: {post_data[:100]}...")
                         
                         try:
                             data = json.loads(post_data.decode('utf-8'))
-                            print(f"解析JSON成功: {json.dumps(data, ensure_ascii=False)[:100]}...")
+                            logger.info(f"解析JSON成功: {json.dumps(data, ensure_ascii=False)[:100]}...")
                         except Exception as json_err:
-                            print(f"JSON解析错误: {str(json_err)}")
+                            logger.error(f"JSON解析错误: {str(json_err)}")
                             raise Exception(f"JSON解析失败: {str(json_err)}")
                             
                         prompt = data.get('prompt', '')
                         if not prompt:
-                            print("警告: 提示词为空")
+                            logger.warning("警告: 提示词为空")
                         
                         # 输出完整提示词到控制台，分段显示以提高可读性
-                        print("\n【完整提示词内容】")
-                        print("-"*40)
+                        logger.info("\n【完整提示词内容】")
+                        logger.info("-"*40)
                         # 将提示词分成多行输出，每行最多200个字符
                         for i in range(0, len(prompt), 200):
-                            print(prompt[i:i+200])
-                        print("-"*40)
+                            logger.info(prompt[i:i+200])
+                        logger.info("-"*40)
                         
                         # 验证auxiliary_window引用
                         if not self.auxiliary_window:
-                            print("警告: 实例级auxiliary_window引用不存在，尝试使用全局引用")
+                            logger.warning("警告: 实例级auxiliary_window引用不存在，尝试使用全局引用")
                             # 使用全局引用代替
                             global GLOBAL_AUXILIARY_WINDOW
                             self.auxiliary_window = GLOBAL_AUXILIARY_WINDOW
                             
                             if not self.auxiliary_window:
-                                print("错误: 全局auxiliary_window引用也不存在")
+                                logger.error("错误: 全局auxiliary_window引用也不存在")
                                 raise Exception("服务器内部错误: auxiliary_window不可用")
                         
                         # 清理特殊字符并截断提示词到1000字符
@@ -591,19 +623,19 @@ class AuxiliaryWindow(QMainWindow):
                         # 截断到1000字符
                         if len(cleaned_prompt) > 1000:
                             truncated_prompt = cleaned_prompt[:1000]
-                            print(f"\n【清理并截断提示词】原始长度: {original_length}字符，清理后长度: {len(cleaned_prompt)}字符，截断到1000字符")
+                            logger.info(f"\n【清理并截断提示词】原始长度: {original_length}字符，清理后长度: {len(cleaned_prompt)}字符，截断到1000字符")
                         else:
                             truncated_prompt = cleaned_prompt
-                            print(f"\n【清理提示词】原始长度: {original_length}字符，清理后长度: {len(cleaned_prompt)}字符，无需截断")
+                            logger.info(f"\n【清理提示词】原始长度: {original_length}字符，清理后长度: {len(cleaned_prompt)}字符，无需截断")
                         
                         # 添加截断提示
                         if len(truncated_prompt) < len(prompt):
                             truncated_prompt += "\n\n[内容已截断，完整内容太长无法显示]"
                         
-                        print("处理后内容前100字符:", truncated_prompt[:100])
+                        logger.info(f"处理后内容前100字符: {truncated_prompt[:100]}")
                         
                         # 使用信号将完整提示词传递到主线程处理
-                        print("\n【使用信号发送提示词到主线程】")
+                        logger.info("\n【使用信号发送提示词到主线程】")
                         try:
                             # 获取原始完整提示词(未清理、未截断)
                             original_prompt = prompt  # 使用原始提示词，不是清理或截断的版本
@@ -611,15 +643,15 @@ class AuxiliaryWindow(QMainWindow):
                             # 检查辅助窗口引用
                             if self.auxiliary_window:
                                 # 使用信号发送提示词到主线程处理
-                                print(f"发送提示词到主线程，长度: {len(original_prompt)}字符")
+                                logger.info(f"发送提示词到主线程，长度: {len(original_prompt)}字符")
                                 self.auxiliary_window.received_prompt_from_http.emit(original_prompt)
-                                print("信号发送成功")
+                                logger.info("信号发送成功")
                             else:
-                                print("错误: 无法发送信号，auxiliary_window引用不存在")
+                                logger.error("错误: 无法发送信号，auxiliary_window引用不存在")
                         except Exception as e:
-                            print(f"发送信号到主线程失败: {str(e)}")
-                            print(traceback.format_exc())
-                            
+                            logger.error(f"发送信号到主线程失败: {str(e)}")
+                            logger.error(traceback.format_exc())
+                        
                         # 返回成功响应
                         self.send_response(200)
                         self.send_header('Content-type', 'application/json')
@@ -627,12 +659,12 @@ class AuxiliaryWindow(QMainWindow):
                         self.end_headers()
                         response = {'status': 'success', 'message': '提示词已成功发送到AI视图'}
                         self.wfile.write(json.dumps(response).encode('utf-8'))
-                        print("HTTP响应: 200 成功")
-                        print("="*80 + "\n")
+                        logger.info("HTTP响应: 200 成功")
+                        logger.info("="*80 + "\n")
                     except Exception as e:
                         # 详细记录错误
-                        print(f"处理/api/prompt请求出错: {str(e)}")
-                        print(traceback.format_exc())
+                        logger.error(f"处理/api/prompt请求出错: {str(e)}")
+                        logger.error(traceback.format_exc())
                         
                         # 返回错误响应
                         self.send_response(500)  # 改为500错误以反映服务器问题
@@ -645,9 +677,9 @@ class AuxiliaryWindow(QMainWindow):
                             'message': f'处理提示词请求失败: {error_detail}'
                         }
                         self.wfile.write(json.dumps(response, ensure_ascii=False).encode('utf-8'))
-                        print("HTTP响应: 500 错误")
-                        print("="*80 + "\n")
-
+                        logger.error("HTTP响应: 500 错误")
+                        logger.error("="*80 + "\n")
+            
             def do_OPTIONS(self):
                 """处理OPTIONS请求，支持CORS"""
                 self.send_response(200)
@@ -655,9 +687,18 @@ class AuxiliaryWindow(QMainWindow):
                 self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
                 self.send_header('Access-Control-Allow-Headers', 'Content-Type')
                 self.end_headers()
+            
+            def log_message(self, format, *args):
+                """重写日志方法，使用logging模块"""
+                logger.info(f"HTTP: {format % args}")
 
         # 创建自定义处理器并设置对辅助窗口的引用
         handler_class = CustomHTTPHandler
+        
+        # 设置处理器的搜索目录路径（类级别变量）
+        handler_class.search_dir = server_dir
+        logger.info(f"设置HTTP处理器搜索目录: {server_dir}")
+        
         # 使用闭包传递self引用
         def handler_factory(*args, **kwargs):
             handler = handler_class(*args, **kwargs)
@@ -671,10 +712,10 @@ class AuxiliaryWindow(QMainWindow):
         while self.port < 8090 and not self.server:
             try:
                 self.server = socketserver.TCPServer(("localhost", self.port), handler_factory)
-                print(f"本地HTTP服务器已启动在端口 {self.port}")
+                logger.info(f"本地HTTP服务器已启动在端口 {self.port}")
                 break
             except OSError:
-                print(f"端口 {self.port} 已被占用，尝试下一个端口")
+                logger.warning(f"端口 {self.port} 已被占用，尝试下一个端口")
                 self.port += 1
                 
         if self.server:
@@ -682,25 +723,25 @@ class AuxiliaryWindow(QMainWindow):
             self.server_thread = threading.Thread(target=self.server.serve_forever, daemon=True)
             self.server_thread.start()
         else:
-            print("无法启动本地HTTP服务器，所有尝试的端口都被占用")
+            logger.error("无法启动本地HTTP服务器，所有尝试的端口都被占用")
         
         # 恢复原始工作目录
         try:
             os.chdir(original_cwd)
-            print(f"已恢复原始工作目录: {original_cwd}")
+            logger.info(f"已恢复原始工作目录: {original_cwd}")
         except Exception as e:
-            print(f"恢复原始工作目录时出错: {e}")
+            logger.error(f"恢复原始工作目录时出错: {e}")
             
     def load_search_page(self):
         """加载搜索页面"""
         # 检查HTTP服务器是否已启动
         if not hasattr(self, 'port') or not self.server:
-            print("HTTP服务器未启动，无法加载搜索页面")
+            logger.warning("HTTP服务器未启动，无法加载搜索页面")
             return
             
         # 加载本地搜索页面
         url = f"http://localhost:{self.port}/index.html"
-        print(f"正在加载本地搜索页面: {url}")
+        logger.info(f"正在加载本地搜索页面: {url}")
         self.search_view.web_view.load(QUrl(url))
     
     def init_components(self):
@@ -917,7 +958,7 @@ class AuxiliaryWindow(QMainWindow):
         if not prompt_text or prompt_text.strip() == "":
             return
             
-        print(f"发送提示词: {prompt_text[:30]}...")
+        logger.info(f"发送提示词: {prompt_text[:30]}...")
         
         # 直接同步提示词到主窗口的AI网页
         # prompt_sync.sync_prompt会处理存储到prompt_details表
@@ -942,7 +983,7 @@ class AuxiliaryWindow(QMainWindow):
         # 关闭HTTP服务器
         if hasattr(self, 'server') and self.server:
             try:
-                print("正在关闭本地HTTP服务器...")
+                logger.info("正在关闭本地HTTP服务器...")
                 
                 # 使用一个线程安全地关闭服务器，避免阻塞主线程
                 def shutdown_server_thread():
@@ -950,17 +991,17 @@ class AuxiliaryWindow(QMainWindow):
                         if self.server:
                             # 关闭服务器
                             self.server.shutdown()
-                            print("HTTP服务器已关闭")
+                            logger.info("HTTP服务器已关闭")
                             
                             # 确保套接字也被关闭
                             if hasattr(self.server, 'socket'):
                                 self.server.socket.close()
-                                print("服务器套接字已关闭")
+                                logger.info("服务器套接字已关闭")
                                 
                             # 清空服务器引用
                             self.server = None
                     except Exception as e:
-                        print(f"关闭HTTP服务器时出错: {e}")
+                        logger.error(f"关闭HTTP服务器时出错: {e}")
                 
                 # 创建并启动关闭线程
                 shutdown_thread = threading.Thread(target=shutdown_server_thread, name="ServerShutdownThread")
@@ -973,12 +1014,12 @@ class AuxiliaryWindow(QMainWindow):
                 
                 # 无论线程是否完成，继续关闭窗口
                 if shutdown_thread.is_alive():
-                    print("服务器可能仍在关闭中，但继续执行窗口关闭流程")
+                    logger.warning("服务器可能仍在关闭中，但继续执行窗口关闭流程")
                 else:
-                    print("服务器已成功关闭")
+                    logger.info("服务器已成功关闭")
                 
             except Exception as e:
-                print(f"处理服务器关闭时出错: {e}")
+                logger.error(f"处理服务器关闭时出错: {e}")
         
         # 正常关闭窗口
         super().closeEvent(event)
@@ -1262,22 +1303,23 @@ class AuxiliaryWindow(QMainWindow):
         self.tabs.setCurrentIndex(0)
 
     def on_request_send_prompt(self, prompt_text):
-        """处理直接发送提示词的请求
+        """处理从其他地方请求发送提示词的操作
         
         Args:
             prompt_text (str): 要发送的提示词文本
         """
-        if not prompt_text or not prompt_text.strip():
-            print("提示词为空，不执行发送操作")
+        # 检查提示词是否为空
+        if not prompt_text or prompt_text.strip() == "":
+            logger.warning("提示词为空，不执行发送操作")
             return
-            
-        print(f"直接发送原始提示词: {prompt_text[:30]}...")
         
-        # 使用同步控制器直接发送提示词（复用现有的prompt_sync机制）
+        logger.info(f"直接发送原始提示词: {prompt_text[:30]}...")
+        
+        # 直接同步提示词到主窗口的AI网页
         self.prompt_sync.sync_prompt(prompt_text)
         
-        # 刷新历史记录区域
-        QTimer.singleShot(500, self.prompt_history.refresh_history)
+        # 刷新历史记录
+        self.prompt_history.refresh_history()
 
     def on_request_summarize_responses(self, prompt_id):
         """处理总结AI回复的请求
@@ -1684,18 +1726,18 @@ class AuxiliaryWindow(QMainWindow):
         Args:
             prompt_text (str): 从HTTP服务器接收到的提示词文本
         """
-        print(f"\n===== 在主线程处理从HTTP接收到的提示词 =====")
-        print(f"提示词长度: {len(prompt_text)}字符")
+        logger.info(f"\n===== 在主线程处理从HTTP接收到的提示词 =====")
+        logger.info(f"提示词长度: {len(prompt_text)}字符")
         
         # 在这里，我们已经在主线程中，可以安全地调用on_prompt_submitted或其他UI操作
         if prompt_text and prompt_text.strip():
-            print("调用on_prompt_submitted处理提示词...")
+            logger.info("调用on_prompt_submitted处理提示词...")
             self.on_prompt_submitted(prompt_text)
-            print("提示词处理完成")
+            logger.info("提示词处理完成")
         else:
-            print("提示词为空，不处理")
+            logger.warning("提示词为空，不处理")
         
-        print(f"===== HTTP提示词处理结束 =====\n")
+        logger.info(f"===== HTTP提示词处理结束 =====\n")
     
     def toggle_theme(self):
         """切换应用主题"""
