@@ -1,8 +1,8 @@
 
 #define MyAppName "AiSparkHub"
 #define MyAppVersion "1.0.0"
-#define MyAppPublisher "Tengle Deng"
-#define MyAppURL "https://github.com/your-username/AiSparkHub-Desktop"
+#define MyAppPublisher "Tengle.deng@gmail.com"
+#define MyAppURL "https://github.com/TengleDeng/AiSparkHub/"
 #define MyAppExeName "AiSparkHub.exe"
 #define MyAppId "com.aisparkhub.desktop"
 
