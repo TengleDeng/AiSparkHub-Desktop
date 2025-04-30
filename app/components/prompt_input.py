@@ -3,7 +3,7 @@
 
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QTextEdit, QPushButton, 
                            QHBoxLayout, QLineEdit, QListWidget, QListWidgetItem, 
-                           QLabel, QFrame, QComboBox, QStackedWidget)
+                           QLabel, QFrame, QComboBox, QStackedWidget, QCalendarWidget, QDialog, QDialogButtonBox)
 from PyQt6.QtCore import Qt, pyqtSignal, QSize
 from PyQt6.QtGui import QIcon, QColor, QTextCharFormat, QFont
 import qtawesome as qta
@@ -15,6 +15,7 @@ import re
 from app.components.markdown_editor import MarkdownEditor
 # 导入新创建的模板模块
 from app.components.prompt_template import PromptTemplate
+from datetime import datetime, timedelta, date
 
 class PromptInput(MarkdownEditor):
     """提示词输入组件，带Markdown编辑功能和搜索能力"""
@@ -230,17 +231,11 @@ class PromptInput(MarkdownEditor):
         tools_layout.addWidget(self.template_component.template_dir_button)
         tools_layout.addWidget(self.template_component.refresh_button)
         
-        # 添加"每日内参"按钮
-        self.daily_briefing_button = QPushButton("今日内参")
-        self.daily_briefing_button.setToolTip("生成当天更新文章的内参日报")
-        self.daily_briefing_button.clicked.connect(lambda: self.generate_briefing(0))  # 0表示当天
-        tools_layout.addWidget(self.daily_briefing_button)
-        
-        # 添加"昨日内参"按钮
-        self.yesterday_briefing_button = QPushButton("昨日内参")
-        self.yesterday_briefing_button.setToolTip("生成昨天更新文章的内参日报")
-        self.yesterday_briefing_button.clicked.connect(lambda: self.generate_briefing(1))  # 1表示昨天
-        tools_layout.addWidget(self.yesterday_briefing_button)
+        # 添加"选择日期内参"按钮
+        self.briefing_button = QPushButton("选择日期内参")
+        self.briefing_button.setToolTip("选择日期生成内参日报")
+        self.briefing_button.clicked.connect(self.select_date_for_briefing)
+        tools_layout.addWidget(self.briefing_button)
         
         # 添加弹性空间
         tools_layout.addStretch(1)
@@ -877,17 +872,11 @@ class PromptInput(MarkdownEditor):
                 print(f"更新发送按钮图标出错: {e}")
                 
         # 更新内参按钮图标
-        if hasattr(self, 'daily_briefing_button'):
+        if hasattr(self, 'briefing_button'):
             try:
-                self.daily_briefing_button.setIcon(qta.icon("fa5s.newspaper", color=btn_fg_color))
+                self.briefing_button.setIcon(qta.icon("fa5s.newspaper", color=btn_fg_color))
             except Exception as e:
                 print(f"更新每日内参按钮图标出错: {e}")
-                
-        if hasattr(self, 'yesterday_briefing_button'):
-            try:
-                self.yesterday_briefing_button.setIcon(qta.icon("fa5s.history", color=btn_fg_color))
-            except Exception as e:
-                print(f"更新昨日内参按钮图标出错: {e}")
         
         # 统一设置只有图标的按钮样式
         icon_buttons = [
@@ -897,8 +886,7 @@ class PromptInput(MarkdownEditor):
         
         # 统一设置带文本的按钮样式
         text_buttons = [
-            self.daily_briefing_button,
-            self.yesterday_briefing_button,
+            self.briefing_button,
             self.search_button,
             self.send_button
         ]
@@ -1094,3 +1082,58 @@ class PromptInput(MarkdownEditor):
         else:
             # 没有搜索内容，直接发送当前段落文本
             self.prompt_submitted.emit(paragraph_text) 
+    
+    def select_date_for_briefing(self):
+        """打开日期选择器，让用户选择日期生成内参"""
+        dialog = QDialog(self)
+        dialog.setWindowTitle("选择内参日期")
+        layout = QVBoxLayout()
+        
+        # 添加说明标签
+        instruction = QLabel("请选择要生成内参的日期：")
+        layout.addWidget(instruction)
+        
+        # 创建日历控件
+        calendar = QCalendarWidget()
+        calendar.setMinimumDate(date(2000, 1, 1))  # 设置最小日期
+        calendar.setMaximumDate(date.today())      # 最大日期为今天
+        calendar.setSelectedDate(date.today())     # 默认选择今天
+        layout.addWidget(calendar)
+        
+        # 添加快捷按钮
+        shortcut_layout = QHBoxLayout()
+        
+        today_btn = QPushButton("今天")
+        today_btn.clicked.connect(lambda: calendar.setSelectedDate(date.today()))
+        shortcut_layout.addWidget(today_btn)
+        
+        yesterday_btn = QPushButton("昨天")
+        yesterday_btn.clicked.connect(lambda: calendar.setSelectedDate(date.today() - timedelta(days=1)))
+        shortcut_layout.addWidget(yesterday_btn)
+        
+        week_ago_btn = QPushButton("一周前")
+        week_ago_btn.clicked.connect(lambda: calendar.setSelectedDate(date.today() - timedelta(days=7)))
+        shortcut_layout.addWidget(week_ago_btn)
+        
+        layout.addLayout(shortcut_layout)
+        
+        # 添加确定和取消按钮
+        button_box = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        button_box.accepted.connect(dialog.accept)
+        button_box.rejected.connect(dialog.reject)
+        layout.addWidget(button_box)
+        
+        dialog.setLayout(layout)
+        
+        # 显示对话框并等待用户操作
+        if dialog.exec():
+            selected_date = calendar.selectedDate().toPython()
+            
+            # 计算与今天的天数差
+            today = datetime.now().date()
+            days_diff = (today - selected_date).days
+            
+            print(f"选择的日期: {selected_date}, 与今天相差 {days_diff} 天")
+            
+            # 生成选定日期的内参
+            self.generate_briefing(days_diff) 
