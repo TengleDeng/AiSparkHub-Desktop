@@ -682,6 +682,19 @@ class PromptInput(MarkdownEditor):
         try:
             import time
             from datetime import datetime, timedelta
+            import locale
+            
+            # 解决可能的编码问题 - 暂时切换到默认编码再改回来
+            old_locale = locale.getlocale()
+            try:
+                # 尝试使用UTF-8编码
+                locale.setlocale(locale.LC_ALL, 'zh_CN.UTF-8')  # Linux/Mac
+            except:
+                try:
+                    locale.setlocale(locale.LC_ALL, 'Chinese_China.936')  # Windows
+                except:
+                    # 如果无法设置中文编码，则使用英文日期格式
+                    pass
             
             # 计算目标日期的时间戳范围
             today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
@@ -689,10 +702,31 @@ class PromptInput(MarkdownEditor):
             start_timestamp = int(target_date.timestamp())
             end_timestamp = int((target_date + timedelta(days=1)).timestamp()) - 1
             
-            date_str = target_date.strftime('%Y年%m月%d日')
+            # 使用更安全的日期格式化方式
+            try:
+                date_str = target_date.strftime('%Y年%m月%d日')
+            except:
+                # 如果中文格式化失败，回退到英文格式
+                date_str = target_date.strftime('%Y-%m-%d')
+                
+            # 恢复之前的locale
+            try:
+                locale.setlocale(locale.LC_ALL, old_locale)
+            except:
+                pass
+            
+            print(f"生成{date_str}的内参，时间戳范围: {start_timestamp}-{end_timestamp}")
             
             # 查询数据库获取该日期范围内的文章
             cursor = self.db_manager.conn.cursor()
+            
+            # 修改查询方式，考虑可能的时间戳问题
+            # 先查询所有数据，打印时间戳范围进行调试
+            cursor.execute("SELECT MIN(created_at), MAX(created_at), MIN(last_modified), MAX(last_modified) FROM pkm_files")
+            timestamp_ranges = cursor.fetchone()
+            if timestamp_ranges:
+                min_created, max_created, min_modified, max_modified = timestamp_ranges
+                print(f"PKM数据库时间范围: 创建时间 {min_created}-{max_created}, 修改时间 {min_modified}-{max_modified}")
             
             # 查询当天创建或修改的PKM文件
             # 优先使用原始文件的创建时间(created_at)和修改时间(last_modified)，不使用数据库更新时间(updated_at)
@@ -713,6 +747,28 @@ class PromptInput(MarkdownEditor):
             
             if not articles:
                 print(f"未找到{date_str}创建或修改的文章")
+                # 尝试扩大时间范围重新查询（±2小时）
+                expanded_start = start_timestamp - 7200  # 减少2小时
+                expanded_end = end_timestamp + 7200     # 增加2小时
+                
+                print(f"尝试扩大时间范围: {expanded_start}-{expanded_end}")
+                
+                cursor.execute("""
+                    SELECT id, file_path, file_name, title, content, last_modified, created_at
+                    FROM pkm_files
+                    WHERE (created_at BETWEEN ? AND ?) OR (last_modified BETWEEN ? AND ?)
+                    ORDER BY last_modified DESC
+                """, (
+                    expanded_start, expanded_end,  # 扩大的created_at范围
+                    expanded_start, expanded_end   # 扩大的last_modified范围
+                ))
+                
+                articles = cursor.fetchall()
+                if articles:
+                    print(f"使用扩大时间范围找到了{len(articles)}篇文章")
+                
+            if not articles:
+                print(f"未找到{date_str}附近创建或修改的文章")
                 # 在输入框中提示用户
                 self.set_text(f"未找到{date_str}创建或修改的文章，请尝试查询其他日期。")
                 return
