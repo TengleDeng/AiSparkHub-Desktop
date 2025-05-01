@@ -295,3 +295,69 @@ AiSparkHub 是一个基于 Python 的桌面应用程序，旨在为用户提供�
 
 - 安装包中包含完整的应用程序和运行时环境，无需单独安装Python
 - 用户设置和数据库存储在本地应用数据目录中
+
+## 构建指南
+
+### Windows构建
+使用以下命令在Windows系统上构建应用：
+
+```bash
+python build.py [应用名称] [版本号]
+```
+
+例如：
+```bash
+python build.py AiSparkHub 1.0.0
+```
+
+这将创建一个Windows安装程序(.exe)文件。
+
+### macOS构建
+为macOS构建应用有两种方式：
+
+#### 1. 直接在macOS上构建
+如果你有Mac设备，可以直接在macOS上运行：
+
+```bash
+# 安装必要工具
+brew install create-dmg
+pip install PyQt6 qtawesome PyInstaller pynput
+
+# 构建应用
+python build.py [应用名称] [版本号]
+```
+
+#### 2. 使用GitHub Actions自动构建（推荐）
+
+项目已配置GitHub Actions自动构建macOS应用，无需Mac设备：
+
+1. 将代码推送到GitHub仓库：
+
+```bash
+git init
+git add .
+git commit -m "Initial commit"
+git remote add origin https://github.com/用户名/仓库名.git
+git push -u origin main
+```
+
+2. 打开GitHub仓库页面，进入"Actions"标签
+3. 点击"Build macOS App"工作流
+4. 点击"Run workflow"手动触发构建，或通过推送代码自动触发
+5. 构建完成后，在"Actions"页面下载DMG安装包
+
+你也可以创建tag触发发布：
+
+```bash
+git tag v1.0.0
+git push --tags
+```
+
+成功构建后，会自动创建GitHub Release，包含DMG安装包。
+
+## 系统要求
+- Windows 10/11 或 macOS 10.14+
+- 推荐8GB以上内存
+
+## 许可证
+[具体许可证信息]

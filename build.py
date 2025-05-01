@@ -8,6 +8,7 @@ import subprocess
 import platform
 import argparse
 from pathlib import Path
+from datetime import datetime
 
 def parse_arguments():
     """解析命令行参数"""
@@ -29,6 +30,7 @@ APP_VERSION = args.app_version
 APP_PUBLISHER = "Tengle.deng@gmail.com"
 APP_URL = "https://github.com/TengleDeng/AiSparkHub/"
 APP_EXE_NAME = f"{APP_NAME}.exe"
+APP_DESCRIPTION = f"{APP_VERSION} | {APP_PUBLISHER} | {datetime.now().strftime('%Y/%m/%d')}"
 
 # 图标优先级：命令行参数 > icons\app.ico > app/resources/icon.ico
 if args.icon:
@@ -115,10 +117,28 @@ def run_pyinstaller():
     """运行PyInstaller打包应用"""
     print("开始使用PyInstaller打包应用...")
     
+    # 声明全局变量，防止局部修改导致的作用域问题
+    global APP_ICON
+    
     # 图标参数，如果图标文件存在则使用
     if APP_ICON and os.path.exists(APP_ICON):
-        icon_param = f"--icon={APP_ICON}"
-        print(f"使用图标: {APP_ICON}")
+        # 针对不同系统使用不同图标格式
+        if platform.system() == "Darwin":  # macOS
+            # macOS需要icns格式图标
+            if APP_ICON.endswith(".icns"):
+                icon_param = f"--icon={APP_ICON}"
+                print(f"使用macOS图标: {APP_ICON}")
+            else:
+                print("警告: macOS需要.icns格式的图标文件")
+                if os.path.exists("icons/app.icns"):
+                    APP_ICON = "icons/app.icns"
+                    icon_param = f"--icon={APP_ICON}"
+                    print(f"使用替代macOS图标: {APP_ICON}")
+                else:
+                    icon_param = ""
+        else:  # Windows等其他系统
+            icon_param = f"--icon={APP_ICON}"
+            print(f"使用图标: {APP_ICON}")
         
         # 验证图标文件
         try:
@@ -155,9 +175,38 @@ def run_pyinstaller():
         "--clean",  # 清理临时文件
         "--log-level", "INFO",
         "--onedir",  # 生成文件夹模式，不是单文件
-        # 创建清单文件，请求管理员权限
-        "--uac-admin",
     ]
+    
+    # 针对不同操作系统添加特定参数
+    if platform.system() == "Windows":
+        # Windows特定参数
+        cmd.append("--uac-admin")  # 请求管理员权限
+    elif platform.system() == "Darwin":
+        # macOS特定参数
+        cmd.extend([
+            "--osx-bundle-identifier", APP_ID,  # 设置Bundle ID
+            "--target-architecture", "universal2",  # 支持Intel和M1芯片
+        ])
+        # 添加Info.plist内容
+        plist_content = f"""
+        <key>CFBundleDisplayName</key>
+        <string>{APP_NAME}</string>
+        <key>CFBundleShortVersionString</key>
+        <string>{APP_VERSION}</string>
+        <key>CFBundleVersion</key>
+        <string>{APP_VERSION}</string>
+        <key>LSMinimumSystemVersion</key>
+        <string>10.14.0</string>
+        <key>NSHumanReadableCopyright</key>
+        <string>Copyright © {datetime.now().year} {APP_PUBLISHER}</string>
+        """
+        # 写入Info.plist模板
+        try:
+            with open("Info.plist", "w") as f:
+                f.write(plist_content)
+            cmd.extend(["--osx-bundle-identifier", f"{APP_ID}"])
+        except Exception as e:
+            print(f"创建Info.plist时出错: {e}")
     
     # 添加版本文件参数（如果存在）
     if version_file_param:
@@ -184,10 +233,22 @@ def run_pyinstaller():
         "--hidden-import", "qtpy",
         "--hidden-import", "sqlite3",
         "--hidden-import", "pynput",
-        "--hidden-import", "pynput.keyboard",
-        "--hidden-import", "pynput.keyboard._win32",
-        "--hidden-import", "pynput.mouse",
-        "--hidden-import", "pynput.mouse._win32",
+    ])
+
+    # 根据操作系统添加特定的隐藏导入
+    if platform.system() == "Windows":
+        cmd.extend([
+            "--hidden-import", "pynput.keyboard._win32",
+            "--hidden-import", "pynput.mouse._win32",
+        ])
+    elif platform.system() == "Darwin":
+        cmd.extend([
+            "--hidden-import", "pynput.keyboard._darwin",
+            "--hidden-import", "pynput.mouse._darwin",
+        ])
+    
+    # 添加公共的collectall和主脚本
+    cmd.extend([
         "--collect-all", "qtawesome",
         "--collect-all", "pynput",
         # 添加主脚本
@@ -248,7 +309,12 @@ def run_pyinstaller():
                     print(f"复制数据库文件: {src} -> {dst}")
         
         # 确保搜索目录存在
-        search_dir = os.path.join(OUTPUT_DIR, "_internal", "app", "search")
+        if platform.system() == "Darwin":
+            # macOS应用包结构与Windows不同
+            search_dir = os.path.join(DIST_DIR, f"{APP_NAME}.app", "Contents", "Resources", "app", "search")
+        else:
+            search_dir = os.path.join(OUTPUT_DIR, "_internal", "app", "search")
+            
         if not os.path.exists(search_dir):
             os.makedirs(search_dir, exist_ok=True)
             print(f"创建搜索目录: {search_dir}")
@@ -264,12 +330,17 @@ def run_pyinstaller():
                     print(f"复制搜索文件: {src} -> {dst}")
         
         # 确保图标目录存在
-        icons_dir = os.path.join(OUTPUT_DIR, "icons")
+        if platform.system() == "Darwin":
+            # macOS应用包结构
+            icons_dir = os.path.join(DIST_DIR, f"{APP_NAME}.app", "Contents", "Resources", "icons")
+        else:
+            icons_dir = os.path.join(OUTPUT_DIR, "icons")
+            
         if not os.path.exists(icons_dir) and os.path.exists("icons"):
             os.makedirs(icons_dir, exist_ok=True)
             # 复制所有图标文件
             for file in os.listdir("icons"):
-                if file.endswith((".ico", ".png")):
+                if file.endswith((".ico", ".png", ".icns")):
                     src = os.path.join("icons", file)
                     dst = os.path.join(icons_dir, file)
                     shutil.copy2(src, dst)
@@ -279,7 +350,10 @@ def run_pyinstaller():
         extra_files = ["README.md", "LICENSE"]
         for file in extra_files:
             if os.path.exists(file):
-                dst = os.path.join(OUTPUT_DIR, file)
+                if platform.system() == "Darwin":
+                    dst = os.path.join(DIST_DIR, f"{APP_NAME}.app", "Contents", "Resources", file)
+                else:
+                    dst = os.path.join(OUTPUT_DIR, file)
                 shutil.copy2(file, dst)
                 print(f"复制文件: {file} -> {dst}")
     
@@ -304,6 +378,9 @@ def create_inno_setup_script():
     # 在Inno Setup脚本中大括号使用双大括号转义
     app_id_escaped = APP_ID.replace("{", "{{").replace("}", "}}")
     
+    # 获取当前日期，用于显示在应用信息中
+    current_date = datetime.now().strftime("%Y/%m/%d")
+    
     script_content = f"""
 #define MyAppName "{APP_NAME}"
 #define MyAppVersion "{APP_VERSION}"
@@ -311,16 +388,26 @@ def create_inno_setup_script():
 #define MyAppURL "{APP_URL}"
 #define MyAppExeName "{APP_EXE_NAME}"
 #define MyAppId "{app_id_escaped}"
+#define MyAppVersionInfo "{APP_VERSION} | {current_date}"
 
 [Setup]
 ; 基本安装程序设置
 AppId={{#MyAppId}}
 AppName={{#MyAppName}}
 AppVersion={{#MyAppVersion}}
+AppVerName={{#MyAppName}}
 AppPublisher={{#MyAppPublisher}}
 AppPublisherURL={{#MyAppURL}}
 AppSupportURL={{#MyAppURL}}
 AppUpdatesURL={{#MyAppURL}}
+; 修改应用描述以显示版本和发布者信息
+AppCopyright={{#MyAppPublisher}}
+VersionInfoVersion={{#MyAppVersion}}
+VersionInfoProductVersion={{#MyAppVersion}}
+VersionInfoCompany={{#MyAppPublisher}}
+VersionInfoDescription={{#MyAppName}} {{#MyAppVersionInfo}}
+AppContact={{#MyAppPublisher}}
+AppComments={{#MyAppVersionInfo}}
 DefaultDirName={{autopf}}\\{{#MyAppName}}
 DefaultGroupName={{#MyAppName}}
 AllowNoIcons=yes
@@ -351,9 +438,9 @@ Source: "{OUTPUT_DIR}\\*"; DestDir: "{{app}}"; Flags: ignoreversion recursesubdi
 Source: "{APP_ICON}"; DestDir: "{{app}}\\icons"; Flags: ignoreversion
 
 [Icons]
-Name: "{{group}}\\{{#MyAppName}}"; Filename: "{{app}}\\{{#MyAppExeName}}"; IconFilename: "{{app}}\\icons\\app.ico"
+Name: "{{group}}\\{{#MyAppName}}"; Filename: "{{app}}\\{{#MyAppExeName}}"; IconFilename: "{{app}}\\icons\\app.ico"; Comment: "{{#MyAppVersionInfo}}"
 Name: "{{group}}\\卸载 {{#MyAppName}}"; Filename: "{{uninstallexe}}"
-Name: "{{commondesktop}}\\{{#MyAppName}}"; Filename: "{{app}}\\{{#MyAppExeName}}"; IconFilename: "{{app}}\\icons\\app.ico"; Tasks: desktopicon
+Name: "{{commondesktop}}\\{{#MyAppName}}"; Filename: "{{app}}\\{{#MyAppExeName}}"; IconFilename: "{{app}}\\icons\\app.ico"; Comment: "{{#MyAppVersionInfo}}"; Tasks: desktopicon
 
 [Run]
 Filename: "{{app}}\\{{#MyAppExeName}}"; Description: "{{cm:LaunchProgram,{{#StringChange(MyAppName, '&', '&&')}}}}"; Flags: nowait postinstall skipifsilent runasoriginaluser shellexec
@@ -455,6 +542,85 @@ def compile_installer(script_path=None):
         print("您可以从此处下载: https://jrsoftware.org/isdl.php")
         return False
 
+def create_dmg_installer():
+    """为macOS创建DMG安装包"""
+    if platform.system() != "Darwin":
+        print("DMG安装包只能在macOS系统上创建")
+        return False
+        
+    print("开始为macOS创建DMG安装包...")
+    
+    app_path = os.path.join(DIST_DIR, f"{APP_NAME}.app")
+    dmg_path = os.path.join(INSTALLER_DIR, f"{APP_NAME}_v{APP_VERSION}.dmg")
+    
+    # 确保安装包输出目录存在
+    if not os.path.exists(INSTALLER_DIR):
+        os.makedirs(INSTALLER_DIR, exist_ok=True)
+        
+    # 检查create-dmg工具是否安装
+    try:
+        subprocess.check_call(["which", "create-dmg"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        has_create_dmg = True
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        has_create_dmg = False
+        
+    if has_create_dmg:
+        # 使用create-dmg工具创建漂亮的DMG
+        print("使用create-dmg创建安装包...")
+        dmg_cmd = [
+            "create-dmg",
+            "--volname", f"{APP_NAME} v{APP_VERSION}",
+            "--volicon", "icons/app.icns" if os.path.exists("icons/app.icns") else "",
+            "--window-pos", "200", "120",
+            "--window-size", "800", "400",
+            "--icon-size", "100",
+            "--icon", f"{APP_NAME}.app", "200", "190",
+            "--hide-extension", f"{APP_NAME}.app",
+            "--app-drop-link", "600", "190",
+            dmg_path,
+            app_path
+        ]
+        # 过滤掉空参数
+        dmg_cmd = [item for item in dmg_cmd if item]
+    else:
+        # 使用hdiutil创建基本DMG
+        print("使用hdiutil创建基本DMG安装包...")
+        print("提示: 安装create-dmg可创建更美观的DMG: brew install create-dmg")
+        
+        temp_dmg = "tmp.dmg"
+        dmg_cmd = [
+            "hdiutil", "create", "-volname", f"{APP_NAME} v{APP_VERSION}",
+            "-srcfolder", app_path, "-ov", "-format", "UDRW", temp_dmg
+        ]
+        
+        try:
+            subprocess.check_call(dmg_cmd)
+            # 转换DMG格式
+            subprocess.check_call([
+                "hdiutil", "convert", temp_dmg, "-format", "UDZO", 
+                "-o", dmg_path
+            ])
+            # 删除临时DMG
+            os.remove(temp_dmg)
+        except subprocess.CalledProcessError as e:
+            print(f"创建DMG失败: {e}")
+            return False
+        except Exception as e:
+            print(f"处理DMG时出错: {e}")
+            return False
+            
+    try:
+        subprocess.check_call(dmg_cmd)
+        print(f"DMG安装包已创建: {dmg_path}")
+        return True
+    except subprocess.CalledProcessError as e:
+        print(f"创建DMG安装包失败: {e}")
+        print("如果使用create-dmg失败，请尝试安装: brew install create-dmg")
+        return False
+    except Exception as e:
+        print(f"创建DMG过程中出错: {e}")
+        return False
+
 def main():
     """主函数"""
     print(f"开始构建 {APP_NAME} v{APP_VERSION}")
@@ -470,15 +636,29 @@ def main():
         print("打包失败，终止后续操作")
         sys.exit(1)
     
-    # 编译安装包
-    if not compile_installer() and not args.skip_installer:
-        print("安装包生成失败")
-        sys.exit(1)
+    # 根据操作系统选择不同的安装包创建方法
+    if platform.system() == "Darwin":
+        # macOS: 创建DMG安装包
+        if not args.skip_installer and not create_dmg_installer():
+            print("DMG安装包生成失败")
+            sys.exit(1)
+    else:
+        # Windows: 编译Inno Setup安装包
+        if not compile_installer() and not args.skip_installer:
+            print("安装包生成失败")
+            sys.exit(1)
         
     print(f"{APP_NAME} v{APP_VERSION} 构建完成!")
-    print(f"可执行文件位于: {OUTPUT_DIR}")
-    if not args.skip_installer:
-        print(f"安装包位于: {INSTALLER_DIR}")
+    
+    # 输出路径提示
+    if platform.system() == "Darwin":
+        print(f"应用包位于: {DIST_DIR}/{APP_NAME}.app")
+        if not args.skip_installer:
+            print(f"DMG安装包位于: {INSTALLER_DIR}/{APP_NAME}_v{APP_VERSION}.dmg")
+    else:
+        print(f"可执行文件位于: {OUTPUT_DIR}")
+        if not args.skip_installer:
+            print(f"安装包位于: {INSTALLER_DIR}")
 
 if __name__ == "__main__":
     try:
