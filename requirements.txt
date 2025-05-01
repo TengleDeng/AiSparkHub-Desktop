@@ -24,4 +24,5 @@ xlrd>=2.0.1
 PyPDF2>=2.0.0
 html2text>=2020.1.16
 watchdog>=3.0.0
+jieba>=0.42.1
 
