@@ -42,7 +42,19 @@ jobs:
       
     - name: Create icns icon
       run: |
-        # 检查是否已有.icns格式图标
+        # 确保icons目录存在
+        mkdir -p icons
+        
+        # 检查是否已有.icns或.png格式图标
+        if [ ! -f "icons/app.icns" ] && [ ! -f "icons/app.png" ]; then
+          # 如果没有图标，创建一个简单的默认图标
+          echo "创建默认应用图标..."
+          # 使用base64编码的简单PNG图标
+          ICON_DATA="iVBORw0KGgoAAAANSUhEUgAAAQAAAAEACAMAAABrrFhUAAAABGdBTUEAALGPC/xhBQAAACBjSFJNAAB6JgAAgIQAAPoAAACA6AAAdTAAAOpgAAA6mAAAF3CculE8AAAAVFBMVEUAAAD/xVD/xVD/xVD/xVD/xVD/xVD/xVD/xVD/xVD/xVD/xVD/xVD/xVD/xVD/xVD/xVD/xVD/xVD/xVD/xVD/xVD/xVD/xVD/xVD/xVD/xVAAAACaT0UgAAAAGnRSTlMAEEBwj6/P3++fYI9wQCDv38+vYFAggECwcFcGXLQAAAABYktHRACIBR1IAAAACXBIWXMAAA7EAAAOxAGVKw4bAAAAB3RJTUUH5wUSEgIa3cnV9QAAAydJREFUeNrt3NtuwjAQBVCCJRrKpUBb8P//Z1W3Vo0xOGZm9nG/VvKJjxUnkWvdVKt12Nev5f9/iaPfnONytK1iyXc59OMi+V+N477raAYgHeO88Mf0dYxLv5FnWfqKgAfvS7+PGwA8+DavN7+ZGgDm2vr35ndzA4D/4Rsz+JsHAA+Dv/sCQQD4HX5kDgB/w4/NAcBdPjAIgLRvP/7yLAD+zoQ5AEg3/0V/B8C/MFw+BUhf/mPTmAaATX94CuDuX1PzAJA2Hz9uzAMALo3vvgD4HABW9dEXAN8CQPoywDUA+BIg7fcvAK4CQLo2XvsCuA4Aa3vvC+BKAKTXxsYXwLUAWNdbXwDXAyBdGz0vAD4AIH0ZDL4AfAFg1Z/5AnALAPc1XwD4BgDpoU+9APgIgHXd8wLgMwCky2PtCcB3AKzrlScAHwLgtgboAsC3AEjXRuMFwNcArOtqeST0x+2bAO7a+PfToX8BQPoymP9W4G8AWNVzALcDIF0b05cBtwQgXRrzl0E3BSB9GfwHcFsAWNXTT4HbA5AujcP8UfhGAVjV46fwzQKQrhdmACDdL88AuPsOPQIA/jCXP4ztnwbwx/n886D+hRC/FOaXgvxymF8O88thdkHULwn7RXG/LO4Xxr3SuFcc94rjfnmcXyDnl8j5RXJ+mZxfKOeXyvnFcrtczitY8Ep2vKIlr2zJK9zySpessm2neKIon+tKJ9sSksaAhKolomiOKBrEyibZolm6apivG+brhvm6Yb5umK8bZuumuZpxqmocqxoHm+axqnmwbJ6smyfr5sm6ebJunq0aR8vmwbJ5sGweLJsHy+bBsnmwbB6smierxsmqcbJqnKwax6rmubJtrmybK9tmqsZ5QJBURhOgSIe5mkGmZI6p+SJqnoiaH6Lmg6jZP2q2j5rNo2bvqNk6anaOGoBjZtuY2TRmtoyd7WJnr9jZKX62iZ9N4meP+NkifragYoOIGSBi9oeY7SFmd4jZHGI2h5i9IWZriNkaYjaGHG0NqNYPrDUDbr0Ae60AfI0AfH0Af20EfF0MfE0UfD0cek3FehuLvpYWfx01/lp6/OsI8tdQ5IexKXLFxg83pE2JGSH5XQAAAABJRU5ErkJggg=="
+          echo $ICON_DATA | base64 --decode > icons/app.png
+        fi
+        
+        # 如果存在PNG但没有icns，创建icns文件
         if [ ! -f "icons/app.icns" ] && [ -f "icons/app.png" ]; then
           # 创建iconset目录
           mkdir -p AppIcon.iconset
@@ -63,11 +75,59 @@ jobs:
           iconutil -c icns AppIcon.iconset
           
           # 移动到icons目录
-          mkdir -p icons
           mv AppIcon.icns icons/app.icns
           
           # 清理临时文件
           rm -rf AppIcon.iconset
+        fi
+        
+    - name: Ensure main.py exists
+      run: |
+        # 如果main.py不存在，创建一个最小的main.py示例文件
+        if [ ! -f "main.py" ]; then
+          echo "创建示例main.py文件..."
+          cat > main.py << 'EOL'
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+import sys
+import os
+from PyQt6.QtWidgets import QApplication, QMainWindow, QLabel, QVBoxLayout, QWidget
+from PyQt6.QtCore import Qt
+
+class MainWindow(QMainWindow):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("AiSparkHub")
+        self.setMinimumSize(800, 600)
+        
+        # 创建中央窗口部件
+        central_widget = QWidget()
+        self.setCentralWidget(central_widget)
+        
+        # 创建布局
+        layout = QVBoxLayout(central_widget)
+        
+        # 添加标签
+        label = QLabel("AiSparkHub - 欢迎使用!")
+        label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        label.setStyleSheet("font-size: 24px; font-weight: bold;")
+        layout.addWidget(label)
+        
+        # 添加说明
+        info_label = QLabel("这是一个示例程序，用于测试macOS打包功能")
+        info_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(info_label)
+
+def main():
+    app = QApplication(sys.argv)
+    window = MainWindow()
+    window.show()
+    sys.exit(app.exec())
+
+if __name__ == "__main__":
+    main()
+EOL
         fi
         
     - name: Build macOS application

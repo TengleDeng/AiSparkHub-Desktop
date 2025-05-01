@@ -120,6 +120,58 @@ def run_pyinstaller():
     # 声明全局变量，防止局部修改导致的作用域问题
     global APP_ICON
     
+    # 确保必要的目录结构存在
+    required_dirs = ["app/resources", "app/static", "app/search", "icons"]
+    for dir_path in required_dirs:
+        if not os.path.exists(dir_path):
+            try:
+                os.makedirs(dir_path, exist_ok=True)
+                print(f"创建目录: {dir_path}")
+                # 在每个目录中创建一个空的.gitkeep文件，确保目录能被Git跟踪
+                with open(os.path.join(dir_path, ".gitkeep"), "w") as f:
+                    pass
+            except Exception as e:
+                print(f"警告: 创建目录 {dir_path} 失败: {e}")
+    
+    # 确保version.txt存在
+    if not os.path.exists("version.txt"):
+        try:
+            with open("version.txt", "w") as f:
+                f.write(f"""
+VSVersionInfo(
+  ffi=FixedFileInfo(
+    filevers=({APP_VERSION.replace('.', ', ')}, 0),
+    prodvers=({APP_VERSION.replace('.', ', ')}, 0),
+    mask=0x3f,
+    flags=0x0,
+    OS=0x40004,
+    fileType=0x1,
+    subtype=0x0,
+    date=(0, 0)
+  ),
+  kids=[
+    StringFileInfo(
+      [
+        StringTable(
+          u'040904B0',
+          [StringStruct(u'CompanyName', u'{APP_PUBLISHER}'),
+           StringStruct(u'FileDescription', u'{APP_NAME}'),
+           StringStruct(u'FileVersion', u'{APP_VERSION}'),
+           StringStruct(u'InternalName', u'{APP_NAME}'),
+           StringStruct(u'LegalCopyright', u'Copyright © {datetime.now().year} {APP_PUBLISHER}'),
+           StringStruct(u'OriginalFilename', u'{APP_EXE_NAME}'),
+           StringStruct(u'ProductName', u'{APP_NAME}'),
+           StringStruct(u'ProductVersion', u'{APP_VERSION}')])
+      ]
+    ),
+    VarFileInfo([VarStruct(u'Translation', [0x0409, 0x04B0])])
+  ]
+)
+""")
+            print("已创建版本信息文件: version.txt")
+        except Exception as e:
+            print(f"警告: 创建版本信息文件失败: {e}")
+    
     # 图标参数，如果图标文件存在则使用
     if APP_ICON and os.path.exists(APP_ICON):
         # 针对不同系统使用不同图标格式
