@@ -171,7 +171,9 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: AiSparkHub-Windows-${{ steps.app_version.outputs.version }}
-        path: installer\AiSparkHub_v${{ env.APP_VERSION }}.exe
+        path: |
+          installer/*.exe
+          dist/AiSparkHub/*.exe
         
     - name: Create Release
       uses: softprops/action-gh-release@v1
@@ -180,4 +182,10 @@ jobs:
         files: |
           installer\AiSparkHub_v${{ env.APP_VERSION }}.exe
       env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} 
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: List build outputs
+      run: |
+        Write-Host "检查构建输出文件..."
+        Get-ChildItem -Path "installer" -Recurse | Select-Object FullName
+        Get-ChildItem -Path "dist" -Recurse | Select-Object FullName 
