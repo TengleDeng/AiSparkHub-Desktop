@@ -55,7 +55,6 @@ data/*.db-journal
 data/database/prompts.db
 *.log
 logs/
-icons/
 
 # 系统相关
 .DS_Store
