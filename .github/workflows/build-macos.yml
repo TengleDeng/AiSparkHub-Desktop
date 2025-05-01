@@ -30,6 +30,8 @@ jobs:
         # 使用requirements.txt安装所有依赖项，但排除pathlib
         grep -v "^pathlib==" requirements.txt > requirements_fixed.txt || cp requirements.txt requirements_fixed.txt
         pip install -r requirements_fixed.txt
+        # 安装特定版本的Pillow以解决通用二进制问题
+        pip install --force-reinstall Pillow
         # 明确安装关键依赖
         pip install PyInstaller pynput PyQt6-WebEngine --force-reinstall
         # 安装其他macOS特定依赖
@@ -40,6 +42,8 @@ jobs:
         python -c "import pynput; print('pynput模块安装成功')" || pip install pynput
         # 确认pathlib可以正常导入（使用标准库版本）
         python -c "import pathlib; print('使用Python标准库的pathlib模块')"
+        # 输出系统架构信息
+        python -c "import platform; print('当前系统架构:', platform.machine())"
         
     - name: Prepare app version
       id: app_version
@@ -127,6 +131,7 @@ jobs:
         import os
         import sys
         import subprocess
+        import platform
         
         def check_and_install_module(module_name):
             try:
@@ -164,6 +169,26 @@ jobs:
                     print(f"警告: {e}")
                     print("尝试安装WebEngine组件...")
                     subprocess.check_call([sys.executable, "-m", "pip", "install", "PyQt6-WebEngine", "--force-reinstall"])
+                
+                # 获取当前系统架构
+                current_arch = platform.machine()
+                print(f"当前系统架构: {current_arch}")
+                
+                # 根据不同架构设置打包参数
+                target_arch = current_arch  # 使用当前架构而不是尝试universal2
+                
+                print(f"使用目标架构: {target_arch}")
+                
+                # 修改build.py脚本，修改传递给PyInstaller的参数
+                with open("build.py", "r") as f:
+                    build_content = f.read()
+                
+                # 替换universal2为当前架构
+                if '--target-architecture universal2' in build_content:
+                    build_content = build_content.replace('--target-architecture universal2', f'--target-architecture {target_arch}')
+                    with open("build.py", "w") as f:
+                        f.write(build_content)
+                    print("已修改build.py，使用单一架构构建")
                 
                 # 调用原始build.py
                 cmd = [sys.executable, "build.py", app_name, app_version]
