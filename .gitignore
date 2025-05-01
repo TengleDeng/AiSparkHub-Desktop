@@ -67,3 +67,7 @@ htmlcov/
 tools/upx-5.0.0-win64/
 backup_dlls/
 
+# 不忽略icons目录
+!icons/
+!icons/*
+
