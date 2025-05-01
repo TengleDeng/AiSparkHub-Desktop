@@ -27,12 +27,14 @@ jobs:
         python -m pip install --upgrade pip
         # 使用requirements.txt安装所有依赖项
         pip install -r requirements.txt
-        # 安装PyInstaller (如果requirements.txt中没有)
-        pip install PyInstaller
+        # 明确安装关键依赖
+        pip install PyInstaller pynput PyQt6-WebEngine --force-reinstall
         # 安装其他macOS特定依赖
         brew install create-dmg
         # 确认WebEngine组件已安装
         python -c "from PyQt6 import QtWebEngineWidgets; print('QtWebEngine组件安装成功')" || pip install PyQt6-WebEngine
+        # 确认pynput组件已安装
+        python -c "import pynput; print('pynput模块安装成功')" || pip install pynput
         
     - name: Prepare app version
       id: app_version
@@ -121,20 +123,34 @@ jobs:
         import sys
         import subprocess
         
+        def check_and_install_module(module_name):
+            try:
+                __import__(module_name)
+                print(f"{module_name} 模块已安装")
+                return True
+            except ImportError:
+                print(f"正在安装 {module_name} 模块...")
+                subprocess.check_call([sys.executable, "-m", "pip", "install", module_name, "--force-reinstall"])
+                return __import__(module_name) is not None
+        
         def main():
             try:
                 app_name = "AiSparkHub"
                 app_version = os.environ.get("APP_VERSION", "1.0.0")
                 print(f"Starting build for {app_name} v{app_version}")
                 
-                # 验证关键组件是否已安装
+                # 验证关键依赖
+                check_and_install_module("PyQt6")
+                check_and_install_module("pynput")
+                
+                # 验证WebEngine组件
                 try:
                     from PyQt6 import QtWebEngineWidgets
                     print("WebEngine组件已安装")
                 except ImportError as e:
                     print(f"警告: {e}")
                     print("尝试安装WebEngine组件...")
-                    subprocess.check_call([sys.executable, "-m", "pip", "install", "PyQt6-WebEngine"])
+                    subprocess.check_call([sys.executable, "-m", "pip", "install", "PyQt6-WebEngine", "--force-reinstall"])
                 
                 # 调用原始build.py
                 cmd = [sys.executable, "build.py", app_name, app_version]
@@ -161,8 +177,8 @@ jobs:
     - name: List build outputs
       run: |
         echo "检查构建输出文件..."
-        find installer -type f
-        find dist -type f
+        find installer -type f || echo "installer目录不存在或为空"
+        find dist -type f || echo "dist目录不存在或为空"
         
     - name: Upload DMG artifact
       uses: actions/upload-artifact@v4

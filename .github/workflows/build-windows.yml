@@ -29,10 +29,12 @@ jobs:
         python -m pip install --upgrade pip
         # 使用requirements.txt安装所有依赖项
         pip install -r requirements.txt
-        # 安装PyInstaller (如果requirements.txt中没有)
-        pip install PyInstaller
+        # 明确安装关键依赖
+        pip install PyInstaller pynput PyQt6-WebEngine --force-reinstall
         # 确认WebEngine组件已安装
         python -c "from PyQt6 import QtWebEngineWidgets; print('QtWebEngine组件安装成功')"
+        # 确认pynput组件已安装
+        python -c "import pynput; print('pynput模块安装成功')"
         
     - name: Install Inno Setup
       run: |
@@ -122,20 +124,34 @@ jobs:
         import sys
         import subprocess
 
+        def check_and_install_module(module_name):
+            try:
+                __import__(module_name)
+                print(f"{module_name} 模块已安装")
+                return True
+            except ImportError:
+                print(f"正在安装 {module_name} 模块...")
+                subprocess.check_call([sys.executable, "-m", "pip", "install", module_name, "--force-reinstall"])
+                return __import__(module_name) is not None
+
         def main():
             try:
                 app_name = "AiSparkHub"
                 app_version = "${{ env.APP_VERSION }}"
                 print(f"Starting build for {app_name} v{app_version}")
                 
-                # 验证关键组件是否已安装
+                # 验证关键依赖
+                check_and_install_module("PyQt6")
+                check_and_install_module("pynput")
+                
+                # 验证WebEngine组件
                 try:
                     from PyQt6 import QtWebEngineWidgets
                     print("确认WebEngine组件已安装")
                 except ImportError as e:
                     print(f"警告: {e}")
                     print("尝试安装WebEngine组件...")
-                    subprocess.check_call([sys.executable, "-m", "pip", "install", "PyQt6-WebEngine"])
+                    subprocess.check_call([sys.executable, "-m", "pip", "install", "PyQt6-WebEngine", "--force-reinstall"])
                 
                 # 调用原始build.py
                 cmd = [sys.executable, "build.py", app_name, app_version]
