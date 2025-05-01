@@ -11,6 +11,8 @@ on:
 jobs:
   build-windows:
     runs-on: windows-latest  # 使用最新的Windows runner
+    env:
+      PYTHONIOENCODING: utf-8  # 设置Python IO编码为UTF-8
     
     steps:
     - name: Checkout code
@@ -77,10 +79,45 @@ jobs:
           Write-Host "找到main.py文件"
         }
         
+    - name: Set console code page to UTF-8
+      run: |
+        # 设置控制台代码页为UTF-8
+        chcp 65001
+        
+    - name: Create simplified build script
+      run: |
+        # 创建一个简化版的构建脚本，避免中文问题
+        @"
+        import os
+        import sys
+        import subprocess
+
+        def main():
+            try:
+                app_name = "AiSparkHub"
+                app_version = "${{ env.APP_VERSION }}"
+                print(f"Starting build for {app_name} v{app_version}")
+                
+                # 调用原始build.py
+                cmd = [sys.executable, "build.py", app_name, app_version]
+                subprocess.check_call(cmd)
+                
+                print(f"Build completed successfully.")
+                return 0
+            except Exception as e:
+                print(f"Error during build process: {e}")
+                import traceback
+                traceback.print_exc()
+                return 1
+
+        if __name__ == "__main__":
+            sys.exit(main())
+        "@ | Out-File -FilePath "build_wrapper.py" -Encoding utf8
+        
     - name: Build Windows application
       run: |
-        # 运行build.py脚本构建.exe安装包
-        python build.py AiSparkHub $env:APP_VERSION
+        # 使用包装脚本运行构建过程
+        python build_wrapper.py
         
     - name: Upload EXE artifact
       uses: actions/upload-artifact@v4
