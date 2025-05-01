@@ -6,7 +6,6 @@ pymdown-extensions>=9.0
 pygments>=2.10.0
 openpyxl>=3.0.10
 pandas>=1.5.0
-pathlib==1.0.1
 pdfplumber>=0.7.5
 PyMuPDF==1.25.5 
 PyQt6==6.9.0
