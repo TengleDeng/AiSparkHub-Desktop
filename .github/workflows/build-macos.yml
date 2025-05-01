@@ -123,7 +123,7 @@ jobs:
         
     - name: Create build wrapper
       run: |
-        # 创建一个简单的构建包装脚本，确保WebEngine组件安装
+        # 创建一个简单的构建包装脚本，直接控制PyInstaller执行
         cat > build_wrapper.py << 'EOF'
         #!/usr/bin/env python3
         # -*- coding: utf-8 -*-
@@ -132,6 +132,8 @@ jobs:
         import sys
         import subprocess
         import platform
+        import shutil
+        from pathlib import Path
         
         def check_and_install_module(module_name):
             try:
@@ -143,19 +145,29 @@ jobs:
                 subprocess.check_call([sys.executable, "-m", "pip", "install", module_name, "--force-reinstall"])
                 return __import__(module_name) is not None
         
+        def ensure_dir(directory):
+            """确保目录存在"""
+            Path(directory).mkdir(parents=True, exist_ok=True)
+        
         def main():
             try:
                 # 检查pathlib冲突
                 try:
-                    # 尝试卸载冲突的pathlib包
                     subprocess.check_call([sys.executable, "-m", "pip", "uninstall", "-y", "pathlib"])
                     print("已卸载冲突的pathlib包")
                 except:
                     print("无需卸载pathlib包")
                 
+                # 应用信息
                 app_name = "AiSparkHub"
                 app_version = os.environ.get("APP_VERSION", "1.0.0")
-                print(f"Starting build for {app_name} v{app_version}")
+                print(f"开始构建 {app_name} v{app_version}")
+                
+                # 确保必要的目录存在
+                ensure_dir("app/resources")
+                ensure_dir("app/static")
+                ensure_dir("app/search")
+                ensure_dir("installer")
                 
                 # 验证关键依赖
                 check_and_install_module("PyQt6")
@@ -174,30 +186,115 @@ jobs:
                 current_arch = platform.machine()
                 print(f"当前系统架构: {current_arch}")
                 
-                # 根据不同架构设置打包参数
-                target_arch = current_arch  # 使用当前架构而不是尝试universal2
+                # 检查.icns图标
+                icon_path = "icons/app.icns"
+                if not os.path.exists(icon_path):
+                    print(f"警告: {icon_path} 不存在")
+                    icon_path = ""
                 
-                print(f"使用目标架构: {target_arch}")
+                # 创建版本信息文件
+                with open("version.txt", "w") as f:
+                    f.write(f"version={app_version}\n")
+                    f.write("company=AiSparkHub\n")
+                    f.write("product=AiSparkHub Desktop\n")
+                print("使用版本信息文件: version.txt")
                 
-                # 修改build.py脚本，修改传递给PyInstaller的参数
-                with open("build.py", "r") as f:
-                    build_content = f.read()
+                # 直接构建PyInstaller命令
+                pyinstaller_cmd = [
+                    sys.executable, '-m', 'PyInstaller',
+                    '--name', app_name,
+                    '--windowed', 
+                    '--noconfirm', 
+                    '--clean',
+                    '--log-level', 'INFO',
+                    '--onedir',
+                    '--osx-bundle-identifier', 'com.aisparkhub.desktop',
+                    f'--target-architecture={current_arch}'  # 使用检测到的架构
+                ]
                 
-                # 替换universal2为当前架构
-                if '--target-architecture universal2' in build_content:
-                    build_content = build_content.replace('--target-architecture universal2', f'--target-architecture {target_arch}')
-                    with open("build.py", "w") as f:
-                        f.write(build_content)
-                    print("已修改build.py，使用单一架构构建")
+                # 添加图标如果存在
+                if icon_path:
+                    pyinstaller_cmd.append(f'--icon={icon_path}')
                 
-                # 调用原始build.py
-                cmd = [sys.executable, "build.py", app_name, app_version]
-                subprocess.check_call(cmd)
+                # 添加数据文件
+                data_mappings = [
+                    ('app/resources', 'app/resources'),
+                    ('app/static', 'app/static'),
+                    ('app/search', 'app/search'),
+                    ('icons', 'icons')
+                ]
                 
-                print(f"Build completed successfully.")
+                for src, dst in data_mappings:
+                    if os.path.exists(src):
+                        pyinstaller_cmd.extend(['--add-data', f'{src}:{dst}'])
+                
+                # 添加隐藏导入
+                hidden_imports = [
+                    'PyQt6.QtCore', 'PyQt6.QtWidgets', 'PyQt6.QtGui',
+                    'PyQt6.QtWebEngineWidgets', 'PyQt6.QtWebEngineCore',
+                    'qtawesome', 'qtpy', 'sqlite3', 'pynput',
+                    'pynput.keyboard._darwin', 'pynput.mouse._darwin'
+                ]
+                
+                for module in hidden_imports:
+                    pyinstaller_cmd.extend(['--hidden-import', module])
+                
+                # 收集所有模块
+                for module in ['qtawesome', 'pynput']:
+                    pyinstaller_cmd.extend(['--collect-all', module])
+                
+                # 添加主脚本
+                pyinstaller_cmd.append('main.py')
+                
+                # 打印完整命令
+                print("执行PyInstaller命令:")
+                print(" ".join(pyinstaller_cmd))
+                
+                # 执行PyInstaller
+                subprocess.check_call(pyinstaller_cmd)
+                
+                # 创建DMG文件
+                dist_path = os.path.join("dist", app_name)
+                if os.path.exists(dist_path):
+                    dmg_name = f"{app_name}_v{app_version}.dmg"
+                    dmg_path = os.path.join("installer", dmg_name)
+                    
+                    print(f"创建DMG安装包: {dmg_path}")
+                    
+                    try:
+                        # 确保installer目录存在
+                        ensure_dir("installer")
+                        
+                        # 使用create-dmg工具创建DMG
+                        subprocess.check_call([
+                            "create-dmg",
+                            "--volname", f"{app_name} Installer",
+                            "--volicon", icon_path if os.path.exists(icon_path) else "icons/app.icns",
+                            "--window-pos", "200", "100",
+                            "--window-size", "800", "400",
+                            "--icon-size", "100",
+                            "--icon", f"{app_name}.app", "200", "200",
+                            "--hide-extension", f"{app_name}.app",
+                            "--app-drop-link", "600", "200",
+                            dmg_path,
+                            dist_path
+                        ])
+                        print(f"DMG创建成功: {dmg_path}")
+                    except Exception as e:
+                        print(f"DMG创建失败: {e}")
+                        # 如果DMG创建失败，尝试直接复制应用程序
+                        shutil.make_archive(
+                            os.path.join("installer", f"{app_name}_v{app_version}"),
+                            'zip',
+                            "dist",
+                            app_name
+                        )
+                        print(f"已创建备用ZIP包: installer/{app_name}_v{app_version}.zip")
+                
+                print(f"构建完成")
                 return 0
             except Exception as e:
-                print(f"Error during build process: {e}")
+                print(f"构建过程中出错: {e}")
                 import traceback
                 traceback.print_exc()
                 return 1
@@ -224,6 +321,7 @@ jobs:
         name: AiSparkHub-macOS-${{ steps.app_version.outputs.version }}
         path: |
           installer/*.dmg
+          installer/*.zip
           dist/*.app
         
     - name: Create Release
@@ -232,5 +330,6 @@ jobs:
       with:
         files: |
           installer/AiSparkHub_v${{ env.APP_VERSION }}.dmg
+          installer/AiSparkHub_v${{ env.APP_VERSION }}.zip
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} 
