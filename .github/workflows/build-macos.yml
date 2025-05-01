@@ -25,8 +25,14 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install PyQt6 qtawesome PyInstaller pynput
+        # 使用requirements.txt安装所有依赖项
+        pip install -r requirements.txt
+        # 安装PyInstaller (如果requirements.txt中没有)
+        pip install PyInstaller
+        # 安装其他macOS特定依赖
         brew install create-dmg
+        # 确认WebEngine组件已安装
+        python -c "from PyQt6 import QtWebEngineWidgets; print('QtWebEngine组件安装成功')" || pip install PyQt6-WebEngine
         
     - name: Prepare app version
       id: app_version
@@ -104,16 +110,67 @@ jobs:
           exit 1
         fi
         
+    - name: Create build wrapper
+      run: |
+        # 创建一个简单的构建包装脚本，确保WebEngine组件安装
+        cat > build_wrapper.py << 'EOF'
+        #!/usr/bin/env python3
+        # -*- coding: utf-8 -*-
+        
+        import os
+        import sys
+        import subprocess
+        
+        def main():
+            try:
+                app_name = "AiSparkHub"
+                app_version = os.environ.get("APP_VERSION", "1.0.0")
+                print(f"Starting build for {app_name} v{app_version}")
+                
+                # 验证关键组件是否已安装
+                try:
+                    from PyQt6 import QtWebEngineWidgets
+                    print("WebEngine组件已安装")
+                except ImportError as e:
+                    print(f"警告: {e}")
+                    print("尝试安装WebEngine组件...")
+                    subprocess.check_call([sys.executable, "-m", "pip", "install", "PyQt6-WebEngine"])
+                
+                # 调用原始build.py
+                cmd = [sys.executable, "build.py", app_name, app_version]
+                subprocess.check_call(cmd)
+                
+                print(f"Build completed successfully.")
+                return 0
+            except Exception as e:
+                print(f"Error during build process: {e}")
+                import traceback
+                traceback.print_exc()
+                return 1
+        
+        if __name__ == "__main__":
+            sys.exit(main())
+        EOF
+        chmod +x build_wrapper.py
+        
     - name: Build macOS application
       run: |
-        # 运行build.py脚本构建.app和.dmg
-        python build.py AiSparkHub ${{ env.APP_VERSION }}
+        # 使用包装脚本运行构建过程
+        python build_wrapper.py
+        
+    - name: List build outputs
+      run: |
+        echo "检查构建输出文件..."
+        find installer -type f
+        find dist -type f
         
     - name: Upload DMG artifact
       uses: actions/upload-artifact@v4
       with:
         name: AiSparkHub-macOS-${{ steps.app_version.outputs.version }}
-        path: installer/AiSparkHub_v${{ env.APP_VERSION }}.dmg
+        path: |
+          installer/*.dmg
+          dist/*.app
         
     - name: Create Release
       uses: softprops/action-gh-release@v1

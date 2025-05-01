@@ -27,7 +27,12 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install PyQt6 qtawesome PyInstaller pynput pillow
+        # 使用requirements.txt安装所有依赖项
+        pip install -r requirements.txt
+        # 安装PyInstaller (如果requirements.txt中没有)
+        pip install PyInstaller
+        # 确认WebEngine组件已安装
+        python -c "from PyQt6 import QtWebEngineWidgets; print('QtWebEngine组件安装成功')"
         
     - name: Install Inno Setup
       run: |
@@ -123,6 +128,15 @@ jobs:
                 app_version = "${{ env.APP_VERSION }}"
                 print(f"Starting build for {app_name} v{app_version}")
                 
+                # 验证关键组件是否已安装
+                try:
+                    from PyQt6 import QtWebEngineWidgets
+                    print("确认WebEngine组件已安装")
+                except ImportError as e:
+                    print(f"警告: {e}")
+                    print("尝试安装WebEngine组件...")
+                    subprocess.check_call([sys.executable, "-m", "pip", "install", "PyQt6-WebEngine"])
+                
                 # 调用原始build.py
                 cmd = [sys.executable, "build.py", app_name, app_version]
                 subprocess.check_call(cmd)
@@ -167,6 +181,16 @@ jobs:
         # 使用包装脚本运行构建过程
         python build_wrapper.py
         
+    - name: List build outputs
+      run: |
+        Write-Host "检查构建输出文件..."
+        Get-ChildItem -Path "installer" -Recurse | Select-Object FullName
+        Get-ChildItem -Path "dist" -Recurse | Select-Object FullName
+        Write-Host "检查构建日志..."
+        if (Test-Path "build\AiSparkHub\warn-AiSparkHub.txt") {
+          Get-Content "build\AiSparkHub\warn-AiSparkHub.txt"
+        }
+        
     - name: Upload EXE artifact
       uses: actions/upload-artifact@v4
       with:
@@ -182,10 +206,4 @@ jobs:
         files: |
           installer\AiSparkHub_v${{ env.APP_VERSION }}.exe
       env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-    - name: List build outputs
-      run: |
-        Write-Host "检查构建输出文件..."
-        Get-ChildItem -Path "installer" -Recurse | Select-Object FullName
-        Get-ChildItem -Path "dist" -Recurse | Select-Object FullName 
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} 
