@@ -97,21 +97,10 @@ jobs:
           rm -rf AppIcon.iconset
         fi
         
-    - name: Setup Node.js
-      uses: actions/setup-node@v3
-      with:
-        node-version: '18'
-        
-    - name: Install Node.js dependencies
+    - name: Check main.py exists
       run: |
-        if [ -f "package.json" ]; then
-          npm install
-        fi
-        
-    - name: Check main.js exists
-      run: |
-        if [ ! -f "main.js" ]; then
-          echo "错误: main.js 文件不存在！"
+        if [ ! -f "main.py" ]; then
+          echo "错误: main.py 文件不存在！"
           exit 1
         fi
         

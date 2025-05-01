@@ -1,0 +1,98 @@
+name: Build Windows App
+
+on:
+  push:
+    branches: [ main, master ]
+    tags: [ 'v*' ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:  # 允许手动触发
+
+jobs:
+  build-windows:
+    runs-on: windows-latest  # 使用最新的Windows runner
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.10'
+        cache: 'pip'
+        
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install PyQt6 qtawesome PyInstaller pynput pillow
+        
+    - name: Install Inno Setup
+      run: |
+        choco install innosetup -y
+        
+    - name: Prepare app version
+      id: app_version
+      shell: bash
+      run: |
+        # 如果是tag触发，使用tag作为版本号，否则使用日期作为版本号
+        if [[ $GITHUB_REF == refs/tags/v* ]]; then
+          VERSION=${GITHUB_REF#refs/tags/v}
+        else
+          VERSION=$(date +'%Y.%m.%d')
+        fi
+        echo "APP_VERSION=$VERSION" >> $GITHUB_ENV
+        echo "version=$VERSION" >> $GITHUB_OUTPUT
+      
+    - name: Ensure icon exists
+      run: |
+        # 确保icons目录存在
+        if (-not (Test-Path "icons")) {
+          New-Item -ItemType Directory -Path "icons" -Force
+        }
+        
+        # 检查是否已有.ico格式图标
+        if (-not (Test-Path "icons\app.ico")) {
+          Write-Host "查找可用的图标文件..."
+          # 检查是否有chatglm.ico或其他可用图标
+          if (Test-Path "icons\chatglm.ico") {
+            Copy-Item "icons\chatglm.ico" -Destination "icons\app.ico"
+            Write-Host "使用发现的图标: icons\chatglm.ico"
+          } else {
+            # 如果没有可用图标，创建一个空图标文件作为占位符
+            Write-Host "未找到可用图标，创建占位图标..."
+            New-Item -ItemType File -Path "icons\app.ico" -Force
+            Write-Host "已创建占位图标文件"
+          }
+        } else {
+          Write-Host "图标文件已存在: icons\app.ico"
+        }
+    
+    - name: Check main.py exists
+      run: |
+        if (-not (Test-Path "main.py")) {
+          Write-Host "错误: main.py 文件不存在!"
+          exit 1
+        } else {
+          Write-Host "找到main.py文件"
+        }
+        
+    - name: Build Windows application
+      run: |
+        # 运行build.py脚本构建.exe安装包
+        python build.py AiSparkHub $env:APP_VERSION
+        
+    - name: Upload EXE artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: AiSparkHub-Windows-${{ steps.app_version.outputs.version }}
+        path: installer\AiSparkHub_v${{ env.APP_VERSION }}.exe
+        
+    - name: Create Release
+      uses: softprops/action-gh-release@v1
+      if: startsWith(github.ref, 'refs/tags/')
+      with:
+        files: |
+          installer\AiSparkHub_v${{ env.APP_VERSION }}.exe
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} 
