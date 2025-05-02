@@ -330,12 +330,14 @@ jobs:
         name: AiSparkHub-macOS-${{ steps.app_version.outputs.version }}
         path: installer/*.dmg
 
-    - name: 自动化测试 DMG 安装包（含截图）
+    - name: 自动化测试 DMG 安装包（含多次截图）
       run: |
         set -e
 
         MOUNT_POINT="/Volumes/AiSparkHubTest"
-        SCREENSHOT_PATH="dmg_app_screenshot.png"
+        SCREENSHOT_PATH1="dmg_app_screenshot_2s.png"
+        SCREENSHOT_PATH2="dmg_app_screenshot_5s.png"
+        SCREENSHOT_PATH3="dmg_app_screenshot_8s.png"
 
         # 查找 .dmg 文件
         DMG_PATH=$(find installer -name '*.dmg' | head -n 1)
@@ -364,11 +366,15 @@ jobs:
 
         echo "尝试启动应用..."
         open -a /Applications/AiSparkHub.app
-        sleep 8
-
-        echo "截图应用窗口..."
-        screencapture -x "$SCREENSHOT_PATH"
-        echo "截图已保存为 $SCREENSHOT_PATH"
+        sleep 2
+        screencapture -x "$SCREENSHOT_PATH1"
+        echo "2秒后截图已保存为 $SCREENSHOT_PATH1"
+        sleep 3
+        screencapture -x "$SCREENSHOT_PATH2"
+        echo "5秒后截图已保存为 $SCREENSHOT_PATH2"
+        sleep 3
+        screencapture -x "$SCREENSHOT_PATH3"
+        echo "8秒后截图已保存为 $SCREENSHOT_PATH3"
 
         echo "检测进程是否存在..."
         if ! pgrep -f AiSparkHub > /dev/null; then
@@ -382,13 +388,16 @@ jobs:
         pkill -f AiSparkHub || true
         rm -rf /Applications/AiSparkHub.app
 
-        echo "DMG 自动化测试通过！截图文件：$SCREENSHOT_PATH"
+        echo "DMG 自动化测试通过！多张截图已保存。"
 
     - name: 上传应用启动截图
       uses: actions/upload-artifact@v4
       with:
-        name: AiSparkHub-macOS-app-screenshot
-        path: dmg_app_screenshot.png
+        name: AiSparkHub-macOS-app-screenshots
+        path: |
+          dmg_app_screenshot_2s.png
+          dmg_app_screenshot_5s.png
+          dmg_app_screenshot_8s.png
 
     - name: Create Release
       uses: softprops/action-gh-release@v1

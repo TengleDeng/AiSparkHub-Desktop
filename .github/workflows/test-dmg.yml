@@ -1,50 +1,33 @@
-name: Test macOS DMG by URL
+name: Test macOS DMG from Artifact
 
 on:
   workflow_dispatch:
-    inputs:
-      dmg_url:
-        description: '请输入 DMG 文件的下载链接（如 https://.../xxx.dmg）'
-        required: true
-        type: string
 
 jobs:
   test-dmg:
     runs-on: macos-latest
 
     steps:
-    - name: 下载 DMG 文件
-      run: |
-        echo "下载链接: ${{ github.event.inputs.dmg_url }}"
-        curl -L "${{ github.event.inputs.dmg_url }}" -o test_app.dmg
+    - name: 下载 artifact
+      uses: actions/download-artifact@v4
+      with:
+        name: AiSparkHub-macOS-2025.05.02
+        path: ./downloaded
+        repository: TengleDeng/AiSparkHub-Desktop
+        run-id: 14793322590
 
-    - name: 自动化测试 DMG 安装包（含截图，支持 zip/dmg）
+    - name: 自动化测试 DMG 安装包（含截图）
       run: |
         set -e
 
-        URL="${{ github.event.inputs.dmg_url }}"
-        ZIP_NAME="downloaded.zip"
-        DMG_NAME="test_app.dmg"
         MOUNT_POINT="/Volumes/AiSparkHubTest"
         SCREENSHOT_PATH="dmg_app_screenshot.png"
 
-        # 下载文件
-        echo "下载链接: $URL"
-        curl -L "$URL" -o "$ZIP_NAME"
-
-        # 判断是否为 zip 文件
-        if file "$ZIP_NAME" | grep -q 'Zip archive data'; then
-          echo "检测到 zip 文件，开始解压..."
-          unzip -o "$ZIP_NAME" -d extracted
-          # 查找第一个 .dmg 文件
-          DMG_PATH=$(find extracted -name '*.dmg' | head -n 1)
-          if [ -z "$DMG_PATH" ]; then
-            echo "解压后未找到 .dmg 文件"
-            exit 1
-          fi
-        else
-          echo "不是 zip 文件，直接作为 dmg 处理"
-          DMG_PATH="$ZIP_NAME"
+        # 查找 .dmg 文件
+        DMG_PATH=$(find ./downloaded -name '*.dmg' | head -n 1)
+        if [ -z "$DMG_PATH" ]; then
+          echo "未找到 .dmg 文件"
+          exit 1
         fi
 
         echo "挂载 DMG..."
@@ -84,7 +67,7 @@ jobs:
         hdiutil detach "$MOUNT_POINT" || true
         pkill -f AiSparkHub || true
         rm -rf /Applications/AiSparkHub.app
-        rm -rf extracted "$ZIP_NAME"
+        rm -rf ./downloaded
 
         echo "DMG 自动化测试通过！截图文件：$SCREENSHOT_PATH"
 
