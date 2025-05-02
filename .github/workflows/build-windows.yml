@@ -213,7 +213,6 @@ jobs:
         name: AiSparkHub-Windows-${{ steps.app_version.outputs.version }}
         path: |
           installer/*.exe
-          dist/AiSparkHub/*.exe
         
     - name: Create Release
       uses: softprops/action-gh-release@v1
