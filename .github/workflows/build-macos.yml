@@ -306,19 +306,28 @@ jobs:
         
     - name: List dist contents
       run: |
+        echo "列出 dist 目录内容："
+        ls -l dist || true
         echo "列出 dist/AiSparkHub 目录内容："
-        ls -l dist/AiSparkHub
+        ls -l dist/AiSparkHub || true
+        echo "列出 dist/AiSparkHub.app 目录内容："
+        ls -l dist/AiSparkHub.app || true
 
     - name: Build macOS application
       run: |
         # 使用包装脚本运行构建过程
         python build_wrapper.py
 
-    - name: Create DMG manually if .app exists
-      if: always()
+    - name: Create DMG if .app exists
       run: |
-        if [ -d "dist/AiSparkHub/AiSparkHub.app" ]; then
-          echo "检测到 AiSparkHub.app，尝试手动创建 DMG..."
+        APP_BUNDLE=""
+        if [ -d "dist/AiSparkHub.app" ]; then
+          APP_BUNDLE="dist/AiSparkHub.app"
+        elif [ -d "dist/AiSparkHub/AiSparkHub.app" ]; then
+          APP_BUNDLE="dist/AiSparkHub/AiSparkHub.app"
+        fi
+        if [ -n "$APP_BUNDLE" ]; then
+          echo "检测到 $APP_BUNDLE，尝试创建 DMG..."
           create-dmg \
             --volname "AiSparkHub Installer" \
             --volicon "icons/app.icns" \
@@ -329,9 +338,9 @@ jobs:
             --hide-extension "AiSparkHub.app" \
             --app-drop-link 600 200 \
             "installer/AiSparkHub_v${{ steps.app_version.outputs.version }}.dmg" \
-            "dist/AiSparkHub/AiSparkHub.app"
+            "$APP_BUNDLE"
         else
-          echo "未找到 AiSparkHub.app，跳过手动 DMG 创建。"
+          echo "未找到 .app 包，跳过 DMG 创建。"
         fi
         
     - name: List build outputs
