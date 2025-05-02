@@ -304,10 +304,35 @@ jobs:
         EOF
         chmod +x build_wrapper.py
         
+    - name: List dist contents
+      run: |
+        echo "列出 dist/AiSparkHub 目录内容："
+        ls -l dist/AiSparkHub
+
     - name: Build macOS application
       run: |
         # 使用包装脚本运行构建过程
         python build_wrapper.py
+
+    - name: Create DMG manually if .app exists
+      if: always()
+      run: |
+        if [ -d "dist/AiSparkHub/AiSparkHub.app" ]; then
+          echo "检测到 AiSparkHub.app，尝试手动创建 DMG..."
+          create-dmg \
+            --volname "AiSparkHub Installer" \
+            --volicon "icons/app.icns" \
+            --window-pos 200 100 \
+            --window-size 800 400 \
+            --icon-size 100 \
+            --icon "AiSparkHub.app" 200 200 \
+            --hide-extension "AiSparkHub.app" \
+            --app-drop-link 600 200 \
+            "installer/AiSparkHub_v${{ steps.app_version.outputs.version }}.dmg" \
+            "dist/AiSparkHub/AiSparkHub.app"
+        else
+          echo "未找到 AiSparkHub.app，跳过手动 DMG 创建。"
+        fi
         
     - name: List build outputs
       run: |
