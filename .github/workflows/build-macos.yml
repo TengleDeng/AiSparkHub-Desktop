@@ -66,23 +66,25 @@ jobs:
         if [ ! -f "icons/app.icns" ]; then
           echo "创建默认应用图标..."
           
-          # 尝试使用已有的图标文件
-          if [ -f "icons/chatglm.ico" ]; then
-            echo "使用已有的chatglm.ico转换为icns..."
+          # 优先使用已有的app.png或app.ico
+          if [ -f "icons/app.png" ]; then
+            echo "使用已有的app.png生成icns..."
+            ICON_SRC="icons/app.png"
+          elif [ -f "icons/app.ico" ]; then
+            echo "使用已有的app.ico生成icns..."
             # 安装必要工具
             brew install imagemagick
-            # 转换ico到png
-            convert "icons/chatglm.ico" "icons/app.png"
+            convert "icons/app.ico" "icons/app.png"
+            ICON_SRC="icons/app.png"
           else
             echo "创建默认PNG图标..."
             # 创建一个简单的蓝色方块作为默认图标
-            # 安装必要工具
             brew install imagemagick
             convert -size 1024x1024 xc:blue "icons/app.png" || {
               echo "无法使用convert创建图标，创建空白图标..."
-              # 如果转换失败，创建空白文件
               touch "icons/app.png"
             }
+            ICON_SRC="icons/app.png"
           fi
           
           # 创建图标集
