@@ -308,15 +308,15 @@ jobs:
       run: |
         echo "列出 dist 目录内容："
         ls -l dist || true
-        echo "列出 dist/AiSparkHub 目录内容："
-        ls -l dist/AiSparkHub || true
         echo "列出 dist/AiSparkHub.app 目录内容："
         ls -l dist/AiSparkHub.app || true
+        echo "列出 dist/AiSparkHub 目录内容："
+        ls -l dist/AiSparkHub || true
 
     - name: Build macOS application
       run: |
-        # 使用包装脚本运行构建过程
-        python build_wrapper.py
+        # 使用专用脚本进行macOS打包
+        python build-macos.py
 
     - name: Create DMG if .app exists
       run: |
