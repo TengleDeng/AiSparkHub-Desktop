@@ -316,33 +316,8 @@ jobs:
     - name: Build macOS application
       run: |
         # 使用专用脚本进行macOS打包
-        python build-macos.py
+        python build-macos.py AiSparkHub ${{ env.APP_VERSION }}
 
-    - name: Create DMG if .app exists
-      run: |
-        APP_BUNDLE=""
-        if [ -d "dist/AiSparkHub.app" ]; then
-          APP_BUNDLE="dist/AiSparkHub.app"
-        elif [ -d "dist/AiSparkHub/AiSparkHub.app" ]; then
-          APP_BUNDLE="dist/AiSparkHub/AiSparkHub.app"
-        fi
-        if [ -n "$APP_BUNDLE" ]; then
-          echo "检测到 $APP_BUNDLE，尝试创建 DMG..."
-          create-dmg \
-            --volname "AiSparkHub Installer" \
-            --volicon "icons/app.icns" \
-            --window-pos 200 100 \
-            --window-size 800 400 \
-            --icon-size 100 \
-            --icon "AiSparkHub.app" 200 200 \
-            --hide-extension "AiSparkHub.app" \
-            --app-drop-link 600 200 \
-            "installer/AiSparkHub_v${{ steps.app_version.outputs.version }}.dmg" \
-            "$APP_BUNDLE"
-        else
-          echo "未找到 .app 包，跳过 DMG 创建。"
-        fi
-        
     - name: List build outputs
       run: |
         echo "检查构建输出文件..."
