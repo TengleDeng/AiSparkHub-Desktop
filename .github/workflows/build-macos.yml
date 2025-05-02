@@ -1,316 +1,366 @@
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
+name: Build macOS App
 
-import os
-import sys
-import shutil
-import subprocess
-import platform
-import argparse
-from pathlib import Path
+on:
+  push:
+    branches: [ main, master ]
+    tags: [ 'v*' ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:  # 允许手动触发
 
-def parse_arguments():
-    """解析命令行参数"""
-    parser = argparse.ArgumentParser(description='构建AiSparkHub桌面应用')
-    parser.add_argument('app_name', nargs='?', default="AiSparkHub", help='应用名称')
-    parser.add_argument('app_version', nargs='?', default="1.0.0", help='应用版本号')
-    parser.add_argument('--skip-clean', action='store_true', help='跳过清理构建文件夹')
-    parser.add_argument('--icon', help='自定义图标路径')
-    return parser.parse_args()
-
-# 解析命令行参数
-args = parse_arguments()
-
-# 应用程序信息
-APP_NAME = args.app_name
-APP_VERSION = args.app_version
-APP_PUBLISHER = "Tengle.deng@gmail.com"
-APP_URL = "https://github.com/TengleDeng/AiSparkHub/"
-APP_EXE_NAME = f"{APP_NAME}.exe"
-
-# 图标优先级：命令行参数 > icons/app.icns
-if args.icon:
-    APP_ICON = args.icon
-elif os.path.exists("icons/app.icns"):
-    APP_ICON = "icons/app.icns"
-else:
-    APP_ICON = ""
+jobs:
+  build-macos:
+    runs-on: macos-latest  # 使用最新的macOS runner
     
-APP_ID = "com.aisparkhub.desktop"
-
-# 目录配置
-DIST_DIR = "dist"
-BUILD_DIR = "build"
-OUTPUT_DIR = os.path.join(DIST_DIR, APP_NAME)
-INSTALLER_DIR = "installer"
-
-def clean_build_folders():
-    """清理构建文件夹"""
-    if args.skip_clean:
-        print("跳过清理构建文件夹...")
-        return
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.10'
+        cache: 'pip'
         
-    folders_to_clean = [BUILD_DIR, DIST_DIR]
-    for folder in folders_to_clean:
-        if os.path.exists(folder):
-            print(f"清理 {folder} 文件夹...")
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        # 卸载可能与PyInstaller冲突的pathlib包
+        pip uninstall -y pathlib
+        # 使用requirements.txt安装所有依赖项，但排除pathlib
+        grep -v "^pathlib==" requirements.txt > requirements_fixed.txt || cp requirements.txt requirements_fixed.txt
+        pip install -r requirements_fixed.txt
+        # 安装特定版本的Pillow以解决通用二进制问题
+        pip install --force-reinstall Pillow
+        # 明确安装关键依赖
+        pip install PyInstaller pynput PyQt6-WebEngine --force-reinstall
+        # 安装其他macOS特定依赖
+        brew install create-dmg
+        # 确认WebEngine组件已安装
+        python -c "from PyQt6 import QtWebEngineWidgets; print('QtWebEngine组件安装成功')" || pip install PyQt6-WebEngine
+        # 确认pynput组件已安装
+        python -c "import pynput; print('pynput模块安装成功')" || pip install pynput
+        # 确认pathlib可以正常导入（使用标准库版本）
+        python -c "import pathlib; print('使用Python标准库的pathlib模块')"
+        # 输出系统架构信息
+        python -c "import platform; print('当前系统架构:', platform.machine())"
+        
+    - name: Prepare app version
+      id: app_version
+      run: |
+        # 如果是tag触发，使用tag作为版本号，否则使用日期作为版本号
+        if [[ $GITHUB_REF == refs/tags/v* ]]; then
+          VERSION=${GITHUB_REF#refs/tags/v}
+        else
+          VERSION=$(date +'%Y.%m.%d')
+        fi
+        echo "APP_VERSION=$VERSION" >> $GITHUB_ENV
+        echo "version=$VERSION" >> $GITHUB_OUTPUT
+      
+    - name: Create icns icon
+      run: |
+        # 确保icons目录存在
+        mkdir -p icons
+        
+        # 检查是否已有.icns格式图标
+        if [ ! -f "icons/app.icns" ]; then
+          echo "创建默认应用图标..."
+          
+          # 尝试使用已有的图标文件
+          if [ -f "icons/chatglm.ico" ]; then
+            echo "使用已有的chatglm.ico转换为icns..."
+            # 安装必要工具
+            brew install imagemagick
+            # 转换ico到png
+            convert "icons/chatglm.ico" "icons/app.png"
+          else
+            echo "创建默认PNG图标..."
+            # 创建一个简单的蓝色方块作为默认图标
+            # 安装必要工具
+            brew install imagemagick
+            convert -size 1024x1024 xc:blue "icons/app.png" || {
+              echo "无法使用convert创建图标，创建空白图标..."
+              # 如果转换失败，创建空白文件
+              touch "icons/app.png"
+            }
+          fi
+          
+          # 创建图标集
+          mkdir -p AppIcon.iconset
+          
+          # 如果app.png存在且有效，使用它创建不同尺寸的图标
+          if [ -f "icons/app.png" ] && [ -s "icons/app.png" ]; then
+            # 创建不同尺寸的图标
+            sips -z 16 16 "icons/app.png" --out AppIcon.iconset/icon_16x16.png || cp "icons/app.png" AppIcon.iconset/icon_16x16.png
+            sips -z 32 32 "icons/app.png" --out AppIcon.iconset/icon_32x32.png || cp "icons/app.png" AppIcon.iconset/icon_32x32.png
+            sips -z 128 128 "icons/app.png" --out AppIcon.iconset/icon_128x128.png || cp "icons/app.png" AppIcon.iconset/icon_128x128.png
+            sips -z 256 256 "icons/app.png" --out AppIcon.iconset/icon_256x256.png || cp "icons/app.png" AppIcon.iconset/icon_256x256.png
+            sips -z 512 512 "icons/app.png" --out AppIcon.iconset/icon_512x512.png || cp "icons/app.png" AppIcon.iconset/icon_512x512.png
+          else
+            # 创建空白图标文件
+            for size in 16 32 128 256 512; do
+              touch AppIcon.iconset/icon_${size}x${size}.png
+            done
+          fi
+          
+          # 尝试生成icns文件
+          iconutil -c icns AppIcon.iconset -o icons/app.icns || {
+            echo "图标转换失败，创建空白icns文件..."
+            # 创建一个空图标文件作为后备
+            touch icons/app.icns
+          }
+          
+          # 清理临时文件
+          rm -rf AppIcon.iconset
+        fi
+        
+    - name: Check main.py exists
+      run: |
+        if [ ! -f "main.py" ]; then
+          echo "错误: main.py 文件不存在！"
+          exit 1
+        fi
+        
+    - name: Create build wrapper
+      run: |
+        # 创建一个简单的构建包装脚本，直接控制PyInstaller执行
+        cat > build_wrapper.py << 'EOF'
+        #!/usr/bin/env python3
+        # -*- coding: utf-8 -*-
+        
+        import os
+        import sys
+        import subprocess
+        import platform
+        import shutil
+        from pathlib import Path
+        
+        def check_and_install_module(module_name):
             try:
-                shutil.rmtree(folder)
-            except PermissionError as e:
-                print(f"无法删除 {folder}，可能有文件被占用: {e}")
-                print("请关闭所有可能使用这些文件的程序，如编辑器或文件浏览器")
-                sys.exit(1)
+                __import__(module_name)
+                print(f"{module_name} 模块已安装")
+                return True
+            except ImportError:
+                print(f"正在安装 {module_name} 模块...")
+                subprocess.check_call([sys.executable, "-m", "pip", "install", module_name, "--force-reinstall"])
+                return __import__(module_name) is not None
+        
+        def ensure_dir(directory):
+            """确保目录存在"""
+            Path(directory).mkdir(parents=True, exist_ok=True)
+        
+        def main():
+            try:
+                # 检查pathlib冲突
+                try:
+                    subprocess.check_call([sys.executable, "-m", "pip", "uninstall", "-y", "pathlib"])
+                    print("已卸载冲突的pathlib包")
+                except:
+                    print("无需卸载pathlib包")
+                
+                # 应用信息
+                app_name = "AiSparkHub"
+                app_version = os.environ.get("APP_VERSION", "1.0.0")
+                print(f"开始构建 {app_name} v{app_version}")
+                
+                # 确保必要的目录存在
+                ensure_dir("app/resources")
+                ensure_dir("app/static")
+                ensure_dir("app/search")
+                ensure_dir("installer")
+                
+                # 验证关键依赖
+                check_and_install_module("PyQt6")
+                check_and_install_module("pynput")
+                
+                # 验证WebEngine组件
+                try:
+                    from PyQt6 import QtWebEngineWidgets
+                    print("WebEngine组件已安装")
+                except ImportError as e:
+                    print(f"警告: {e}")
+                    print("尝试安装WebEngine组件...")
+                    subprocess.check_call([sys.executable, "-m", "pip", "install", "PyQt6-WebEngine", "--force-reinstall"])
+                
+                # 获取当前系统架构
+                current_arch = platform.machine()
+                print(f"当前系统架构: {current_arch}")
+                
+                # 检查.icns图标
+                icon_path = "icons/app.icns"
+                if not os.path.exists(icon_path):
+                    print(f"警告: {icon_path} 不存在")
+                    icon_path = ""
+                
+                # 创建版本信息文件
+                with open("version.txt", "w") as f:
+                    f.write(f"version={app_version}\n")
+                    f.write("company=AiSparkHub\n")
+                    f.write("product=AiSparkHub Desktop\n")
+                print("使用版本信息文件: version.txt")
+                
+                # 直接构建PyInstaller命令
+                pyinstaller_cmd = [
+                    sys.executable, '-m', 'PyInstaller',
+                    '--name', app_name,
+                    '--windowed', 
+                    '--noconfirm', 
+                    '--clean',
+                    '--log-level', 'INFO',
+                    '--onedir',
+                    '--osx-bundle-identifier', 'com.aisparkhub.desktop',
+                    f'--target-architecture={current_arch}'  # 使用检测到的架构
+                ]
+                
+                # 添加图标如果存在
+                if icon_path:
+                    pyinstaller_cmd.append(f'--icon={icon_path}')
+                
+                # 添加数据文件
+                data_mappings = [
+                    ('app/resources', 'app/resources'),
+                    ('app/static', 'app/static'),
+                    ('app/search', 'app/search'),
+                    ('icons', 'icons')
+                ]
+                
+                for src, dst in data_mappings:
+                    if os.path.exists(src):
+                        pyinstaller_cmd.extend(['--add-data', f'{src}:{dst}'])
+                
+                # 添加隐藏导入
+                hidden_imports = [
+                    'PyQt6.QtCore', 'PyQt6.QtWidgets', 'PyQt6.QtGui',
+                    'PyQt6.QtWebEngineWidgets', 'PyQt6.QtWebEngineCore',
+                    'qtawesome', 'qtpy', 'sqlite3', 'pynput',
+                    'pynput.keyboard._darwin', 'pynput.mouse._darwin'
+                ]
+                
+                for module in hidden_imports:
+                    pyinstaller_cmd.extend(['--hidden-import', module])
+                
+                # 收集所有模块
+                for module in ['qtawesome', 'pynput']:
+                    pyinstaller_cmd.extend(['--collect-all', module])
+                
+                # 添加主脚本
+                pyinstaller_cmd.append('main.py')
+                
+                # 打印完整命令
+                print("执行PyInstaller命令:")
+                print(" ".join(pyinstaller_cmd))
+                
+                # 执行PyInstaller
+                subprocess.check_call(pyinstaller_cmd)
+                
+                # 创建DMG文件
+                dist_path = os.path.join("dist", app_name)
+                if os.path.exists(dist_path):
+                    dmg_name = f"{app_name}_v{app_version}.dmg"
+                    dmg_path = os.path.join("installer", dmg_name)
+                    
+                    print(f"创建DMG安装包: {dmg_path}")
+                    
+                    try:
+                        # 确保installer目录存在
+                        ensure_dir("installer")
+                        
+                        # 使用create-dmg工具创建DMG
+                        subprocess.check_call([
+                            "create-dmg",
+                            "--volname", f"{app_name} Installer",
+                            "--volicon", icon_path if os.path.exists(icon_path) else "icons/app.icns",
+                            "--window-pos", "200", "100",
+                            "--window-size", "800", "400",
+                            "--icon-size", "100",
+                            "--icon", f"{app_name}.app", "200", "200",
+                            "--hide-extension", f"{app_name}.app",
+                            "--app-drop-link", "600", "200",
+                            dmg_path,
+                            dist_path
+                        ])
+                        print(f"DMG创建成功: {dmg_path}")
+                    except Exception as e:
+                        print(f"DMG创建失败: {e}")
+                        # 如果DMG创建失败，尝试直接复制应用程序
+                        shutil.make_archive(
+                            os.path.join("installer", f"{app_name}_v{app_version}"),
+                            'zip',
+                            "dist",
+                            app_name
+                        )
+                        print(f"已创建备用ZIP包: installer/{app_name}_v{app_version}.zip")
+                
+                print(f"构建完成")
+                return 0
             except Exception as e:
-                print(f"清理 {folder} 时发生错误: {e}")
-                sys.exit(1)
-    
-    # 确保安装包输出目录存在
-    if not os.path.exists(INSTALLER_DIR):
-        try:
-            os.makedirs(INSTALLER_DIR)
-        except Exception as e:
-            print(f"创建 {INSTALLER_DIR} 目录失败: {e}")
-            sys.exit(1)
+                print(f"构建过程中出错: {e}")
+                import traceback
+                traceback.print_exc()
+                return 1
+        
+        if __name__ == "__main__":
+            sys.exit(main())
+        EOF
+        chmod +x build_wrapper.py
+        
+    - name: List dist contents
+      run: |
+        echo "列出 dist 目录内容："
+        ls -l dist || true
+        echo "列出 dist/AiSparkHub.app 目录内容："
+        ls -l dist/AiSparkHub.app || true
+        echo "列出 dist/AiSparkHub 目录内容："
+        ls -l dist/AiSparkHub || true
 
-def check_environment():
-    """检查构建环境"""
-    print("检查构建环境...")
-    
-    # 检查必要的模块
-    required_modules = ["PyQt6", "qtawesome", "PyInstaller", "pynput"]
-    missing_modules = []
-    
-    for module in required_modules:
-        try:
-            __import__(module)
-        except ImportError:
-            missing_modules.append(module)
-    
-    if missing_modules:
-        print(f"错误: 缺少以下必要模块: {', '.join(missing_modules)}")
-        print(f"请使用以下命令安装: pip install {' '.join(missing_modules)}")
-        sys.exit(1)
-    
-    # 检查pathlib冲突
-    try:
-        try:
-            # 如果能导入pathlib中的abc，说明是标准库的pathlib
-            from pathlib import abc
-        except ImportError:
-            import pathlib
-            if not hasattr(pathlib, "__file__") or "site-packages" in pathlib.__file__:
-                print("警告: 检测到可能与PyInstaller不兼容的pathlib包")
-                print("如果打包失败，请尝试: conda remove pathlib")
-    except ImportError:
-        # 没有安装pathlib包，没有潜在冲突
-        pass
-    
-    print("环境检查完成")
+    - name: Build macOS application
+      run: |
+        # 使用专用脚本进行macOS打包
+        python build-macos.py
 
-def run_pyinstaller():
-    """运行PyInstaller打包应用"""
-    print("开始使用PyInstaller打包应用...")
-    
-    # 图标参数，只用.icns
-    icon_param = f"--icon={APP_ICON}" if APP_ICON else ""
-    
-    # 版本文件参数
-    version_file_param = []
-    if os.path.exists("version.txt"):
-        version_file_param = ["--version-file", "version.txt"]
-        print(f"使用版本信息文件: version.txt")
-    else:
-        print("警告: 未找到版本信息文件 version.txt")
-    
-    # macOS下路径分隔符
-    path_sep = ":"
-    
-    # PyInstaller命令（不加--onedir，生成.app包）
-    cmd = [
-        "python", "-m", "PyInstaller",
-        "--name", APP_NAME,
-        "--windowed",
-        "--noconfirm",
-        "--clean",
-        "--log-level", "INFO",
-        "--osx-bundle-identifier", "com.aisparkhub.desktop",
-    ]
-    if icon_param:
-        cmd.append(icon_param)
-    if version_file_param:
-        cmd.extend(version_file_param)
-    cmd.extend([
-        "--add-data", f"app/resources{path_sep}app/resources",
-        "--add-data", f"app/static{path_sep}app/static",
-        "--add-data", f"app/search{path_sep}app/search",
-        "--add-data", f"icons{path_sep}icons",
-        "--hidden-import", "PyQt6.QtCore",
-        "--hidden-import", "PyQt6.QtWidgets",
-        "--hidden-import", "PyQt6.QtGui",
-        "--hidden-import", "PyQt6.QtWebEngineWidgets",
-        "--hidden-import", "PyQt6.QtWebEngineCore",
-        "--hidden-import", "qtawesome",
-        "--hidden-import", "qtpy",
-        "--hidden-import", "sqlite3",
-        "--hidden-import", "pynput",
-        "--hidden-import", "pynput.keyboard._darwin",
-        "--hidden-import", "pynput.mouse._darwin",
-        "--collect-all", "qtawesome",
-        "--collect-all", "pynput",
-        "main.py"
-    ])
-    cmd = [item for item in cmd if item]
-    print(f"执行命令: {' '.join(cmd)}")
-    
-    # 运行PyInstaller
-    try:
-        # 使用subprocess.check_call捕获更多错误信息
-        subprocess.check_call(cmd)
-        print(f"PyInstaller打包完成，输出目录: {OUTPUT_DIR}")
-    except subprocess.CalledProcessError as e:
-        print(f"PyInstaller打包失败，错误代码: {e.returncode}")
-        print(f"错误信息: {e}")
-        return False
-    except FileNotFoundError as e:
-        print(f"找不到PyInstaller，请确保已安装: {e}")
-        print("尝试运行: pip install pyinstaller")
-        return False
-    
-    # 只有在打包成功时继续执行后续步骤
-    # 确保数据库目录存在
-    db_dir = os.path.join(OUTPUT_DIR, "database")
-    if not os.path.exists(db_dir):
-        try:
-            os.makedirs(db_dir)
-            print(f"创建数据库目录: {db_dir}")
-        except Exception as e:
-            print(f"创建数据库目录失败: {e}")
-            return False
-    
-    # 复制额外的文件和配置
-    try:
-        # 创建目标data目录
-        data_dir = os.path.join(OUTPUT_DIR, "data")
-        if not os.path.exists(data_dir):
-            os.makedirs(data_dir, exist_ok=True)
-            print(f"创建data目录: {data_dir}")
+    - name: Create DMG if .app exists
+      run: |
+        APP_BUNDLE=""
+        if [ -d "dist/AiSparkHub.app" ]; then
+          APP_BUNDLE="dist/AiSparkHub.app"
+        elif [ -d "dist/AiSparkHub/AiSparkHub.app" ]; then
+          APP_BUNDLE="dist/AiSparkHub/AiSparkHub.app"
+        fi
+        if [ -n "$APP_BUNDLE" ]; then
+          echo "检测到 $APP_BUNDLE，尝试创建 DMG..."
+          create-dmg \
+            --volname "AiSparkHub Installer" \
+            --volicon "icons/app.icns" \
+            --window-pos 200 100 \
+            --window-size 800 400 \
+            --icon-size 100 \
+            --icon "AiSparkHub.app" 200 200 \
+            --hide-extension "AiSparkHub.app" \
+            --app-drop-link 600 200 \
+            "installer/AiSparkHub_v${{ steps.app_version.outputs.version }}.dmg" \
+            "$APP_BUNDLE"
+        else
+          echo "未找到 .app 包，跳过 DMG 创建。"
+        fi
         
-        # 创建数据库目录
-        db_dir = os.path.join(data_dir, "database")
-        if not os.path.exists(db_dir):
-            os.makedirs(db_dir, exist_ok=True)
-            print(f"创建数据库目录: {db_dir}")
+    - name: List build outputs
+      run: |
+        echo "检查构建输出文件..."
+        find installer -type f || echo "installer目录不存在或为空"
+        find dist -type f || echo "dist目录不存在或为空"
         
-        # 复制数据库文件(如果存在)
-        if os.path.exists("database"):
-            for file in os.listdir("database"):
-                if file.endswith(".db"):
-                    src = os.path.join("database", file)
-                    dst = os.path.join(db_dir, file)
-                    shutil.copy2(src, dst)
-                    print(f"复制数据库文件: {src} -> {dst}")
+    - name: Upload DMG artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: AiSparkHub-macOS-${{ steps.app_version.outputs.version }}
+        path: installer/*.dmg
         
-        # 确保搜索目录存在
-        search_dir = os.path.join(OUTPUT_DIR, "_internal", "app", "search")
-        if not os.path.exists(search_dir):
-            os.makedirs(search_dir, exist_ok=True)
-            print(f"创建搜索目录: {search_dir}")
-            
-        # 复制搜索相关文件
-        src_search_dir = "app/search"
-        if os.path.exists(src_search_dir):
-            for file in os.listdir(src_search_dir):
-                src = os.path.join(src_search_dir, file)
-                dst = os.path.join(search_dir, file)
-                if os.path.isfile(src):
-                    shutil.copy2(src, dst)
-                    print(f"复制搜索文件: {src} -> {dst}")
-        
-        # 确保图标目录存在
-        icons_dir = os.path.join(OUTPUT_DIR, "icons")
-        if not os.path.exists(icons_dir) and os.path.exists("icons"):
-            os.makedirs(icons_dir, exist_ok=True)
-            # 复制所有图标文件
-            for file in os.listdir("icons"):
-                if file.endswith((".ico", ".png")):
-                    src = os.path.join("icons", file)
-                    dst = os.path.join(icons_dir, file)
-                    shutil.copy2(src, dst)
-                    print(f"复制图标文件: {src} -> {dst}")
-        
-        # 复制README和LICENSE等文件
-        extra_files = ["README.md", "LICENSE"]
-        for file in extra_files:
-            if os.path.exists(file):
-                dst = os.path.join(OUTPUT_DIR, file)
-                shutil.copy2(file, dst)
-                print(f"复制文件: {file} -> {dst}")
-    
-    except Exception as e:
-        print(f"复制额外文件时出错: {e}")
-        
-    return True
-
-def create_dmg():
-    # 优先查找 dist/AiSparkHub.app
-    app_bundle = os.path.join(DIST_DIR, f"{APP_NAME}.app")
-    if not os.path.exists(app_bundle):
-        # 兼容 PyInstaller 可能输出 dist/AiSparkHub/AiSparkHub.app
-        app_bundle = os.path.join(DIST_DIR, APP_NAME, f"{APP_NAME}.app")
-        if not os.path.exists(app_bundle):
-            print(f"未找到 .app 包: {app_bundle}")
-            return
-    dmg_name = f"{APP_NAME}_v{APP_VERSION}.dmg"
-    dmg_path = os.path.join(INSTALLER_DIR, dmg_name)
-    print(f"创建DMG安装包: {dmg_path}")
-    try:
-        # 只将 .app 包目录作为 DMG 内容源
-        subprocess.check_call([
-            "create-dmg",
-            "--volname", f"{APP_NAME} Installer",
-            "--volicon", APP_ICON if APP_ICON else "icons/app.icns",
-            "--window-pos", "200", "100",
-            "--window-size", "800", "400",
-            "--icon-size", "100",
-            "--icon", f"{APP_NAME}.app", "200", "200",
-            "--hide-extension", f"{APP_NAME}.app",
-            "--app-drop-link", "600", "200",
-            dmg_path,
-            app_bundle
-        ])
-        print(f"DMG创建成功: {dmg_path}")
-    except Exception as e:
-        print(f"DMG创建失败: {e}")
-
-def main():
-    """主函数"""
-    print(f"开始构建 {APP_NAME} v{APP_VERSION}")
-    
-    # 检查环境
-    check_environment()
-    
-    # 清理之前的构建
-    clean_build_folders()
-    
-    # 使用PyInstaller打包应用
-    if not run_pyinstaller():
-        print("打包失败，终止后续操作")
-        sys.exit(1)
-    
-    # 创建DMG安装包
-    create_dmg()
-        
-    print(f"{APP_NAME} v{APP_VERSION} 构建完成!")
-    print(f".app 位于: {DIST_DIR}/{APP_NAME}.app 或 {DIST_DIR}/{APP_NAME}/{APP_NAME}.app")
-
-if __name__ == "__main__":
-    try:
-        main()
-    except KeyboardInterrupt:
-        print("\n构建过程被用户中断")
-        sys.exit(1)
-    except Exception as e:
-        print(f"构建过程中发生未预期的错误: {e}")
-        import traceback
-        traceback.print_exc()
-        sys.exit(1) 
+    - name: Create Release
+      uses: softprops/action-gh-release@v1
+      if: startsWith(github.ref, 'refs/tags/')
+      with:
+        files: |
+          installer/AiSparkHub_v${{ env.APP_VERSION }}.dmg
+          installer/AiSparkHub_v${{ env.APP_VERSION }}.zip
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} 
