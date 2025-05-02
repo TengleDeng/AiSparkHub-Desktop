@@ -15,8 +15,6 @@ def parse_arguments():
     parser.add_argument('app_name', nargs='?', default="AiSparkHub", help='应用名称')
     parser.add_argument('app_version', nargs='?', default="1.0.0", help='应用版本号')
     parser.add_argument('--skip-clean', action='store_true', help='跳过清理构建文件夹')
-    parser.add_argument('--skip-installer', action='store_true', help='跳过生成安装包')
-    parser.add_argument('--regenerate-iss', action='store_true', help='重新生成Inno Setup脚本')
     parser.add_argument('--icon', help='自定义图标路径')
     return parser.parse_args()
 
@@ -30,13 +28,11 @@ APP_PUBLISHER = "Tengle.deng@gmail.com"
 APP_URL = "https://github.com/TengleDeng/AiSparkHub/"
 APP_EXE_NAME = f"{APP_NAME}.exe"
 
-# 图标优先级：命令行参数 > icons\app.ico > app/resources/icon.ico
+# 图标优先级：命令行参数 > icons/app.icns
 if args.icon:
     APP_ICON = args.icon
-elif os.path.exists("icons/app.ico"):
-    APP_ICON = "icons/app.ico"
-elif os.path.exists("app/resources/icon.ico"):
-    APP_ICON = "app/resources/icon.ico"
+elif os.path.exists("icons/app.icns"):
+    APP_ICON = "icons/app.icns"
 else:
     APP_ICON = ""
     
@@ -116,7 +112,7 @@ def run_pyinstaller():
     print("开始使用PyInstaller打包应用...")
     
     # 图标参数，只用.icns
-    icon_param = "--icon=icons/app.icns" if os.path.exists("icons/app.icns") else ""
+    icon_param = f"--icon={APP_ICON}" if APP_ICON else ""
     
     # 版本文件参数
     version_file_param = []
@@ -255,172 +251,34 @@ def run_pyinstaller():
         
     return True
 
-def create_inno_setup_script():
-    """创建Inno Setup脚本"""
-    print("创建Inno Setup脚本...")
-    
-    # 确定安装程序图标路径
-    if APP_ICON and os.path.exists(APP_ICON):
-        setup_icon = APP_ICON.replace("\\", "/")  # 确保使用正斜杠
-        print(f"使用安装程序图标: {setup_icon}")
-    else:
-        setup_icon = ""
-        print("注意: 未指定安装程序图标")
-    
-    # 由于Inno Setup将大括号视为常量标记，我们需要对APP_ID进行特殊处理
-    # 在Inno Setup脚本中大括号使用双大括号转义
-    app_id_escaped = APP_ID.replace("{", "{{").replace("}", "}}")
-    
-    script_content = f"""
-#define MyAppName "{APP_NAME}"
-#define MyAppVersion "{APP_VERSION}"
-#define MyAppPublisher "{APP_PUBLISHER}"
-#define MyAppURL "{APP_URL}"
-#define MyAppExeName "{APP_EXE_NAME}"
-#define MyAppId "{app_id_escaped}"
-
-[Setup]
-; 基本安装程序设置
-AppId={{#MyAppId}}
-AppName={{#MyAppName}}
-AppVersion={{#MyAppVersion}}
-AppPublisher={{#MyAppPublisher}}
-AppPublisherURL={{#MyAppURL}}
-AppSupportURL={{#MyAppURL}}
-AppUpdatesURL={{#MyAppURL}}
-DefaultDirName={{autopf}}\\{{#MyAppName}}
-DefaultGroupName={{#MyAppName}}
-AllowNoIcons=yes
-; 设置图标
-SetupIconFile={setup_icon}
-UninstallDisplayIcon={{app}}\\{{#MyAppExeName}}
-Compression=lzma
-SolidCompression=yes
-WizardStyle=modern
-; 需要管理员权限安装
-PrivilegesRequired=admin
-OutputDir={INSTALLER_DIR}
-OutputBaseFilename={APP_NAME}_Setup_v{APP_VERSION}
-; 创建应用程序目录
-DisableDirPage=no
-DisableProgramGroupPage=no
-
-[Languages]
-Name: "chinesesimplified"; MessagesFile: "compiler:Languages\\ChineseSimplified.isl"
-
-[Tasks]
-Name: "desktopicon"; Description: "创建桌面图标"; GroupDescription: "附加图标:"; Flags: unchecked
-
-[Files]
-; 导入所有程序文件
-Source: "{OUTPUT_DIR}\\*"; DestDir: "{{app}}"; Flags: ignoreversion recursesubdirs createallsubdirs
-; 确保图标文件被复制
-Source: "{APP_ICON}"; DestDir: "{{app}}\\icons"; Flags: ignoreversion
-
-[Icons]
-Name: "{{group}}\\{{#MyAppName}}"; Filename: "{{app}}\\{{#MyAppExeName}}"; IconFilename: "{{app}}\\icons\\app.ico"
-Name: "{{group}}\\卸载 {{#MyAppName}}"; Filename: "{{uninstallexe}}"
-Name: "{{commondesktop}}\\{{#MyAppName}}"; Filename: "{{app}}\\{{#MyAppExeName}}"; IconFilename: "{{app}}\\icons\\app.ico"; Tasks: desktopicon
-
-[Run]
-Filename: "{{app}}\\{{#MyAppExeName}}"; Description: "{{cm:LaunchProgram,{{#StringChange(MyAppName, '&', '&&')}}}}"; Flags: nowait postinstall skipifsilent runasoriginaluser shellexec
-
-[Code]
-// 自定义卸载程序
-procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
-var
-  mRes : Integer;
-begin
-  // 卸载完成后询问是否删除数据文件
-  if CurUninstallStep = usPostUninstall then
-  begin
-    mRes := MsgBox('是否删除用户数据？这将删除您的所有设置和历史记录。', mbConfirmation, MB_YESNO or MB_DEFBUTTON2)
-    if mRes = IDYES then
-    begin
-      DelTree(ExpandConstant('{{localappdata}}\\{APP_NAME}'), True, True, True);
-    end;
-  end;
-end;
-    """
-    
-    # 写入脚本文件
-    inno_script_path = "installer_script.iss"
+def create_dmg():
+    app_bundle = os.path.join(DIST_DIR, f"{APP_NAME}.app")
+    if not os.path.exists(app_bundle):
+        # 兼容PyInstaller默认输出为dist/APP_NAME/APP_NAME.app
+        app_bundle = os.path.join(DIST_DIR, APP_NAME, f"{APP_NAME}.app")
+        if not os.path.exists(app_bundle):
+            print(f"未找到 .app 包: {app_bundle}")
+            return
+    dmg_name = f"{APP_NAME}_v{APP_VERSION}.dmg"
+    dmg_path = os.path.join(INSTALLER_DIR, dmg_name)
+    print(f"创建DMG安装包: {dmg_path}")
     try:
-        with open(inno_script_path, "w", encoding="utf-8") as f:
-            f.write(script_content)
-        print(f"Inno Setup脚本已创建: {inno_script_path}")
-        return inno_script_path
+        subprocess.check_call([
+            "create-dmg",
+            "--volname", f"{APP_NAME} Installer",
+            "--volicon", APP_ICON if APP_ICON else "icons/app.icns",
+            "--window-pos", "200", "100",
+            "--window-size", "800", "400",
+            "--icon-size", "100",
+            "--icon", f"{APP_NAME}.app", "200", "200",
+            "--hide-extension", f"{APP_NAME}.app",
+            "--app-drop-link", "600", "200",
+            dmg_path,
+            os.path.dirname(app_bundle)
+        ])
+        print(f"DMG创建成功: {dmg_path}")
     except Exception as e:
-        print(f"创建Inno Setup脚本失败: {e}")
-        return None
-
-def compile_installer(script_path=None):
-    """编译Inno Setup安装包"""
-    if args.skip_installer:
-        print("跳过生成安装包...")
-        return True
-    
-    # 根据参数决定是否重新生成脚本
-    if args.regenerate_iss:
-        print("根据参数重新生成Inno Setup脚本...")
-        script_path = create_inno_setup_script()
-        if not script_path:
-            print("生成Inno Setup脚本失败")
-            return False
-    else:
-        # 直接使用现有的installer_script.iss文件
-        script_path = "installer_script.iss"
-        if not os.path.exists(script_path):
-            print("错误: 无法找到Inno Setup脚本文件，请使用--regenerate-iss参数生成")
-            return False
-        
-    print("使用Inno Setup编译安装包...")
-    
-    # 检查Inno Setup是否安装
-    inno_compiler = ""
-    
-    # 用户指定的Inno Setup路径
-    user_path = r"C:\Program Files (x86)\Inno Setup 6"
-    
-    # 添加用户指定的路径到查找列表的最前面
-    possible_paths = [
-        os.path.join(user_path, "ISCC.exe"),
-        r"C:\Program Files (x86)\Inno Setup 6\ISCC.exe",
-        r"C:\Program Files\Inno Setup 6\ISCC.exe",
-        r"C:\Program Files (x86)\Inno Setup 5\ISCC.exe",
-        r"C:\Program Files\Inno Setup 5\ISCC.exe"
-    ]
-    
-    # 查找编译器
-    for path in possible_paths:
-        if os.path.exists(path):
-            inno_compiler = path
-            print(f"找到Inno Setup编译器: {path}")
-            break
-    
-    if not inno_compiler:
-        print("错误: 无法找到Inno Setup编译器。请先安装Inno Setup。")
-        print("您可以从此处下载: https://jrsoftware.org/isdl.php")
-        print(f"脚本已生成，请手动编译: {script_path}")
-        return False
-    
-    # 编译安装包
-    print(f"使用编译器: {inno_compiler}")
-    cmd = [inno_compiler, script_path]
-    
-    try:
-        # 使用subprocess.check_call捕获更多错误信息
-        subprocess.check_call(cmd)
-        print(f"安装包已成功编译，保存在 {INSTALLER_DIR} 文件夹中")
-        return True
-    except subprocess.CalledProcessError as e:
-        print(f"编译安装包时出错，错误代码: {e.returncode}")
-        print(f"错误信息: {e}")
-        return False
-    except FileNotFoundError as e:
-        print(f"找不到Inno Setup编译器: {e}")
-        print("您可以从此处下载: https://jrsoftware.org/isdl.php")
-        return False
+        print(f"DMG创建失败: {e}")
 
 def main():
     """主函数"""
@@ -437,15 +295,11 @@ def main():
         print("打包失败，终止后续操作")
         sys.exit(1)
     
-    # 编译安装包
-    if not compile_installer() and not args.skip_installer:
-        print("安装包生成失败")
-        sys.exit(1)
+    # 创建DMG安装包
+    create_dmg()
         
     print(f"{APP_NAME} v{APP_VERSION} 构建完成!")
-    print(f"可执行文件位于: {OUTPUT_DIR}")
-    if not args.skip_installer:
-        print(f"安装包位于: {INSTALLER_DIR}")
+    print(f".app 位于: {DIST_DIR}/{APP_NAME}.app 或 {DIST_DIR}/{APP_NAME}/{APP_NAME}.app")
 
 if __name__ == "__main__":
     try:
