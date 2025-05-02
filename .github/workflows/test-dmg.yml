@@ -1,0 +1,74 @@
+name: Test macOS DMG by URL
+
+on:
+  workflow_dispatch:
+    inputs:
+      dmg_url:
+        description: '请输入 DMG 文件的下载链接（如 https://.../xxx.dmg）'
+        required: true
+        type: string
+
+jobs:
+  test-dmg:
+    runs-on: macos-latest
+
+    steps:
+    - name: 下载 DMG 文件
+      run: |
+        echo "下载链接: ${{ github.event.inputs.dmg_url }}"
+        curl -L "${{ github.event.inputs.dmg_url }}" -o test_app.dmg
+
+    - name: 自动化测试 DMG 安装包（含截图）
+      run: |
+        set -e
+
+        DMG_NAME="test_app.dmg"
+        MOUNT_POINT="/Volumes/AiSparkHubTest"
+        SCREENSHOT_PATH="dmg_app_screenshot.png"
+
+        echo "挂载 DMG..."
+        hdiutil attach "$DMG_NAME" -mountpoint "$MOUNT_POINT"
+
+        echo "检查 .app 是否存在..."
+        if [ ! -d "$MOUNT_POINT/AiSparkHub.app" ]; then
+          echo "未找到 AiSparkHub.app"
+          hdiutil detach "$MOUNT_POINT"
+          exit 1
+        fi
+
+        echo "复制 .app 到 /Applications..."
+        cp -R "$MOUNT_POINT/AiSparkHub.app" /Applications/
+        if [ ! -d "/Applications/AiSparkHub.app" ]; then
+          echo "复制到 /Applications 失败"
+          hdiutil detach "$MOUNT_POINT"
+          exit 1
+        fi
+
+        echo "尝试启动应用..."
+        open -a /Applications/AiSparkHub.app
+        sleep 8
+
+        echo "截图应用窗口..."
+        screencapture -x "$SCREENSHOT_PATH"
+        echo "截图已保存为 $SCREENSHOT_PATH"
+
+        echo "检测进程是否存在..."
+        if ! pgrep -f AiSparkHub > /dev/null; then
+          echo "未检测到 AiSparkHub 进程"
+          hdiutil detach "$MOUNT_POINT"
+          exit 1
+        fi
+
+        echo "清理环境..."
+        hdiutil detach "$MOUNT_POINT" || true
+        pkill -f AiSparkHub || true
+        rm -rf /Applications/AiSparkHub.app
+        rm -f "$DMG_NAME"
+
+        echo "DMG 自动化测试通过！截图文件：$SCREENSHOT_PATH"
+
+    - name: 上传应用启动截图
+      uses: actions/upload-artifact@v4
+      with:
+        name: AiSparkHub-macOS-app-screenshot
+        path: dmg_app_screenshot.png
