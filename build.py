@@ -150,12 +150,13 @@ def run_pyinstaller():
     cmd = [
         "python", "-m", "PyInstaller",
         "--name", APP_NAME,
-        "--windowed",
-        "--noconfirm",
-        "--clean",
+        "--windowed",  # 使用GUI模式
+        "--noconfirm",  # 不询问确认
+        "--clean",  # 清理临时文件
         "--log-level", "INFO",
-        "--osx-bundle-identifier", "com.aisparkhub.desktop",
-        "--icon", "icons/app.icns",
+        "--onedir",  # 生成文件夹模式，不是单文件
+        # 创建清单文件，请求管理员权限
+        "--uac-admin",
     ]
     
     # 添加版本文件参数（如果存在）
