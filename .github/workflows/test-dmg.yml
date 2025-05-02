@@ -18,16 +18,37 @@ jobs:
         echo "下载链接: ${{ github.event.inputs.dmg_url }}"
         curl -L "${{ github.event.inputs.dmg_url }}" -o test_app.dmg
 
-    - name: 自动化测试 DMG 安装包（含截图）
+    - name: 自动化测试 DMG 安装包（含截图，支持 zip/dmg）
       run: |
         set -e
 
+        URL="${{ github.event.inputs.dmg_url }}"
+        ZIP_NAME="downloaded.zip"
         DMG_NAME="test_app.dmg"
         MOUNT_POINT="/Volumes/AiSparkHubTest"
         SCREENSHOT_PATH="dmg_app_screenshot.png"
 
+        # 下载文件
+        echo "下载链接: $URL"
+        curl -L "$URL" -o "$ZIP_NAME"
+
+        # 判断是否为 zip 文件
+        if file "$ZIP_NAME" | grep -q 'Zip archive data'; then
+          echo "检测到 zip 文件，开始解压..."
+          unzip -o "$ZIP_NAME" -d extracted
+          # 查找第一个 .dmg 文件
+          DMG_PATH=$(find extracted -name '*.dmg' | head -n 1)
+          if [ -z "$DMG_PATH" ]; then
+            echo "解压后未找到 .dmg 文件"
+            exit 1
+          fi
+        else
+          echo "不是 zip 文件，直接作为 dmg 处理"
+          DMG_PATH="$ZIP_NAME"
+        fi
+
         echo "挂载 DMG..."
-        hdiutil attach "$DMG_NAME" -mountpoint "$MOUNT_POINT"
+        hdiutil attach "$DMG_PATH" -mountpoint "$MOUNT_POINT"
 
         echo "检查 .app 是否存在..."
         if [ ! -d "$MOUNT_POINT/AiSparkHub.app" ]; then
@@ -63,7 +84,7 @@ jobs:
         hdiutil detach "$MOUNT_POINT" || true
         pkill -f AiSparkHub || true
         rm -rf /Applications/AiSparkHub.app
-        rm -f "$DMG_NAME"
+        rm -rf extracted "$ZIP_NAME"
 
         echo "DMG 自动化测试通过！截图文件：$SCREENSHOT_PATH"
 
