@@ -252,9 +252,10 @@ def run_pyinstaller():
     return True
 
 def create_dmg():
+    # 优先查找 dist/AiSparkHub.app
     app_bundle = os.path.join(DIST_DIR, f"{APP_NAME}.app")
     if not os.path.exists(app_bundle):
-        # 兼容PyInstaller默认输出为dist/APP_NAME/APP_NAME.app
+        # 兼容 PyInstaller 可能输出 dist/AiSparkHub/AiSparkHub.app
         app_bundle = os.path.join(DIST_DIR, APP_NAME, f"{APP_NAME}.app")
         if not os.path.exists(app_bundle):
             print(f"未找到 .app 包: {app_bundle}")
@@ -263,6 +264,7 @@ def create_dmg():
     dmg_path = os.path.join(INSTALLER_DIR, dmg_name)
     print(f"创建DMG安装包: {dmg_path}")
     try:
+        # 只将 .app 包目录作为 DMG 内容源
         subprocess.check_call([
             "create-dmg",
             "--volname", f"{APP_NAME} Installer",
@@ -274,7 +276,7 @@ def create_dmg():
             "--hide-extension", f"{APP_NAME}.app",
             "--app-drop-link", "600", "200",
             dmg_path,
-            os.path.dirname(app_bundle)
+            app_bundle
         ])
         print(f"DMG创建成功: {dmg_path}")
     except Exception as e:
