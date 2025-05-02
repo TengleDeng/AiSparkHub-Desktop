@@ -11,8 +11,10 @@ jobs:
     - name: 下载 artifact
       uses: actions/download-artifact@v4
       with:
-        name: AiSparkHub-macOS-2025.05.02  # 这里填写你的 artifact 名称
+        name: AiSparkHub-macOS-2025.05.02
         path: ./downloaded
+        repository: TengleDeng/AiSparkHub-Desktop
+        run-id: 14793322590
 
     - name: 自动化测试 DMG 安装包（含截图）
       run: |
