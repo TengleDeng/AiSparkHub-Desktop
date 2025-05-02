@@ -5,7 +5,7 @@
 #define MyAppURL "https://github.com/TengleDeng/AiSparkHub/"
 #define MyAppExeName "AiSparkHub.exe"
 #define MyAppId "com.aisparkhub.desktop"
-#define MyAppVersionInfo "1.0.0 | 2025/04/30"
+#define MyAppVersionInfo "1.0.0 | 2025/05/02"
 
 [Setup]
 ; 基本安装程序设置
