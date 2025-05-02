@@ -5,26 +5,16 @@
 #define MyAppURL "https://github.com/TengleDeng/AiSparkHub/"
 #define MyAppExeName "AiSparkHub.exe"
 #define MyAppId "com.aisparkhub.desktop"
-#define MyAppVersionInfo "1.0.0 | 2025/05/02"
 
 [Setup]
 ; 基本安装程序设置
 AppId={#MyAppId}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
-AppVerName={#MyAppName}
 AppPublisher={#MyAppPublisher}
 AppPublisherURL={#MyAppURL}
 AppSupportURL={#MyAppURL}
 AppUpdatesURL={#MyAppURL}
-; 修改应用描述以显示版本和发布者信息
-AppCopyright={#MyAppPublisher}
-VersionInfoVersion={#MyAppVersion}
-VersionInfoProductVersion={#MyAppVersion}
-VersionInfoCompany={#MyAppPublisher}
-VersionInfoDescription={#MyAppName} {#MyAppVersionInfo}
-AppContact={#MyAppPublisher}
-AppComments={#MyAppVersionInfo}
 DefaultDirName={autopf}\{#MyAppName}
 DefaultGroupName={#MyAppName}
 AllowNoIcons=yes
@@ -55,9 +45,9 @@ Source: "dist\AiSparkHub\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdi
 Source: "icons/app.ico"; DestDir: "{app}\icons"; Flags: ignoreversion
 
 [Icons]
-Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\icons\app.ico"; Comment: "{#MyAppVersionInfo}"
+Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\icons\app.ico"
 Name: "{group}\卸载 {#MyAppName}"; Filename: "{uninstallexe}"
-Name: "{commondesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\icons\app.ico"; Comment: "{#MyAppVersionInfo}"; Tasks: desktopicon
+Name: "{commondesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; IconFilename: "{app}\icons\app.ico"; Tasks: desktopicon
 
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent runasoriginaluser shellexec
