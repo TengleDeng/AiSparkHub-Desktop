@@ -353,10 +353,7 @@ jobs:
       uses: actions/upload-artifact@v4
       with:
         name: AiSparkHub-macOS-${{ steps.app_version.outputs.version }}
-        path: |
-          installer/*.dmg
-          installer/*.zip
-          dist/*.app
+        path: installer/*.dmg
         
     - name: Create Release
       uses: softprops/action-gh-release@v1
