@@ -132,14 +132,16 @@ class TabManager(QTabWidget):
         # 设置工具提示
         self.setTabToolTip(self.plus_tab_index, "添加新标签页")
     
-    def add_new_tab(self):
+    def add_new_tab(self, url=None):
         """添加新的空白标签页"""
         from app.components.web_view import WebView
         web_view = WebView()
+        if url:
+            web_view.load_url(url)
         index = self.add_tab(web_view, "新标签页", "fa5s.globe")
-        # 切换到新创建的标签页
         self.setCurrentIndex(index)
-        return index
+        self.add_plus_tab()  # 新增：每次新建标签页后补回"+"号
+        return index, web_view
         
     def add_ai_view_tab(self, ai_view, title="AI对话"):
         """添加新的AI对话标签页（不可关闭）

@@ -237,6 +237,12 @@ class PromptInput(MarkdownEditor):
         self.briefing_button.clicked.connect(self.select_date_for_briefing)
         tools_layout.addWidget(self.briefing_button)
         
+        # 添加"获取get笔记"按钮
+        self.get_biji_button = QPushButton("获取get笔记")
+        self.get_biji_button.setToolTip("自动获取当前页面已加载的get笔记并保存为Markdown")
+        self.get_biji_button.clicked.connect(self.on_get_biji_notes_clicked)
+        tools_layout.addWidget(self.get_biji_button)
+        
         # 添加弹性空间
         tools_layout.addStretch(1)
         
@@ -1137,3 +1143,58 @@ class PromptInput(MarkdownEditor):
             
             # 生成选定日期的内参
             self.generate_briefing(days_diff) 
+
+    def on_get_biji_notes_clicked(self):
+        from PyQt6.QtWidgets import QApplication, QMessageBox, QFileDialog
+        import os, json
+        # 1. 找到主窗口
+        main_window = None
+        for w in QApplication.topLevelWidgets():
+            if w.__class__.__name__ == "MainWindow":
+                main_window = w
+                break
+        if main_window is None:
+            QMessageBox.warning(self, "错误", "未找到主窗口，无法操作网页！")
+            return
+        tab_manager = getattr(main_window, 'tab_manager', None)
+        if tab_manager is None:
+            QMessageBox.warning(self, "错误", "未找到主窗口标签管理器，无法操作网页！")
+            return
+        # 2. 新建标签页并打开 biji.com
+        url = "https://www.biji.com/note"
+        index, web_view = tab_manager.add_new_tab(url)
+        tab_manager.setCurrentIndex(index)
+        # 3. 2秒后注入脚本
+        from PyQt6.QtCore import QTimer
+        def inject_and_fetch():
+            script_path = os.path.join("app", "static", "js", "get_biji_notes.js")
+            with open(script_path, encoding='utf-8') as f:
+                js_code = f.read()
+            web_view.web_view.page().runJavaScript(js_code)
+            # 2秒后轮询localStorage
+            def check_notes():
+                web_view.web_view.page().runJavaScript(
+                    "localStorage.getItem('BIJI_EXPORT_MD');",
+                    lambda result: self._on_biji_notes_fetched(result, web_view)
+                )
+            QTimer.singleShot(2000, check_notes)
+        QTimer.singleShot(2000, inject_and_fetch)
+
+    def _on_biji_notes_fetched(self, result, web_view):
+        from PyQt6.QtWidgets import QFileDialog, QMessageBox
+        import os, json
+        if not result:
+            QMessageBox.warning(self, "提示", "未获取到笔记内容，请确认网页已加载。")
+            return
+        notes = json.loads(result)
+        folder = QFileDialog.getExistingDirectory(self, "选择保存文件夹")
+        if not folder:
+            return
+        for note in notes:
+            filename = note['filename'] + '.md'
+            filepath = os.path.join(folder, filename)
+            with open(filepath, 'w', encoding='utf-8') as f:
+                f.write(note['md'])
+        # 保存后清除localStorage
+        web_view.web_view.page().runJavaScript("localStorage.removeItem('BIJI_EXPORT_MD');")
+        QMessageBox.information(self, "完成", f"已保存{len(notes)}条笔记到 {folder}") 

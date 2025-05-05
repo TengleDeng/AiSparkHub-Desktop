@@ -99,12 +99,15 @@ class WebView(QWidget):
         # 加载空白页
         self.web_view.setUrl(QUrl("about:blank"))
     
-    def load_url(self):
-        """加载URL"""
-        url = self.url_input.text()
-        if not url.startswith(("http://", "https://")):
-            url = "https://" + url
-        self.web_view.setUrl(QUrl(url))
+    def load_url(self, url=None):
+        """加载URL，如果url为None则从地址栏获取"""
+        if url is None:
+            url = self.url_input.text().strip()
+        if url:
+            # 自动补全协议
+            if not url.startswith(('http://', 'https://')):
+                url = 'http://' + url
+            self.web_view.setUrl(QUrl(url))
     
     def url_changed(self, url):
         """URL变化时更新地址栏"""
@@ -189,9 +192,8 @@ class WebView(QWidget):
                 if text and '.' not in text:
                     url = f"www.{text}.com"
                     self.url_input.setText(url)
-                    self.load_url() # 调用加载方法
+                    self.load_url(url) # 调用加载方法
                     return True # 事件已处理
-            
         return super().eventFilter(obj, event)
         
     # 新增方法：更新工具栏图标颜色
