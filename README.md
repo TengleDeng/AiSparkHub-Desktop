@@ -361,3 +361,6 @@ git push --tags
 
 ## 许可证
 [具体许可证信息]
+
+## 强制推送到 GitHub
+git push origin main --force
