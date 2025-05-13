@@ -111,6 +111,54 @@ def run_pyinstaller():
     """运行PyInstaller打包应用"""
     print("开始使用PyInstaller打包应用...")
     
+    # 创建 Info.plist 模板添加环境变量设置
+    info_plist_template = """<?xml version=\"1.0\" encoding=\"UTF-8\"?>
+<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">
+<plist version=\"1.0\">
+<dict>
+    <key>CFBundleDisplayName</key>
+    <string>{app_name}</string>
+    <key>CFBundleExecutable</key>
+    <string>{app_name}</string>
+    <key>CFBundleIconFile</key>
+    <string>app.icns</string>
+    <key>CFBundleIdentifier</key>
+    <string>{app_id}</string>
+    <key>CFBundleInfoDictionaryVersion</key>
+    <string>6.0</string>
+    <key>CFBundleName</key>
+    <string>{app_name}</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleShortVersionString</key>
+    <string>{app_version}</string>
+    <key>NSHighResolutionCapable</key>
+    <true/>
+    <key>LSEnvironment</key>
+    <dict>
+        <key>PATH</key>
+        <string>/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+        <key>PYTHONHOME</key>
+        <string>.</string>
+        <key>QT_QPA_PLATFORM</key>
+        <string>cocoa</string>
+    </dict>
+</dict>
+</plist>
+"""
+
+    # 生成 Info.plist 文件
+    info_plist_content = info_plist_template.format(
+        app_name=APP_NAME,
+        app_version=APP_VERSION,
+        app_id=APP_ID
+    )
+
+    info_plist_path = "Info.plist"
+    with open(info_plist_path, "w") as f:
+        f.write(info_plist_content)
+    print(f"已创建 Info.plist 模板，添加了环境变量设置")
+
     # 图标参数，只用.icns
     icon_param = f"--icon={APP_ICON}" if APP_ICON else ""
     
@@ -135,6 +183,9 @@ def run_pyinstaller():
         "--log-level", "INFO",
         "--osx-bundle-identifier", "com.aisparkhub.desktop",
     ]
+    # 添加 --osx-info-plist 参数
+    if os.path.exists(info_plist_path):
+        cmd.append(f"--osx-info-plist={info_plist_path}")
     if icon_param:
         cmd.append(icon_param)
     if version_file_param:
