@@ -560,6 +560,14 @@ def main():
     auxiliary_window.show()
     logger.info(f"辅助窗口.show()已调用，当前可见状态: {auxiliary_window.isVisible()}, 几何信息: {auxiliary_window.geometry()}")
     
+    # 添加环境变量诊断日志
+    logger.info("==== 环境变量诊断信息 ====")
+    logger.info(f"PATH: {os.environ.get('PATH', '未设置')}")
+    logger.info(f"PYTHONPATH: {os.environ.get('PYTHONPATH', '未设置')}")
+    logger.info(f"QT_QPA_PLATFORM: {os.environ.get('QT_QPA_PLATFORM', '未设置')}")
+    logger.info(f"DISPLAY: {os.environ.get('DISPLAY', '未设置')}")
+    logger.info(f"运行目录: {os.getcwd()}")
+
     logger.info("应用程序启动完成")
     
     # 运行应用
