@@ -241,6 +241,9 @@ class PromptInput(MarkdownEditor):
         self.get_biji_button = QPushButton("获取get笔记")
         self.get_biji_button.setToolTip("自动获取当前页面已加载的get笔记并保存为Markdown")
         self.get_biji_button.clicked.connect(self.on_get_biji_notes_clicked)
+        # 让按钮样式与刷新模板列表按钮一致
+        self.get_biji_button.setFlat(True)
+        self.get_biji_button.setStyleSheet(self.template_component.refresh_button.styleSheet())
         tools_layout.addWidget(self.get_biji_button)
         
         # 添加弹性空间
