@@ -183,9 +183,6 @@ def run_pyinstaller():
         "--log-level", "INFO",
         "--osx-bundle-identifier", "com.aisparkhub.desktop",
     ]
-    # 添加 --plist 参数（适配 PyInstaller 6.0.0）
-    if os.path.exists(info_plist_path):
-        cmd.extend(["--plist", info_plist_path])
     if icon_param:
         cmd.append(icon_param)
     if version_file_param:
@@ -218,6 +215,16 @@ def run_pyinstaller():
         # 使用subprocess.check_call捕获更多错误信息
         subprocess.check_call(cmd)
         print(f"PyInstaller打包完成，输出目录: {OUTPUT_DIR}")
+        # 打包完成后自动覆盖 Info.plist
+        app_bundle_path = os.path.join(DIST_DIR, f"{APP_NAME}.app")
+        if not os.path.exists(app_bundle_path):
+            app_bundle_path = os.path.join(DIST_DIR, APP_NAME, f"{APP_NAME}.app")
+        info_plist_dest = os.path.join(app_bundle_path, "Contents", "Info.plist")
+        try:
+            shutil.copy2(info_plist_path, info_plist_dest)
+            print(f"已覆盖 Info.plist 到: {info_plist_dest}")
+        except Exception as e:
+            print(f"拷贝 Info.plist 失败: {e}")
     except subprocess.CalledProcessError as e:
         print(f"PyInstaller打包失败，错误代码: {e.returncode}")
         print(f"错误信息: {e}")
