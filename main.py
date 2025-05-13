@@ -515,7 +515,9 @@ def main():
     
     # 创建主窗口和辅助窗口
     main_window = MainWindow()
+    logger.info(f"主窗口已创建，准备显示，窗口状态: 可见={main_window.isVisible()}")
     auxiliary_window = AuxiliaryWindow(db_manager)
+    logger.info(f"辅助窗口已创建，准备显示，窗口状态: 可见={auxiliary_window.isVisible()}")
     logger.info("应用窗口已创建")
     
     # 确保窗口使用正确的图标
@@ -552,8 +554,11 @@ def main():
     app.aboutToQuit.connect(cleanup_shortcuts)
     
     # 显示窗口
+    logger.info("准备显示主窗口")
     main_window.show()
+    logger.info(f"主窗口.show()已调用，当前可见状态: {main_window.isVisible()}, 几何信息: {main_window.geometry()}")
     auxiliary_window.show()
+    logger.info(f"辅助窗口.show()已调用，当前可见状态: {auxiliary_window.isVisible()}, 几何信息: {auxiliary_window.geometry()}")
     
     logger.info("应用程序启动完成")
     
