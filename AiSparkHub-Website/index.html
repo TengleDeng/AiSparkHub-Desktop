@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="zh-CN" class="dark-theme">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -24,6 +24,12 @@
                     <li><a href="#guide">使用指南</a></li>
                 </ul>
             </nav>
+            <div class="theme-toggle">
+                <button id="theme-toggle-btn" title="切换深色/浅色模式">
+                    <i class="fas fa-moon"></i>
+                    <i class="fas fa-sun"></i>
+                </button>
+            </div>
         </div>
     </header>
 
@@ -32,6 +38,7 @@
             <div class="hero-content">
                 <h2>AI提效专家，多模型协同对话平台</h2>
                 <p>提高300%工作效率，让AI为您而战</p>
+                <p class="hero-tagline">"三个臭屁匠，顶个诸葛亮" —— 多个AI模型，你的全面军师</p>
                 <div class="hero-buttons">
                     <a href="#features" class="btn btn-primary">探索功能</a>
                     <a href="#comparison" class="btn btn-secondary">效率对比</a>
@@ -292,5 +299,6 @@
 
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="js/main.js"></script>
+    <script src="js/theme.js"></script>
 </body>
 </html> 

@@ -1,6 +1,6 @@
 /* 全局样式 */
 :root {
-    /* 主色调 - 类似Obsidian的深色风格 */
+    /* 深色主题变量 */
     --primary-color: #88C0D0;     /* 浅蓝色 */
     --secondary-color: #5E81AC;   /* 深蓝色 */
     --dark-bg: #2E3440;           /* 深灰色背景 */
@@ -20,6 +20,71 @@
     --header-height: 70px;
     --container-width: 1200px;
     --border-radius: 8px;
+}
+
+/* 浅色主题变量 */
+.light-theme {
+    --primary-color: #5E81AC;     /* 深蓝色 */
+    --secondary-color: #88C0D0;   /* 浅蓝色 */
+    --dark-bg: #FFFFFF;           /* 白色背景 */
+    --darker-bg: #F5F7FA;         /* 浅灰色背景 */
+    --light-text: #2E3440;        /* 深色文字 */
+    --muted-text: #4C566A;        /* 灰色文字 */
+    --border-color: #D8DEE9;      /* 淡灰色边框 */
+    --success-color: #A3BE8C;     /* 成功/正面色 - 不变 */
+    --warning-color: #EBCB8B;     /* 警告色 - 不变 */
+    --error-color: #BF616A;       /* 错误色 - 不变 */
+}
+
+/* 主题切换按钮 */
+.theme-toggle {
+    margin-left: 20px;
+    display: flex;
+    align-items: center;
+}
+
+#theme-toggle-btn {
+    background: none;
+    border: none;
+    color: var(--primary-color);
+    font-size: 1.2rem;
+    cursor: pointer;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    overflow: hidden;
+    transition: all 0.3s ease;
+}
+
+#theme-toggle-btn:hover {
+    background-color: rgba(136, 192, 208, 0.1);
+}
+
+#theme-toggle-btn .fa-moon {
+    display: none;
+}
+
+.light-theme #theme-toggle-btn .fa-sun {
+    display: none;
+}
+
+.light-theme #theme-toggle-btn .fa-moon {
+    display: inline-block;
+}
+
+/* 英雄标语样式 */
+.hero-tagline {
+    font-size: 1.3rem;
+    font-style: italic;
+    color: var(--primary-color);
+    margin-bottom: 2rem;
+    line-height: 1.4;
+    border-left: 3px solid var(--primary-color);
+    padding-left: 15px;
 }
 
 * {
