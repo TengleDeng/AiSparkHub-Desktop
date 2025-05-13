@@ -183,9 +183,9 @@ def run_pyinstaller():
         "--log-level", "INFO",
         "--osx-bundle-identifier", "com.aisparkhub.desktop",
     ]
-    # 添加 --osx-info-plist 参数
+    # 添加 --plist 参数（适配 PyInstaller 6.0.0）
     if os.path.exists(info_plist_path):
-        cmd.append(f"--osx-info-plist={info_plist_path}")
+        cmd.extend(["--plist", info_plist_path])
     if icon_param:
         cmd.append(icon_param)
     if version_file_param:
